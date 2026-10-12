@@ -1,0 +1,192 @@
+# CNCBridge
+
+Takes the CSV file an assembly machine writes for every board, cuts out the cell ranges you
+choose, adds two operator-entered values, and delivers the result as JSON, CSV or TXT to a
+shared folder and/or an API link. The used machine file is then moved to a back-up folder.
+
+It is a native Windows program (`CNCBridge.exe`, about 12 MB). Nothing else has to be
+installed on the machine PC and it needs no internet connection.
+
+## What it does with each file
+
+1. Watches the machine CSV folder. A file is picked up once the machine has finished with it:
+   unchanged for 2 seconds and no longer held open.
+2. Reads it (comma, semicolon, tab or `|` separated; UTF-8, UTF-16 or Windows code page).
+3. Cuts out up to **10 cell ranges**, written like in a spreadsheet:
+
+   | You enter | Meaning |
+   |---|---|
+   | `L1:M8` (also `L1 x M8`, `L1xM8`) | the block from cell L1 to cell M8 |
+   | `B6` | one cell |
+   | `A12:I*` | from A12 down to the first empty row, for tables whose length changes per board |
+
+   Per range you choose a name and whether its first row is a header row.
+4. Adds the **2 manual inputs** (for example Operator and Work order) plus the source file
+   name, time and station name.
+5. Writes one output file in the chosen format: **JSON, CSV or TXT**.
+6. Delivers it to the **shared folder**, to the **API link**, or to both.
+7. Moves the machine file to `back-up\YYYY-MM-DD\`, so the machine folder only ever holds new files.
+
+## Install
+
+Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for example
+`C:\CNCBridge\`, and start it. It creates a `data` folder beside itself for its settings,
+history, send queue and log. (If that location is read-only, `%LOCALAPPDATA%\CNCBridge` is
+used instead.)
+
+For two machine folders on one PC, use two copies in two folders. Each has its own `data`.
+
+## Set up
+
+**Setup tab**
+
+1. *Folders*: the machine CSV folder and the back-up folder. They must be different folders.
+2. *Output format*: JSON, CSV or TXT.
+3. *Data to extract*: type the ranges, or press **Pick...**, which opens a real machine file
+   as a grid with column letters and row numbers. Drag over the cells, choose the slot, give
+   it a name, press **Assign**. The right-hand side shows the exact file that will be produced.
+4. *Manual inputs*: two name/value pairs. A changed value applies from the next file after
+   **Save settings**; monitoring does not have to be stopped.
+
+**Delivery tab**
+
+5. *Shared folder*: a local or network path such as `\\MES-SERVER\inbox`. **Test folder**
+   checks that it can be written to.
+6. *API link*: the address the files are POSTed to. Optional token (sent as
+   `Authorization: Bearer <token>`), optional extra headers (one `Name: value` per line),
+   and whether the file is sent as the request body or as a form upload (field `file`, plus
+   `station`). **Test connection** sends a small test file.
+
+Press **Save settings**, then **Start monitoring**. **Process now** handles the files that
+are waiting once, without continuing to watch.
+
+These commands are on the toolbar at the top of the window, visible from every tab:
+**Start monitoring**, **Stop**, **Process now**, **Save settings**, **Open CSV file...**
+(opens a machine file in the range picker) and **Open folder** (machine, back-up, shared or
+data folder in Explorer).
+
+## Output files
+
+Named `<machine file name>_<date>_<time>.<json|csv|txt>`.
+
+JSON:
+
+```json
+{
+  "source_file": "board_00001.csv",
+  "processed_at": "2026-10-10T15:38:15",
+  "station": "SMT Line 1 - PNP M8",
+  "manual_inputs": { "Operator": "OP-17", "Work order": "WO-1187" },
+  "selections": [
+    { "name": "Placements", "range": "A12:I*",
+      "columns": ["Timestamp", "Ref", "Part_No"],
+      "rows": [ { "Timestamp": "2026-10-09 10:00:00.581", "Ref": "R101", "Part_No": "RC0402-10K" } ] },
+    { "name": "Board serial", "range": "B6", "value": "B240001" },
+    { "name": "Raw block", "range": "L1:M8", "rows": [ ["a", "b"], ["c", "d"] ] }
+  ]
+}
+```
+
+A range with "first row is header" gives `columns` and one object per row; without it, `rows`
+is a list of lists; a single cell gives `value`.
+
+CSV: an `[INFO]` block of `key,value` lines (source file, time, station, manual inputs),
+then for each range a line `[name],range` followed by its rows.
+
+TXT: the same content as an aligned, readable report.
+
+All output is UTF-8. While a file is being copied into the shared folder it has a temporary
+name starting with `.` and ending in `.part`; it gets its real name only when complete.
+
+## What the API receives
+
+`POST <your link>` with the file as body (`Content-Type` `application/json`, `text/csv` or
+`text/plain`) or as `multipart/form-data`. Headers: `X-Filename`, `X-Station`,
+`Authorization` if a token is set, and your extra headers. Any 2xx answer counts as delivered.
+
+## When something goes wrong
+
+| Situation | What happens |
+|---|---|
+| Shared folder or API cannot be reached | Output files wait in `data\outbox` and are sent in order when it is back. Machine files are still processed and backed up. |
+| The API refuses one file (HTTP 400, 409, 413, 415, 422) | That file is moved to `data\rejected`, shown in red in the header and in History, and the next files continue. |
+| Wrong token or wrong link (401, 403, 404...) or a redirect | Treated as a problem with the link, not the file: everything waits in the queue until the settings are corrected. |
+| A machine file has no data in any chosen range, or is not a readable CSV | Moved to `back-up\_failed`, listed as failed. |
+| The same file content arrives again | Moved to `back-up\_duplicates` and not sent. Can be switched off under Options. |
+| Back-up drive not available | The machine file is left where it is and nothing is sent for it until the drive is back. |
+| PC restarted | Settings, history and the send queue are on disk; start the program and it continues. |
+
+The **History** tab lists every file with its result per destination. The **Log** tab and
+`data\logs\cncbridge.log` hold the details.
+
+## Start automatically
+
+- **With the window**: tick *Start monitoring when the program opens* (Delivery tab,
+  Options), then put a shortcut to `CNCBridge.exe` into the Startup folder (press Win+R,
+  type `shell:startup`).
+- **Without a window**: in Task Scheduler create a task "At startup" that runs
+  `C:\CNCBridge\CNCBridge.exe --headless`. Set everything up in the window first; the task
+  uses the same `data` folder. Close the window before the task runs, because only one copy
+  can use a `data` folder at a time.
+
+Command line: `--headless` (no window), `--headless --once` (process what is waiting and
+exit), `--data DIR` (use another data folder).
+
+## Demo and test kit
+
+To show CNCBridge working without a real machine or a real MES, put `CNCBridgeDemo.exe`
+in the same folder as `CNCBridge.exe` and start it. It:
+
+- creates a folder `CNCBridge_demo` beside itself with a pretend machine folder, back-up
+  folder and shared folder (your normal `data` folder is not used);
+- starts a stand-in customer MES on this PC that receives what CNCBridge sends, with an
+  inbox page you can open in a browser;
+- opens CNCBridge already set up for the demo. Press **Start monitoring** there.
+
+The Demo control window then drives the show:
+
+| Button | What it demonstrates |
+|---|---|
+| Start machine / Drop one board now | board files arriving, being converted, delivered and backed up |
+| Send a duplicate | the same content is not sent twice |
+| Drop a broken file | an unusable file is put aside and work continues |
+| Write a file slowly | a file is not touched until the machine has finished it |
+| Simulate outage / End outage | files wait in the queue and are sent in order afterwards |
+| Refuse next file | one refused file is put aside, the rest continue |
+| Copy all test files / Copy one | eight fixed, numbered test files, one situation each |
+| Open test script | the step-by-step sheet: do this, see that |
+| Reset demo | empties the demo folder (close CNCBridge first) |
+
+The test data are invented pick-and-place board logs. Each has a header block (`B5`
+program, `B6` board serial), a summary block at `L1:M8`, and a parts table from `A12`
+whose length changes per board, so the demo uses all three kinds of range.
+
+The fixed test files and the test script are also in `demo	est_files` and
+`demo\TEST_SCRIPT.md`. `tests	est_demo.py` checks that every test file ends up where the
+script says.
+
+## Good to know
+
+- The API token is stored encrypted with Windows DPAPI, bound to this PC. A `config.json`
+  copied to another PC keeps every setting except the token. Any Windows user of this PC
+  can run the program with it.
+- Closing the window stops monitoring. Files that arrive meanwhile wait in the machine
+  folder and are processed at the next start.
+- Not included: picking tables by title, column filters, automatic deletion of old back-ups.
+- The rarely changed settings `stable_seconds` (default 2) and `api_timeout` (default 20)
+  are only in `data\config.json`.
+
+## For developers
+
+Python 3.9 or newer, standard library only.
+
+```
+CNCBridge.pyw            double-click to run from source
+cncbridge/engine.py      read, cell ranges, render, queue, deliver, back up, ledger
+cncbridge/config.py      settings, data folder, token encryption
+cncbridge/app.py         main window
+cncbridge/grid.py        spreadsheet view with drag selection
+tests/test_engine.py     python -m unittest discover -s tests -v
+demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)
+build_exe.bat            builds both exe files into dist\ (downloads PyInstaller)
+```
