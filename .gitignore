@@ -1,0 +1,19 @@
+# Build output and the exe files (rebuild with build_exe.bat)
+dist/
+build/
+
+# Runtime data: settings with the API token, audit ledger, logs, instance lock, demo workspace
+data/
+logs/
+*.db
+*.lock
+*.log
+*.part
+
+# Working folders that the program creates when it runs
+/backup/
+/machine/
+
+# Python
+__pycache__/
+*.pyc
