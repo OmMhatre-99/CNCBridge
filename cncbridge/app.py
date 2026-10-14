@@ -10,6 +10,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import engine
 from .config import APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, load_config, normalize_config, save_config
+from .tooltip import Tooltip
 from .grid import MARK_COLOURS, Grid
 
 log = logging.getLogger("cncbridge")
@@ -78,6 +79,7 @@ class App(tk.Tk):
         self._build_log()
         self._build_footer()
         self.fill(self.cfg)
+        self._add_tooltips()
         self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -148,7 +150,7 @@ class App(tk.Tk):
         self.stop_btn = button("■  Stop", self.stop)
         self.once_btn = button("↻  Process now", self.process_now)
         divider()
-        button("✔  Save settings", self.save)
+        self.save_btn = button("✔  Save settings", self.save)
         divider()
         button("▦  Open CSV file...", self.open_csv)
         folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton", takefocus=False)
@@ -423,6 +425,30 @@ class App(tk.Tk):
         ttk.Label(bar, textvariable=self.status_msg, style="Small.TLabel").pack(side="left")
 
     # ================================================================ run control
+    def _add_tooltips(self):
+        """Create tooltips for key UI widgets to aid beginners."""
+        # Toolbar buttons
+        Tooltip(self.start_btn, "Start monitoring the source folder for new CNC files.")
+        Tooltip(self.stop_btn, "Stop monitoring and processing.")
+        Tooltip(self.once_btn, "Process the current files once without continuous monitoring.")
+        Tooltip(self.save_btn, "Save all current settings to configuration.")
+        # Folder entry fields
+        Tooltip(self.v["source_folder"].master.nametowidget(self.v["source_folder"]._name), "Folder where machine CSV files appear.")
+        Tooltip(self.v["backup_folder"].master.nametowidget(self.v["backup_folder"]._name), "Folder where processed files are moved, organized by date.")
+        Tooltip(self.v["shared_folder"].master.nametowidget(self.v["shared_folder"]._name), "Optional network folder for shared output files.")
+        # API fields
+        Tooltip(self.v["api_url"].master.nametowidget(self.v["api_url"]._name), "URL of the remote API to receive output files.")
+        Tooltip(self.v["api_token"].master.nametowidget(self.v["api_token"]._name), "Authentication token (will be stored encrypted).")
+        Tooltip(self.v["api_body"].master.nametowidget(self.v["api_body"]._name), "Select how the payload is sent (raw or multipart).")
+        # Options
+        Tooltip(self.b["autostart"].master.nametowidget(self.b["autostart"]._name), "Start monitoring automatically when the app launches.")
+        Tooltip(self.b["skip_duplicates"].master.nametowidget(self.b["skip_duplicates"]._name), "Avoid sending the same file content twice.")
+        Tooltip(self.v["poll_seconds"].master.nametowidget(self.v["poll_seconds"]._name), "How often (in seconds) the source folder is checked for new files.")
+        # Pick tab widgets
+        Tooltip(self.pick_range, "Shows the selected cell range in the preview grid.")
+        Tooltip(self.pick_name, "Optional name for the selected range.")
+        Tooltip(self.slot_box, "Select which slot (range) you are editing.")
+
     @property
     def running(self):
         return bool(self.thread and self.thread.is_alive())
