@@ -10,7 +10,13 @@ from tkinter import filedialog, messagebox, ttk
 
 from . import engine
 from .config import APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, load_config, normalize_config, save_config
+from .font_registration import register_bundled_fonts
+from .tooltip import NotebookTabTooltip, Tooltip
 from .grid import MARK_COLOURS, Grid
+from .theme import (ACCENT, ACCENT_HOVER, ACCENT_TINT, ACTIVE_HEADER, BACKGROUND, BORDER,
+                    DISABLED_ACCENT, DISABLED_SURFACE, DISABLED_TEXT, ERROR, FOCUS, FOCUS_SURFACE,
+                    HOVER_SURFACE, IDLE, MUTED, SUCCESS, SURFACE, SURFACE_ALT, TEXT, WARNING,
+                    WHITE, apply_tk_palette, resolve_font_families)
 
 log = logging.getLogger("cncbridge")
 
@@ -18,7 +24,6 @@ BODY_LABELS = {"raw": "File as request body", "multipart": "Form upload (multipa
 ENCODINGS = ("auto", "utf-8", "cp1252", "utf-16", "shift_jis", "gbk", "big5", "euc_kr")
 DELIMITER_CHOICES = ("auto", ",", ";", "tab", "|")
 PREVIEW_LIMIT = 200_000
-GREEN, RED, AMBER, GREY = "#1e8e3e", "#c5221f", "#b06000", "#6b6b6b"
 
 
 class QueueHandler(logging.Handler):
@@ -32,6 +37,7 @@ class QueueHandler(logging.Handler):
 
 class App(tk.Tk):
     def __init__(self, data_dir):
+        self.bundled_fonts = register_bundled_fonts()
         super().__init__()
         self.data_dir = Path(data_dir)
         self.cfg_path = self.data_dir / "config.json"
@@ -53,24 +59,104 @@ class App(tk.Tk):
         self.title(f"{APP_NAME} {VERSION}")
         self.scale = self.winfo_fpixels("1i") / 96  # fonts grow with the Windows display scale; sizes must follow
         # never taller or wider than the screen (minus taskbar and title bar), or the Save button ends up off-screen
-        width = min(self.px(1180), self.winfo_screenwidth() - self.px(30))
-        height = min(self.px(740), self.winfo_screenheight() - self.px(100))
+        width = min(self.px(1240), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(790), self.winfo_screenheight() - self.px(100))
         self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}+{self.px(8)}")
-        self.minsize(min(self.px(980), width), min(self.px(620), height))
+        self.minsize(min(self.px(1020), width), min(self.px(660), height))
+        self.font_families = resolve_font_families(self)
+        body = self.font_families["body"]
+        heading = self.font_families["heading"]
+        mono = self.font_families["mono"]
+        apply_tk_palette(self, self.font_families)
+        self.configure(background=BACKGROUND)
         style = ttk.Style(self)
-        style.configure("Count.TLabel", font=("Segoe UI", 15, "bold"))
-        style.configure("Small.TLabel", foreground=GREY)
-        style.configure("TButton", padding=(self.px(8), self.px(2)))
-        style.configure("Go.TButton", font=("Segoe UI", 9, "bold"))
-        style.configure("Toolbutton", padding=(self.px(8), self.px(4)))
-        style.configure("Go.Toolbutton", font=("Segoe UI", 9, "bold"))
-        style.configure("Treeview", rowheight=self.px(22))
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
+        style.configure(".", font=(body, 11), foreground=TEXT)
+        style.configure("TFrame", background=BACKGROUND)
+        style.configure("TLabel", background=BACKGROUND, foreground=TEXT)
+        style.configure("Small.TLabel", background=BACKGROUND, foreground=MUTED)
+        style.configure("PageTitle.TLabel", background=BACKGROUND, foreground=TEXT,
+                        font=(heading, 19, "bold"))
+        style.configure("PageHint.TLabel", background=BACKGROUND, foreground=MUTED, font=(body, 11))
+        style.configure("EmptyState.TLabel", background=SURFACE, foreground=MUTED,
+                        font=(body, 12), justify="center", padding=(20, 14))
+        style.configure("Card.TFrame", background=SURFACE)
+        style.configure("Card.TLabel", background=BACKGROUND, foreground=TEXT)
+        style.configure("CardSmall.TLabel", background=BACKGROUND, foreground=MUTED)
+        style.configure("MetricSmall.TLabel", background=SURFACE, foreground=MUTED)
+        style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT,
+                        font=(body, 16, "bold"))
+        style.configure("TLabelframe", background=BACKGROUND, bordercolor=BORDER, relief="solid", borderwidth=1)
+        style.configure("TLabelframe.Label", background=BACKGROUND, foreground=TEXT,
+                        font=(heading, 12, "bold"))
+        style.configure("Count.TLabel", background=BACKGROUND, foreground=TEXT, font=(body, 16, "bold"))
+        style.configure("Metric.TFrame", background=SURFACE, relief="solid", borderwidth=1)
+        style.configure("TButton", padding=(self.px(11), self.px(6)), background=SURFACE,
+                        bordercolor=BORDER, focuscolor=FOCUS)
+        style.map("TButton", background=[("active", HOVER_SURFACE), ("disabled", DISABLED_SURFACE)],
+                  foreground=[("disabled", DISABLED_TEXT)], bordercolor=[("focus", FOCUS), ("active", ACCENT)])
+        style.configure("Go.TButton", font=(body, 11, "bold"), background=ACCENT,
+                        foreground=WHITE, bordercolor=ACCENT)
+        style.map("Go.TButton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
+                  foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
+        style.configure("Toolbutton", padding=(self.px(10), self.px(6)), background=SURFACE,
+                        bordercolor=BORDER, focuscolor=FOCUS)
+        style.map("Toolbutton", background=[("active", HOVER_SURFACE)], bordercolor=[("focus", FOCUS),
+                                                                                   ("active", ACCENT)])
+        style.configure("Go.Toolbutton", font=(body, 11, "bold"), background=ACCENT,
+                        foreground=WHITE, bordercolor=ACCENT)
+        style.map("Go.Toolbutton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
+                  foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
+        style.configure("TEntry", padding=(self.px(7), self.px(5)), fieldbackground=SURFACE,
+                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, insertcolor=TEXT)
+        style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
+                  darkcolor=[("focus", ACCENT)], fieldbackground=[("disabled", DISABLED_SURFACE)],
+                  foreground=[("disabled", DISABLED_TEXT)])
+        style.configure("TCombobox", padding=(self.px(7), self.px(5)), fieldbackground=SURFACE,
+                        bordercolor=BORDER, arrowcolor=TEXT, focuscolor=FOCUS)
+        style.map("TCombobox", fieldbackground=[("readonly", SURFACE), ("disabled", SURFACE_ALT)],
+                  bordercolor=[("focus", ACCENT), ("active", ACCENT)],
+                  foreground=[("disabled", DISABLED_TEXT)], arrowcolor=[("disabled", MUTED)])
+        style.configure("TCheckbutton", background=BACKGROUND, foreground=TEXT, padding=(0, self.px(3)),
+                        focuscolor=FOCUS)
+        style.map("TCheckbutton", background=[("active", BACKGROUND), ("disabled", BACKGROUND)],
+                  foreground=[("disabled", MUTED)])
+        style.configure("TRadiobutton", background=BACKGROUND, foreground=TEXT, padding=(0, self.px(4)),
+                        focuscolor=FOCUS)
+        style.map("TRadiobutton", background=[("active", BACKGROUND), ("disabled", BACKGROUND)],
+                  foreground=[("disabled", MUTED)])
+        style.configure("TScrollbar", background=SURFACE_ALT, troughcolor=BACKGROUND,
+                        bordercolor=BORDER, arrowcolor=MUTED, lightcolor=SURFACE_ALT, darkcolor=BORDER)
+        style.map("TScrollbar", background=[("active", ACCENT_TINT), ("pressed", ACCENT_TINT)],
+                  arrowcolor=[("active", ACCENT)])
+        style.configure("TPanedwindow", background=BACKGROUND)
+        style.configure("Sash", background=BORDER, sashthickness=self.px(5))
+        style.configure("TNotebook", background=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
+        style.configure("TNotebook.Tab", background=BACKGROUND, foreground=MUTED,
+                        padding=(self.px(15), self.px(9)), font=(body, 11, "bold"))
+        style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", SURFACE_ALT)],
+                  foreground=[("selected", ACCENT), ("active", TEXT)], bordercolor=[("focus", FOCUS)])
+        style.configure("Treeview", rowheight=self.px(30), background=SURFACE, fieldbackground=SURFACE,
+                        foreground=TEXT, bordercolor=BORDER, font=(body, 11))
+        style.configure("History.Treeview", rowheight=self.px(30), background=SURFACE,
+                        fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, font=(mono, 11))
+        style.configure("Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
+                        font=(body, 10, "bold"), padding=(self.px(8), self.px(8)))
+        style.configure("History.Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
+                        font=(body, 10, "bold"), padding=(self.px(8), self.px(8)))
+        style.map("Treeview", background=[("selected", ACCENT_TINT), ("focus", FOCUS_SURFACE)],
+                  foreground=[("selected", TEXT)])
+        style.map("Treeview.Heading", background=[("active", ACTIVE_HEADER)],
+                  foreground=[("active", TEXT)])
+        style.configure("TScrollbar", arrowsize=self.px(15))
+        self._font_body, self._font_heading, self._font_mono = body, heading, mono
 
         self._make_vars()
         self._build_toolbar()
         self._build_header()
         self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=10, pady=(4, 0))
+        self.tabs.pack(fill="both", expand=True, padx=16, pady=(4, 0))
         self._build_setup()
         self._build_delivery()
         self._build_pick()
@@ -78,6 +164,7 @@ class App(tk.Tk):
         self._build_log()
         self._build_footer()
         self.fill(self.cfg)
+        self._add_tooltips()
         self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -100,6 +187,9 @@ class App(tk.Tk):
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
         self.status_msg = tk.StringVar(self)
+
+        self.field_widgets = {}
+
 
     def fill(self, cfg):
         for k, var in self.v.items():
@@ -137,8 +227,8 @@ class App(tk.Tk):
         bar.pack(fill="x")
 
         def button(text, command, style="Toolbutton"):
-            b = ttk.Button(bar, text=text, style=style, command=command, takefocus=False)
-            b.pack(side="left", padx=1)
+            b = ttk.Button(bar, text=text, style=style, command=command)
+            b.pack(side="left", padx=(0, 6))
             return b
 
         def divider():
@@ -148,11 +238,14 @@ class App(tk.Tk):
         self.stop_btn = button("■  Stop", self.stop)
         self.once_btn = button("↻  Process now", self.process_now)
         divider()
-        button("✔  Save settings", self.save)
+        self.save_btn = button("✔  Save settings", self.save)
         divider()
-        button("▦  Open CSV file...", self.open_csv)
-        folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton", takefocus=False)
-        menu = tk.Menu(folders, tearoff=False)
+        self.open_csv_btn = button("▦  Open CSV file...", self.open_csv)
+        folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton")
+        self.open_folders_btn = folders
+        menu = tk.Menu(folders, tearoff=False, background=SURFACE, foreground=TEXT,
+                       activebackground=ACCENT, activeforeground=WHITE, borderwidth=1,
+                       relief="solid", selectcolor=ACCENT)
         for label, key in (("Machine CSV folder", "source_folder"), ("Back-up folder", "backup_folder"),
                            ("Shared folder", "shared_folder")):
             menu.add_command(label=label, command=lambda key=key: self._open_folder(self.v[key].get()))
@@ -164,265 +257,435 @@ class App(tk.Tk):
         ttk.Separator(self).pack(fill="x")
 
     def _build_header(self):
-        bar = ttk.Frame(self, padding=(12, 8, 12, 6))
+        bar = ttk.Frame(self, padding=(18, 10, 18, 10))
         bar.pack(fill="x")
-        self.state_dot = tk.Label(bar, text="●", fg=GREY, font=("Segoe UI", 14))
+        self.state_dot = tk.Label(bar, text="●", fg=IDLE, bg=BACKGROUND,
+                                  font=(self._font_body, 15, "bold"))
         self.state_dot.pack(side="left")
-        self.state_label = ttk.Label(bar, text="Stopped", font=("Segoe UI", 11, "bold"), width=11)
+        self.state_label = ttk.Label(bar, text="Stopped", font=(self._font_body, 12, "bold"), width=11)
         self.state_label.pack(side="left", padx=(4, 10))
 
         self.counts = {}
         for key, caption in reversed((("ok", "Processed"), ("waiting", "Waiting in folder"),
                                       ("queued", "Queued to send"), ("failed", "Failed files"),
                                       ("rejected", "Refused by API"))):
-            box = ttk.Frame(bar)
-            box.pack(side="right", padx=(18, 0))
-            self.counts[key] = ttk.Label(box, text="0", style="Count.TLabel", anchor="e")
+            box = ttk.Frame(bar, style="Metric.TFrame", padding=(12, 5))
+            box.pack(side="right", padx=(8, 0))
+            self.counts[key] = ttk.Label(box, text="0", style="MetricValue.TLabel", anchor="e")
             self.counts[key].pack(anchor="e")
-            ttk.Label(box, text=caption, style="Small.TLabel").pack(anchor="e")
+            ttk.Label(box, text=caption, style="CardSmall.TLabel").pack(anchor="e")
         ttk.Separator(self).pack(fill="x")
 
+    def _page_intro(self, parent, title, hint):
+        intro = ttk.Frame(parent)
+        intro.pack(fill="x", pady=(0, 14))
+        ttk.Label(intro, text=title, style="PageTitle.TLabel").pack(anchor="w")
+        hint_label = ttk.Label(intro, text=hint, style="PageHint.TLabel", wraplength=self.px(1100),
+                               justify="left")
+        hint_label.pack(anchor="w", pady=(3, 0), fill="x")
+        self._fit_wrap(hint_label, self.px(1100))
+        return intro
+
+    def _fit_wrap(self, label, maximum):
+        def resize(_event=None):
+            width = label.winfo_width()
+            if width > self.px(120):
+                label.configure(wraplength=min(maximum, width - self.px(24)))
+
+        label.bind("<Configure>", resize, add="+")
+        self.after_idle(resize)
+
     def _folder_row(self, parent, row, label, key):
-        ttk.Label(parent, text=label).grid(row=row, column=0, sticky="w", pady=3)
-        ttk.Entry(parent, textvariable=self.v[key]).grid(row=row, column=1, sticky="ew", padx=6, pady=3)
-        ttk.Button(parent, text="Browse...", width=9,
-                   command=lambda: self._browse(self.v[key])).grid(row=row, column=2, pady=3)
+        ttk.Label(parent, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=5)
+        entry = ttk.Entry(parent, textvariable=self.v[key], font=(self._font_mono, 11))
+        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=5)
+        self.field_widgets[key] = entry
+        browse = ttk.Button(parent, text="Browse...", width=9,
+                            command=lambda: self._browse(self.v[key]))
+        browse.grid(row=row, column=2, padx=(2, 0), pady=5)
+        self.field_widgets[f"{key}_browse"] = browse
 
     def _browse(self, var):
         start = var.get() if Path(var.get() or "?").is_dir() else None
-        folder = filedialog.askdirectory(parent=self, initialdir=start)
+        folder = filedialog.askdirectory(parent=self, initialdir=start, title="Choose a folder")
         if folder:
             var.set(os.path.normpath(folder))
 
     def _build_setup(self):
-        tab = ttk.Frame(self.tabs, padding=10)
+        tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.tabs.add(tab, text="  Setup  ")
-        tab.columnconfigure(0, weight=1, uniform="half")
-        tab.columnconfigure(1, weight=1, uniform="half")
-        tab.rowconfigure(0, weight=1)
-        left, right = ttk.Frame(tab), ttk.Frame(tab)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        self._page_intro(tab, "Set up your machine", "Choose where machine files arrive, what to include, and how outputs should look.")
+        content = ttk.Frame(tab)
+        content.pack(fill="both", expand=True)
+        content.columnconfigure(0, weight=4, uniform="setup")
+        content.columnconfigure(1, weight=6, uniform="setup")
+        content.rowconfigure(0, weight=1)
+        left, right = ttk.Frame(content), ttk.Frame(content)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
-        box = ttk.LabelFrame(left, text=" 1  Folders ", padding=10)
+        box = ttk.LabelFrame(left, text=" 1  Machine folders ", padding=(14, 10))
         box.pack(fill="x")
         box.columnconfigure(1, weight=1)
-        ttk.Label(box, text="Station name").grid(row=0, column=0, sticky="w", pady=3)
-        ttk.Entry(box, textvariable=self.v["station_name"]).grid(row=0, column=1, columnspan=2, sticky="ew",
-                                                                 padx=(6, 0), pady=3)
+        ttk.Label(box, text="Station name", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
+        station_entry = ttk.Entry(box, textvariable=self.v["station_name"])
+        station_entry.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(8, 0), pady=5)
+        self.field_widgets["station_name"] = station_entry
         self._folder_row(box, 1, "Machine CSV folder", "source_folder")
-        ttk.Label(box, text="File pattern").grid(row=2, column=0, sticky="w", pady=3)
-        ttk.Entry(box, textvariable=self.v["file_pattern"], width=14).grid(row=2, column=1, sticky="w", padx=6, pady=3)
+        ttk.Label(box, text="File pattern", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
+        pattern_entry = ttk.Entry(box, textvariable=self.v["file_pattern"], width=14,
+                                  font=(self._font_mono, 11))
+        pattern_entry.grid(row=2, column=1, sticky="w", padx=8, pady=5)
+        self.field_widgets["file_pattern"] = pattern_entry
         self._folder_row(box, 3, "Back-up folder", "backup_folder")
-        ttk.Label(box, style="Small.TLabel", wraplength=self.px(470), justify="left",
-                  text="Each file is taken from the machine folder as soon as the machine has finished writing it. "
-                       "After processing it is moved into the back-up folder (one sub-folder per day)."
-                  ).grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 0))
+        folder_help = ttk.Label(box, style="Small.TLabel", wraplength=self.px(470), justify="left",
+                                text="Each file is taken from the machine folder as soon as the machine has finished writing it. "
+                                     "After processing it is moved into the back-up folder (one sub-folder per day).")
+        folder_help.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(9, 2))
+        self._fit_wrap(folder_help, self.px(470))
 
-        box = ttk.LabelFrame(left, text=" 2  Output format ", padding=10)
-        box.pack(fill="x", pady=(10, 0))
+        box = ttk.LabelFrame(left, text=" 2  Output format ", padding=(14, 9))
+        box.pack(fill="x", pady=(14, 0))
         for fmt in FORMATS:
-            ttk.Radiobutton(box, text=fmt.upper(), value=fmt, variable=self.v["output_format"]).pack(side="left",
-                                                                                                    padx=(0, 22))
+            choice = ttk.Radiobutton(box, text=fmt.upper(), value=fmt, variable=self.v["output_format"])
+            choice.pack(side="left", padx=(0, 28), pady=2)
+            self.field_widgets[f"output_format_{fmt}"] = choice
 
-        box = ttk.LabelFrame(left, text=" 4  Manual inputs (written into every output file) ", padding=10)
-        box.pack(fill="x", pady=(10, 0))
+        box = ttk.LabelFrame(left, text=" 4  Details added to every file ", padding=(14, 10))
+        box.pack(fill="x", pady=(14, 0))
         box.columnconfigure(1, weight=1)
         box.columnconfigure(2, weight=2)
-        ttk.Label(box, text="Name", style="Small.TLabel").grid(row=0, column=1, sticky="w", padx=6)
-        ttk.Label(box, text="Value", style="Small.TLabel").grid(row=0, column=2, sticky="w")
+        ttk.Label(box, text="Field name", style="CardSmall.TLabel").grid(row=0, column=1, sticky="w", padx=8)
+        ttk.Label(box, text="Value", style="CardSmall.TLabel").grid(row=0, column=2, sticky="w")
         for i, (name, value) in enumerate(self.man_vars, 1):
-            ttk.Label(box, text=f"Input {i}").grid(row=i, column=0, sticky="w", pady=3)
-            ttk.Entry(box, textvariable=name).grid(row=i, column=1, sticky="ew", padx=6, pady=3)
-            ttk.Entry(box, textvariable=value).grid(row=i, column=2, sticky="ew", pady=3)
-        ttk.Label(box, style="Small.TLabel", wraplength=self.px(470), justify="left",
-                  text="For example Operator and Work order. Change a value and press Save settings; "
-                       "it applies from the next file, without stopping.").grid(row=3, column=0, columnspan=3,
-                                                                                sticky="w", pady=(6, 0))
+            ttk.Label(box, text=f"Input {i}", style="Card.TLabel").grid(row=i, column=0, sticky="w", pady=5)
+            ttk.Entry(box, textvariable=name).grid(row=i, column=1, sticky="ew", padx=8, pady=5)
+            ttk.Entry(box, textvariable=value).grid(row=i, column=2, sticky="ew", pady=5)
+        manual_help = ttk.Label(box, style="Small.TLabel", wraplength=self.px(470), justify="left",
+                                 text="For example Operator and Work order. Change a value and press Save settings; "
+                                      "it applies from the next file, without stopping.")
+        manual_help.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 2))
+        self._fit_wrap(manual_help, self.px(470))
 
-        box = ttk.LabelFrame(right, text=" 3  Data to extract (up to 10 cell ranges) ", padding=10)
+        box = ttk.LabelFrame(right, text=" 3  Choose data to include (up to 10 ranges) ", padding=(14, 10))
         box.pack(fill="both", expand=True)
         box.columnconfigure(1, weight=3)
         box.columnconfigure(2, weight=2)
         for col, text in ((1, "Name in the output"), (2, "Cell range"), (3, "First row is header")):
-            ttk.Label(box, text=text, style="Small.TLabel").grid(row=0, column=col, sticky="w", padx=4)
+            ttk.Label(box, text=text, style="CardSmall.TLabel").grid(row=0, column=col, sticky="w", padx=6, pady=(0, 6))
         for i, (name, rng, header) in enumerate(self.sel_vars):
             tk.Label(box, text=f" {i + 1} ", bg=MARK_COLOURS[i][1], fg="white",
-                     font=("Segoe UI", 8, "bold")).grid(row=i + 1, column=0, pady=3)
-            ttk.Entry(box, textvariable=name).grid(row=i + 1, column=1, sticky="ew", padx=4, pady=3)
-            ttk.Entry(box, textvariable=rng, width=12, font=("Consolas", 10)).grid(row=i + 1, column=2, sticky="ew",
-                                                                                   padx=4, pady=3)
-            ttk.Checkbutton(box, variable=header).grid(row=i + 1, column=3, pady=3)
-            ttk.Button(box, text="Pick...", width=7,
-                       command=lambda i=i: self.open_picker(i)).grid(row=i + 1, column=4, padx=(4, 0), pady=3)
-        ttk.Label(box, style="Small.TLabel", wraplength=self.px(500), justify="left",
-                  text="Type a range like in a spreadsheet, or press Pick... and drag over a real file.\n"
-                       "L1:M8  (also L1 x M8)  = from cell L1 to cell M8\n"
-                       "B6  = one cell          A12:I*  = from A12 down to the first empty row"
-                  ).grid(row=MAX_SELECTIONS + 1, column=0, columnspan=5, sticky="w", pady=(8, 0))
+                     font=(self._font_body, 9, "bold")).grid(row=i + 1, column=0, pady=3)
+            name_entry = ttk.Entry(box, textvariable=name)
+            name_entry.grid(row=i + 1, column=1, sticky="ew", padx=6, pady=4)
+            range_entry = ttk.Entry(box, textvariable=rng, width=12, font=(self._font_mono, 11))
+            range_entry.grid(row=i + 1, column=2, sticky="ew", padx=6, pady=4)
+            header_check = ttk.Checkbutton(box, text="Yes", variable=header)
+            header_check.grid(row=i + 1, column=3, pady=4)
+            pick_button = ttk.Button(box, text="Pick...", width=7,
+                                     command=lambda i=i: self.open_picker(i))
+            pick_button.grid(row=i + 1, column=4, padx=(6, 0), pady=4)
+            self.field_widgets[f"selection_name_{i}"] = name_entry
+            self.field_widgets[f"selection_range_{i}"] = range_entry
+            self.field_widgets[f"selection_header_{i}"] = header_check
+            self.field_widgets[f"selection_pick_{i}"] = pick_button
+        range_help = ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(650), justify="left",
+                               text="Type a range like in a spreadsheet, or press Pick... and drag over a real file.\n"
+                                    "L1:M8  (also L1 x M8)  = from cell L1 to cell M8\n"
+                                    "B6  = one cell          A12:I*  = from A12 down to the first empty row")
+        range_help.grid(row=MAX_SELECTIONS + 1, column=0, columnspan=5, sticky="ew", pady=(11, 2))
+        self._fit_wrap(range_help, self.px(650))
 
     def _build_delivery(self):
-        tab = ttk.Frame(self.tabs, padding=10)
+        tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.tabs.add(tab, text="  Delivery  ")
-        tab.columnconfigure(0, weight=1, uniform="half")
-        tab.columnconfigure(1, weight=1, uniform="half")
-        left, right = ttk.Frame(tab), ttk.Frame(tab)
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
-        right.grid(row=0, column=1, sticky="nsew", padx=(8, 0))
+        self._page_intro(tab, "Choose where files are delivered",
+                         "Enable one or both destinations. If a destination is unavailable, files wait safely and retry automatically.")
+        content = ttk.Frame(tab)
+        content.pack(fill="both", expand=True)
+        content.columnconfigure(0, weight=6, uniform="delivery")
+        content.columnconfigure(1, weight=5, uniform="delivery")
+        content.rowconfigure(0, weight=1)
+        left, right = ttk.Frame(content), ttk.Frame(content)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        right.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
 
-        box = ttk.LabelFrame(left, text=" 5  Shared folder ", padding=10)
+        box = ttk.LabelFrame(left, text=" 5  Shared folder ", padding=(14, 10))
         box.pack(fill="x")
         box.columnconfigure(1, weight=1)
-        ttk.Checkbutton(box, text="Save every output file into a shared folder",
-                        variable=self.b["shared_enabled"]).grid(row=0, column=0, columnspan=3, sticky="w")
+        shared_chk = ttk.Checkbutton(box, text="Save every output file into a shared folder",
+                                     variable=self.b["shared_enabled"])
+        shared_chk.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
+        self.field_widgets["shared_enabled"] = shared_chk
         self._folder_row(box, 1, "Folder / UNC path", "shared_folder")
-        ttk.Button(box, text="Test folder", command=self.test_shared).grid(row=2, column=1, sticky="w", padx=6,
-                                                                           pady=(4, 0))
+        test_shared = ttk.Button(box, text="Test folder", command=self.test_shared)
+        test_shared.grid(row=2, column=1, sticky="w", padx=8, pady=(5, 2))
+        self.field_widgets["test_shared"] = test_shared
 
-        box = ttk.LabelFrame(left, text=" 6  API link ", padding=10)
-        box.pack(fill="x", pady=(10, 0))
+        box = ttk.LabelFrame(left, text=" 6  API connection ", padding=(14, 10))
+        box.pack(fill="both", expand=True, pady=(14, 0))
         box.columnconfigure(1, weight=1)
-        ttk.Checkbutton(box, text="Send every output file to the end user's site",
-                        variable=self.b["api_enabled"]).grid(row=0, column=0, columnspan=2, sticky="w")
-        ttk.Label(box, text="API link (URL)").grid(row=1, column=0, sticky="w", pady=3)
-        ttk.Entry(box, textvariable=self.v["api_url"]).grid(row=1, column=1, sticky="ew", padx=(6, 0), pady=3)
-        ttk.Label(box, text="Token (optional)").grid(row=2, column=0, sticky="w", pady=3)
-        ttk.Entry(box, textvariable=self.v["api_token"], show="●").grid(row=2, column=1, sticky="ew", padx=(6, 0),
-                                                                        pady=3)
-        ttk.Label(box, text="Send as").grid(row=3, column=0, sticky="w", pady=3)
-        ttk.Combobox(box, textvariable=self.v["api_body"], values=list(BODY_LABELS.values()), state="readonly",
-                     width=26).grid(row=3, column=1, sticky="w", padx=(6, 0), pady=3)
-        ttk.Label(box, text="Extra headers").grid(row=4, column=0, sticky="nw", pady=3)
-        self.headers_text = tk.Text(box, height=3, width=30, font=("Consolas", 9), relief="solid", borderwidth=1)
-        self.headers_text.grid(row=4, column=1, sticky="ew", padx=(6, 0), pady=3)
-        ttk.Label(box, style="Small.TLabel", wraplength=self.px(380), justify="left",
+        api_enabled = ttk.Checkbutton(box, text="Send every output file to the end user's site",
+                                      variable=self.b["api_enabled"])
+        api_enabled.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        self.field_widgets["api_enabled"] = api_enabled
+        ttk.Label(box, text="API link (URL)", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
+        api_url = ttk.Entry(box, textvariable=self.v["api_url"], font=(self._font_mono, 11))
+        api_url.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=5)
+        self.field_widgets["api_url"] = api_url
+        ttk.Label(box, text="Token (optional)", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
+        api_token = ttk.Entry(box, textvariable=self.v["api_token"], show="●")
+        api_token.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=5)
+        self.field_widgets["api_token"] = api_token
+        ttk.Label(box, text="Send as", style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=5)
+        api_body = ttk.Combobox(box, textvariable=self.v["api_body"], values=list(BODY_LABELS.values()),
+                                state="readonly", width=26)
+        api_body.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=5)
+        self.field_widgets["api_body"] = api_body
+        ttk.Label(box, text="Extra headers", style="Card.TLabel").grid(row=4, column=0, sticky="nw", pady=5)
+        self.headers_text = tk.Text(box, height=4, width=30, font=(self._font_mono, 11), relief="solid", borderwidth=1,
+                                    background=SURFACE, foreground=TEXT, insertbackground=TEXT,
+                                    highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT,
+                                    padx=7, pady=5, wrap="word", undo=True)
+        self.headers_text.grid(row=4, column=1, sticky="ew", padx=(8, 0), pady=5)
+        self.field_widgets["api_headers"] = self.headers_text
+        ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(420), justify="left",
                   text="One per line, for example  X-Api-Key: abc123. The token is sent as "
                        "Authorization: Bearer <token> and is stored encrypted.").grid(row=5, column=1, sticky="w",
-                                                                                      padx=(6, 0))
-        ttk.Button(box, text="Test connection", command=self.test_api).grid(row=6, column=1, sticky="w", padx=6,
-                                                                           pady=(6, 0))
+                                                                                      padx=(8, 0), pady=(0, 3))
+        test_api = ttk.Button(box, text="Test connection", command=self.test_api)
+        test_api.grid(row=6, column=1, sticky="w", padx=8, pady=(7, 2))
+        self.field_widgets["test_api"] = test_api
 
-        box = ttk.LabelFrame(right, text=" Options ", padding=10)
+        box = ttk.LabelFrame(right, text=" Monitoring & file options ", padding=(14, 10))
         box.pack(fill="x")
-        ttk.Checkbutton(box, text="Start monitoring when the program opens",
-                        variable=self.b["autostart"]).grid(row=0, column=0, columnspan=2, sticky="w", pady=2)
-        ttk.Checkbutton(box, text="Never send the same file content twice",
-                        variable=self.b["skip_duplicates"]).grid(row=1, column=0, columnspan=2, sticky="w", pady=2)
-        ttk.Label(box, text="Check the folder every").grid(row=2, column=0, sticky="w", pady=3)
+        autostart = ttk.Checkbutton(box, text="Start monitoring when the program opens",
+                                    variable=self.b["autostart"])
+        autostart.grid(row=0, column=0, columnspan=2, sticky="w", pady=4)
+        self.field_widgets["autostart"] = autostart
+        skip_duplicates = ttk.Checkbutton(box, text="Never send the same file content twice",
+                                          variable=self.b["skip_duplicates"])
+        skip_duplicates.grid(row=1, column=0, columnspan=2, sticky="w", pady=4)
+        self.field_widgets["skip_duplicates"] = skip_duplicates
+        ttk.Label(box, text="Check the folder every", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=5)
         row = ttk.Frame(box)
-        row.grid(row=2, column=1, sticky="w", padx=6)
-        ttk.Entry(row, textvariable=self.v["poll_seconds"], width=5).pack(side="left")
-        ttk.Label(row, text=" seconds").pack(side="left")
-        ttk.Label(box, text="Machine file encoding").grid(row=3, column=0, sticky="w", pady=3)
-        ttk.Combobox(box, textvariable=self.v["encoding"], values=ENCODINGS, width=12).grid(row=3, column=1,
-                                                                                            sticky="w", padx=6)
-        ttk.Label(box, text="Column separator").grid(row=4, column=0, sticky="w", pady=3)
-        ttk.Combobox(box, textvariable=self.v["delimiter"], values=DELIMITER_CHOICES, state="readonly",
-                     width=12).grid(row=4, column=1, sticky="w", padx=6)
+        row.grid(row=2, column=1, sticky="w", padx=8)
+        poll_seconds = ttk.Entry(row, textvariable=self.v["poll_seconds"], width=5,
+                                 font=(self._font_mono, 11))
+        poll_seconds.pack(side="left")
+        self.field_widgets["poll_seconds"] = poll_seconds
+        ttk.Label(row, text=" seconds", style="Card.TLabel").pack(side="left", padx=(5, 0))
+        ttk.Label(box, text="Machine file encoding", style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=5)
+        encoding = ttk.Combobox(box, textvariable=self.v["encoding"], values=ENCODINGS, width=12)
+        encoding.grid(row=3, column=1, sticky="w", padx=8)
+        self.field_widgets["encoding"] = encoding
+        ttk.Label(box, text="Column separator", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=5)
+        delimiter = ttk.Combobox(box, textvariable=self.v["delimiter"], values=DELIMITER_CHOICES,
+                                 state="readonly", width=12)
+        delimiter.grid(row=4, column=1, sticky="w", padx=8)
+        self.field_widgets["delimiter"] = delimiter
 
-        box = ttk.LabelFrame(right, text=" How delivery works ", padding=10)
-        box.pack(fill="x", pady=(10, 0))
-        ttk.Label(box, wraplength=self.px(470), justify="left", text=(
-            "Turn on one destination or both. Each output file is first placed in a queue on this PC and removed "
-            "from it only after it has arrived.\n\n"
-            "If the shared folder or the link cannot be reached, the files wait and are sent in their original "
-            "order once it is back. The machine files are still processed and backed up meanwhile.\n\n"
-            "If the receiving site refuses one particular file (for example HTTP 400 or 422), that file is put "
-            "aside in data\\rejected and the others continue.")).pack(anchor="w")
+        box = ttk.LabelFrame(right, text=" What happens to your files ", padding=(14, 10))
+        box.pack(fill="both", expand=True, pady=(14, 0))
+        ttk.Label(box, style="Card.TLabel", wraplength=self.px(420), justify="left", text=(
+            "1. CNCBridge safely queues each output on this PC.\n\n"
+            "2. It sends the file to the destinations you enable. If a destination is unavailable, delivery retries "
+            "in order when it returns. Machine files continue to be processed and backed up.\n\n"
+            "3. A file refused by the receiving site is set aside in data\\rejected so other files can continue."
+        )).pack(anchor="nw", fill="x", pady=3)
 
     def _build_pick(self):
-        tab = ttk.Frame(self.tabs, padding=10)
+        tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.pick_tab = tab
         self.tabs.add(tab, text="  Pick ranges & preview  ")
+        self._page_intro(tab, "Pick data from a machine file", "Open a sample file, select the cells to include, then assign them to a range slot.")
         top = ttk.Frame(tab)
-        top.pack(fill="x")
-        ttk.Button(top, text="Open CSV file...", command=self.open_sample_dialog).pack(side="left")
-        ttk.Button(top, text="Newest machine file", command=self.open_newest).pack(side="left", padx=6)
-        self.sample_label = ttk.Label(top, text="No file open", style="Small.TLabel")
-        self.sample_label.pack(side="left", padx=8)
+        top.pack(fill="x", pady=(0, 10))
+        self.sample_open_btn = ttk.Button(top, text="Open CSV file...", style="Go.TButton",
+                                          command=self.open_sample_dialog)
+        self.sample_open_btn.pack(side="left")
+        self.sample_newest_btn = ttk.Button(top, text="Newest machine file", command=self.open_newest)
+        self.sample_newest_btn.pack(side="left", padx=8)
+        self.sample_label = ttk.Label(top, text="No sample file open", style="PageHint.TLabel",
+                                      font=(self._font_mono, 11))
+        self.sample_label.pack(side="left", padx=12)
         for fmt in reversed(FORMATS):
             ttk.Radiobutton(top, text=fmt.upper(), value=fmt, variable=self.v["output_format"],
                             command=self.refresh_preview).pack(side="right", padx=(10, 0))
         ttk.Label(top, text="Output preview as").pack(side="right")
 
         panes = ttk.PanedWindow(tab, orient="horizontal")
-        panes.pack(fill="both", expand=True, pady=8)
+        panes.pack(fill="both", expand=True, pady=(0, 4))
         left = ttk.Frame(panes)
         self.grid_view = Grid(left, on_select=self._grid_selected)
         self.grid_view.pack(fill="both", expand=True)
-        bar = ttk.Frame(left)
+        bar = ttk.Frame(left, padding=(10, 8))
         bar.pack(fill="x", pady=(8, 0))
-        ttk.Label(bar, text="Marked").pack(side="left")
-        ttk.Entry(bar, textvariable=self.pick_range, width=11, font=("Consolas", 10),
-                  state="readonly").pack(side="left", padx=(4, 10))
-        ttk.Checkbutton(bar, text="down to first empty row", variable=self.pick_open,
-                        command=self._update_pick_range).pack(side="left")
-        ttk.Label(bar, text="Slot").pack(side="left", padx=(12, 4))
-        self.slot_box = ttk.Combobox(bar, state="readonly", width=20)
+        ttk.Label(bar, text="Selected range", style="Card.TLabel").pack(side="left")
+        pick_range_entry = ttk.Entry(bar, textvariable=self.pick_range, width=11, font=(self._font_mono, 11),
+                                     state="readonly")
+        pick_range_entry.pack(side="left", padx=(4, 10))
+        self.field_widgets["pick_range"] = pick_range_entry
+        pick_open = ttk.Checkbutton(bar, text="Down to first empty row", variable=self.pick_open,
+                                    command=self._update_pick_range)
+        pick_open.pack(side="left")
+        self.field_widgets["pick_open"] = pick_open
+        ttk.Label(bar, text="Slot", style="Card.TLabel").pack(side="left", padx=(12, 5))
+        self.slot_box = ttk.Combobox(bar, state="readonly", width=22)
         self.slot_box.pack(side="left")
         self.slot_box.bind("<<ComboboxSelected>>", self._slot_chosen)
-        ttk.Label(bar, text="Name").pack(side="left", padx=(10, 4))
-        ttk.Entry(bar, textvariable=self.pick_name, width=14).pack(side="left")
-        ttk.Button(bar, text="Assign", style="Go.TButton", width=8, command=self.assign).pack(side="left", padx=(8, 4))
-        ttk.Button(bar, text="Clear slot", command=self.clear_slot).pack(side="left")
+        ttk.Label(bar, text="Name", style="Card.TLabel").pack(side="left", padx=(12, 5))
+        pick_name_entry = ttk.Entry(bar, textvariable=self.pick_name, width=16)
+        pick_name_entry.pack(side="left")
+        self.field_widgets["pick_name"] = pick_name_entry
+        assign_button = ttk.Button(bar, text="Assign", style="Go.TButton", width=8, command=self.assign)
+        assign_button.pack(side="left", padx=(8, 4))
+        self.field_widgets["assign"] = assign_button
+        clear_button = ttk.Button(bar, text="Clear slot", command=self.clear_slot)
+        clear_button.pack(side="left")
+        self.field_widgets["clear_slot"] = clear_button
         panes.add(left, weight=3)
 
-        right = ttk.Frame(panes)
-        self.preview_note = ttk.Label(right, text="", foreground=AMBER, wraplength=self.px(360), justify="left")
-        self.preview_note.pack(fill="x")
-        self.preview = tk.Text(right, wrap="none", font=("Consolas", 9), width=44, state="disabled",
-                               relief="solid", borderwidth=1)
+        right = ttk.LabelFrame(panes, text=" Output preview ", padding=(12, 10))
+        self.preview_note = ttk.Label(right, text="", foreground=WARNING, wraplength=self.px(360),
+                                      justify="left", background=BACKGROUND)
+        self.preview_note.pack(fill="x", pady=(0, 8))
+        self.preview = tk.Text(right, wrap="none", font=(self._font_mono, 11), width=44, state="normal",
+                               relief="solid", borderwidth=1, background=SURFACE, foreground=TEXT,
+                               insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
+                               highlightcolor=ACCENT, padx=8, pady=8, takefocus=True)
         ys = ttk.Scrollbar(right, orient="vertical", command=self.preview.yview)
         xs = ttk.Scrollbar(right, orient="horizontal", command=self.preview.xview)
         self.preview.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
         xs.pack(side="bottom", fill="x")
         ys.pack(side="right", fill="y")
         self.preview.pack(fill="both", expand=True)
+        self.preview.insert("1.0", "Your output preview will appear here.\n\nOpen a sample machine file to get started.")
+        self.preview.configure(state="disabled")
         panes.add(right, weight=2)
 
     def _build_history(self):
-        tab = ttk.Frame(self.tabs, padding=10)
+        tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.tabs.add(tab, text="  History  ")
+        self._page_intro(tab, "File history", "Review processed machine files and check whether each output reached its destination.")
         bar = ttk.Frame(tab)
-        bar.pack(fill="x", pady=(0, 8))
+        bar.pack(fill="x", pady=(0, 10))
         ttk.Button(bar, text="Open back-up folder",
                    command=lambda: self._open_folder(self.cfg["backup_folder"])).pack(side="left")
         ttk.Button(bar, text="Open data folder (queue, rejected, log file)",
                    command=lambda: self._open_folder(self.data_dir)).pack(side="left", padx=6)
-        ttk.Label(bar, text="Latest 200 files", style="Small.TLabel").pack(side="right")
+        ttk.Label(bar, text="Most recent 200 files", style="PageHint.TLabel").pack(side="right")
         cols = (("processed_at", "Time", 140), ("source", "Machine file", 200), ("status", "Result", 80),
                 ("output", "Output file", 250), ("shared", "Shared folder", 100), ("api", "API", 110),
                 ("message", "Note", 300))
-        self.history = ttk.Treeview(tab, columns=[c[0] for c in cols], show="headings")
+        history_area = ttk.Frame(tab, style="Card.TFrame", padding=1)
+        history_area.pack(fill="both", expand=True)
+        self.history = ttk.Treeview(history_area, columns=[c[0] for c in cols], show="headings",
+                                    style="History.Treeview", takefocus=True)
         for key, title, width in cols:
             self.history.heading(key, text=title, anchor="w")
             self.history.column(key, width=self.px(width), anchor="w", stretch=key == "message")
-        self.history.tag_configure("failed", foreground=RED)
-        self.history.tag_configure("duplicate", foreground=GREY)
-        self.history.tag_configure("pending", foreground=AMBER)
-        ys = ttk.Scrollbar(tab, orient="vertical", command=self.history.yview)
-        self.history.configure(yscrollcommand=ys.set)
+        self.history.tag_configure("failed", foreground=ERROR)
+        self.history.tag_configure("duplicate", foreground=MUTED)
+        self.history.tag_configure("pending", foreground=WARNING)
+        ys = ttk.Scrollbar(history_area, orient="vertical", command=self.history.yview)
+        xs = ttk.Scrollbar(history_area, orient="horizontal", command=self.history.xview)
+        self.history.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
         ys.pack(side="right", fill="y")
+        xs.pack(side="bottom", fill="x")
         self.history.pack(fill="both", expand=True)
+        self.history_empty = ttk.Label(history_area, style="EmptyState.TLabel",
+                                       text="No files processed yet\n\nRecent file activity will appear here.")
+        self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
 
     def _build_log(self):
-        tab = ttk.Frame(self.tabs, padding=10)
+        tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.tabs.add(tab, text="  Log  ")
-        self.log_text = tk.Text(tab, wrap="none", font=("Consolas", 9), state="disabled", relief="solid",
-                                borderwidth=1)
-        self.log_text.tag_configure("WARNING", foreground=AMBER)
-        self.log_text.tag_configure("ERROR", foreground=RED)
-        ys = ttk.Scrollbar(tab, orient="vertical", command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=ys.set)
+        self._page_intro(tab, "Activity log", "Technical processing and delivery messages. Most day-to-day status is shown in File history.")
+        log_area = ttk.Frame(tab, style="Card.TFrame", padding=1)
+        log_area.pack(fill="both", expand=True)
+        self.log_text = tk.Text(log_area, wrap="none", font=(self._font_mono, 11), state="disabled",
+                                relief="flat", borderwidth=0, background=SURFACE, foreground=TEXT,
+                                insertbackground=TEXT, highlightthickness=0, padx=9, pady=9, takefocus=True)
+        self.log_text.tag_configure("WARNING", foreground=WARNING)
+        self.log_text.tag_configure("ERROR", foreground=ERROR)
+        ys = ttk.Scrollbar(log_area, orient="vertical", command=self.log_text.yview)
+        xs = ttk.Scrollbar(log_area, orient="horizontal", command=self.log_text.xview)
+        self.log_text.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
         ys.pack(side="right", fill="y")
+        xs.pack(side="bottom", fill="x")
         self.log_text.pack(fill="both", expand=True)
+        self.log_empty = ttk.Label(log_area, style="EmptyState.TLabel",
+                                   text="No activity messages yet\n\nMessages will appear as CNCBridge works.")
+        self.log_empty.place(relx=0.5, rely=0.5, anchor="center")
 
     def _build_footer(self):
-        bar = ttk.Frame(self, padding=(12, 8))
+        bar = ttk.Frame(self, padding=(18, 10))
         bar.pack(fill="x")
         ttk.Label(bar, textvariable=self.status_msg, style="Small.TLabel").pack(side="left")
 
     # ================================================================ run control
+    def _add_tooltips(self):
+        """Attach concise help to the controls that benefit from extra explanation."""
+        Tooltip(self.start_btn, "Start monitoring the source folder for new CNC files.")
+        Tooltip(self.stop_btn, "Stop monitoring and processing.")
+        Tooltip(self.once_btn, "Process the current files once without continuous monitoring.")
+        Tooltip(self.save_btn, "Save all current settings to configuration.")
+        Tooltip(self.open_csv_btn, "Open a machine CSV file in the range picker.")
+        Tooltip(self.open_folders_btn, "Open a configured folder or CNCBridge's data folder.")
+        Tooltip(self.sample_open_btn, "Choose a sample machine file to inspect and select cell ranges.")
+        Tooltip(self.sample_newest_btn, "Open the newest file waiting in the machine folder or most recent back-up.")
+        Tooltip(self.grid_view.canvas, "Drag across cells to select them. Arrow keys move; hold Shift to extend a range.")
+
+        help_text = {
+            "station_name": "Name used to identify this machine in output files.",
+            "source_folder": "Folder where the machine places completed CSV files.",
+            "source_folder_browse": "Choose the machine's CSV folder.",
+            "file_pattern": "File names to watch; the default matches all CSV files.",
+            "backup_folder": "Processed machine files are moved here, grouped by date.",
+            "backup_folder_browse": "Choose where processed machine files are archived.",
+            "shared_enabled": "Turn on delivery to a local or network shared folder.",
+            "shared_folder": "Optional destination folder, such as a network share.",
+            "shared_folder_browse": "Choose the shared destination folder.",
+            "test_shared": "Check that CNCBridge can write to the shared folder.",
+            "api_enabled": "Turn on delivery to the receiving site's API.",
+            "api_url": "Address that receives the output files.",
+            "api_token": "Optional authentication token; CNCBridge stores it encrypted.",
+            "api_body": "Choose whether the file is sent as the request body or as a form upload.",
+            "api_headers": "Optional HTTP headers, one per line in Name: value format.",
+            "test_api": "Send a small test file to check the API connection.",
+            "autostart": "Begin monitoring automatically when CNCBridge opens.",
+            "skip_duplicates": "Ignore files whose content has already been processed.",
+            "poll_seconds": "How often CNCBridge checks the machine folder for new files.",
+            "encoding": "Choose a character encoding if CSV text looks incorrect; Auto is recommended.",
+            "delimiter": "Choose the CSV column separator; Auto is recommended.",
+            "pick_range": "Shows the cell range selected in the grid.",
+            "pick_open": "Extend the selected range down to the first empty row.",
+            "pick_name": "Name shown for this data in the output file.",
+            "assign": "Save the selected range into the chosen extraction slot.",
+            "clear_slot": "Remove the range and name from the chosen slot.",
+        }
+        for key, text in help_text.items():
+            Tooltip(self.field_widgets[key], text)
+
+        Tooltip(self.slot_box, "Choose which extraction slot receives the selected cells.")
+        for fmt in FORMATS:
+            Tooltip(self.field_widgets[f"output_format_{fmt}"], f"Create the output as {fmt.upper()}.")
+        for i in range(MAX_SELECTIONS):
+            Tooltip(self.field_widgets[f"selection_name_{i}"], "Optional label used for this extracted data.")
+            Tooltip(self.field_widgets[f"selection_range_{i}"], "Spreadsheet-style cells to include, e.g. A1:C8.")
+            Tooltip(self.field_widgets[f"selection_header_{i}"], "Use the first selected row as column names.")
+            Tooltip(self.field_widgets[f"selection_pick_{i}"], "Choose this range by selecting cells in a sample file.")
+
+        self.tab_tooltip = NotebookTabTooltip(self.tabs, {
+            0: "Machine folders, output format, data ranges and manual inputs.",
+            1: "Shared-folder and API destinations, plus file-handling options.",
+            2: "Select cells from a sample file and preview the resulting output.",
+            3: "Review recent machine files and their delivery results.",
+            4: "Technical event log for processing and delivery details.",
+        })
+        Tooltip(self.slot_box, "Select which slot (range) you are editing.")
+
     @property
     def running(self):
         return bool(self.thread and self.thread.is_alive())
@@ -640,8 +903,9 @@ class App(tk.Tk):
 
     def refresh_preview(self):
         cfg = self.collect()
-        marks, note, text = [], "", ""
+        marks, note, text = [], "", "Your output preview will appear here.\n\nOpen a sample machine file to get started."
         if self.sample_rows:
+            text = ""
             for i, sel in enumerate(cfg["selections"]):
                 try:
                     marks.append((i, engine.resolve_range(self.sample_rows, sel["range"])))
@@ -652,6 +916,7 @@ class App(tk.Tk):
                 note = "\n".join(w[0].upper() + w[1:] for w in warnings)
             except engine.FileError as e:
                 note = f"With these ranges this file would be rejected: {e}."
+                text = f"Preview unavailable\n\n{note}\n\nChoose a range that contains data in the sample file."
             except ValueError:
                 text = "No cell range yet.\n\nDrag over cells in the grid, choose a slot and press Assign."
         self.grid_view.set_marks(marks)
@@ -700,12 +965,14 @@ class App(tk.Tk):
             if int(self.log_text.index("end-1c").split(".")[0]) > 3000:
                 self.log_text.delete("1.0", "1000.0")
             self.log_text.configure(state="disabled")
+            self.log_empty.place_forget()
             if at_end:
                 self.log_text.see("end")
 
         running = self.running
-        text, colour = ("Monitoring", GREEN) if running else ("Working...", AMBER) if self.busy else ("Stopped", GREY)
+        text, colour = ("Monitoring", SUCCESS) if running else ("Working...", WARNING) if self.busy else ("Stopped", IDLE)
         self.state_label.configure(text=text)
+        self.state_label.configure(foreground=colour)
         self.state_dot.configure(fg=colour)
         idle = not running and not self.busy
         self.start_btn.configure(state="normal" if idle else "disabled")
@@ -717,8 +984,9 @@ class App(tk.Tk):
         snap = self.snapshot
         if snap:
             for key, label in self.counts.items():
-                colour = RED if key in ("failed", "rejected") and snap[key] else AMBER if key == "queued" and snap[
-                    key] else ""
+                colour = (ERROR if snap[key] else TEXT) if key in ("failed", "rejected") else (
+                    WARNING if snap[key] else TEXT) if key == "queued" else (
+                    SUCCESS if snap[key] else TEXT) if key == "ok" else ACCENT if snap[key] else TEXT
                 label.configure(text=str(snap[key]), foreground=colour)
             if snap["history"] != self.shown_history:
                 self.shown_history = snap["history"]
@@ -729,6 +997,10 @@ class App(tk.Tk):
                     self.history.insert("", "end", tags=(tag,), values=[
                         (row["processed_at"] or "").replace("T", "  "), row["source"], row["status"],
                         row["output"] or "", row["shared"] or "", row["api"] or "", row["message"] or ""])
+                if self.shown_history:
+                    self.history_empty.place_forget()
+                else:
+                    self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
         self.after(300, self._tick)
 
 

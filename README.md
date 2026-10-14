@@ -36,6 +36,22 @@ used instead.)
 
 For two machine folders on one PC, use two copies in two folders. Each has its own `data`.
 
+### Bundled fonts
+
+CNCBridge bundles the official Google Fonts Roboto and Roboto Mono variable TrueType files
+in `assets/fonts/`, together with each family's SIL Open Font License. Before creating the
+Tk window, the app registers both fonts privately for its own process: GDI on Windows,
+Core Text on macOS, and Fontconfig on Linux. This does not install fonts system-wide and
+does not require an internet connection. Linux systems need Fontconfig available for
+process-local registration. If registration is unavailable, CNCBridge falls back to
+matching fonts already installed on the computer.
+
+PyInstaller builds must include the `assets/fonts` directory as application data. The
+Windows `build_exe.bat` command does this automatically; the `.spec` files also include
+the fonts and license files. For a direct PyInstaller CLI build on macOS or Linux, use
+`--add-data "assets/fonts:assets/fonts"` (Windows uses `;` as the source/destination
+separator, as in `build_exe.bat`).
+
 ## Set up
 
 **Setup tab**
@@ -186,6 +202,7 @@ cncbridge/engine.py      read, cell ranges, render, queue, deliver, back up, led
 cncbridge/config.py      settings, data folder, token encryption
 cncbridge/app.py         main window
 cncbridge/grid.py        spreadsheet view with drag selection
+assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)
 build_exe.bat            builds both exe files into dist\ (downloads PyInstaller)
