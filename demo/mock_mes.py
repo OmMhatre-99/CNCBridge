@@ -9,6 +9,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 
+
+class ExclusiveHTTPServer(ThreadingHTTPServer):
+    # HTTPServer's reuse flags allow two listeners on one port on some OS/Python
+    # versions. Demo instances must never accept each other's customer payloads.
+    allow_reuse_address = False
+    allow_reuse_port = False
+
 PAGE = """<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>CNCBridge demo MES</title><style>
@@ -135,7 +142,7 @@ class MockMES:
         # Prefer the requested port; allow more than one isolated demo on the same PC.
         for candidate in ([port + i for i in range(20)] if port else [0]):
             try:
-                self.server = ThreadingHTTPServer(("127.0.0.1", candidate), Handler)
+                self.server = ExclusiveHTTPServer(("127.0.0.1", candidate), Handler)
                 break
             except OSError as exc:
                 if exc.errno not in (48, 98, 10048):  # address already in use
