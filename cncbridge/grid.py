@@ -5,14 +5,14 @@ from tkinter import font as tkfont
 from tkinter import ttk
 
 from .engine import col_letter
+from .theme import (ACCENT, GRID_HEADER, GRID_HEADER_SELECTION, GRID_HEADER_TEXT, GRID_LINE,
+                    GRID_SELECTION, GRID_SELECTION_EDGE, MUTED, RANGE_COLOURS, SURFACE, TEXT,
+                    resolve_font_families)
 
 MAX_CELL_CHARS = 28
-LINE, HEAD_BG, HEAD_FG = "#dcdcdc", "#f1f1f1", "#555555"
-SEL_FILL, SEL_EDGE, HEAD_SEL = "#cfe2ff", "#1a66d9", "#c5d7f2"
-# one tint + edge colour per selection slot
-MARK_COLOURS = [("#fde9c8", "#c77700"), ("#d9f2dc", "#2e8b3d"), ("#f6dcee", "#b0308a"), ("#dbeafe", "#3b6fd4"),
-                ("#fbe0dc", "#c0392b"), ("#e6e0f8", "#6b4fc4"), ("#d8f3f1", "#11847c"), ("#f3efc9", "#8a7a00"),
-                ("#e8e8e8", "#666666"), ("#fcdfe9", "#c2185b")]
+LINE, HEAD_BG, HEAD_FG = GRID_LINE, GRID_HEADER, GRID_HEADER_TEXT
+SEL_FILL, SEL_EDGE, HEAD_SEL = GRID_SELECTION, GRID_SELECTION_EDGE, GRID_HEADER_SELECTION
+MARK_COLOURS = list(RANGE_COLOURS)
 
 
 class Grid(ttk.Frame):
@@ -25,16 +25,21 @@ class Grid(ttk.Frame):
         super().__init__(master)
         self.on_select = on_select
         self.rows, self.ncols, self.colx = [], 0, [0]
-        self.sel = self.anchor = None
+        self.sel = self.anchor = self.active_cell = None
         self.marks = []  # (slot index, (col1, row1, col2, row2))
 
-        self.font = tkfont.Font(family="Consolas", size=10)
-        self.badge_font = tkfont.Font(family="Segoe UI", size=7, weight="bold")
+        root = self.winfo_toplevel()
+        fonts = getattr(root, "font_families", None) or resolve_font_families(root)
+        self.font = tkfont.Font(root=root, family=fonts["mono"], size=11)
+        self.heading_font = tkfont.Font(root=root, family=fonts["heading"], size=13, weight="bold")
+        self.body_font = tkfont.Font(root=root, family=fonts["body"], size=11)
+        self.badge_font = tkfont.Font(root=root, family=fonts["body"], size=9, weight="bold")
         self.cw = max(self.font.measure("0"), 6)
         self.rh = self.font.metrics("linespace") + 8
         self.rw = self.cw * 5 + 10
 
-        self.canvas = tk.Canvas(self, background="white", highlightthickness=1, highlightbackground="#b5b5b5",
+        self.canvas = tk.Canvas(self, background=SURFACE, highlightthickness=2, highlightbackground=GRID_LINE,
+                                highlightcolor=ACCENT, takefocus=True,
                                 yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
         vs = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         hs = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
@@ -51,6 +56,10 @@ class Grid(ttk.Frame):
         c.bind("<Shift-Button-1>", self._drag)
         c.bind("<B1-Motion>", self._drag)
         c.bind("<ButtonRelease-1>", self._release)
+        c.bind("<Left>", self._key_move)
+        c.bind("<Right>", self._key_move)
+        c.bind("<Up>", self._key_move)
+        c.bind("<Down>", self._key_move)
         c.bind("<MouseWheel>", lambda e: self._yview("scroll", -1 if e.delta > 0 else 1, "units"))
         c.bind("<Shift-MouseWheel>", lambda e: self._xview("scroll", -1 if e.delta > 0 else 1, "units"))
 
@@ -58,7 +67,7 @@ class Grid(ttk.Frame):
     def set_rows(self, rows):
         self.rows = rows
         self.ncols = max((len(r) for r in rows), default=0)
-        self.sel = self.anchor = None
+        self.sel = self.anchor = self.active_cell = None
         widths = [3] * self.ncols
         for r in rows[:500]:  # the first rows are enough to size the columns
             for i, cell in enumerate(r):
@@ -109,7 +118,9 @@ class Grid(ttk.Frame):
     def _press(self, event):
         if self.rows:
             self.anchor = self._cell_at(event)
+            self.active_cell = self.anchor
             self.sel = self.anchor * 2
+            self.canvas.focus_set()
             self.redraw()
 
     def _drag(self, event):
@@ -125,6 +136,7 @@ class Grid(ttk.Frame):
         elif event.x < self.rw:
             c.xview_scroll(-1, "units")
         (ac, ar), (col, row) = self.anchor, self._cell_at(event)
+        self.active_cell = (col, row)
         self.sel = (min(ac, col), min(ar, row), max(ac, col), max(ar, row))
         self.redraw()
         if event.type == tk.EventType.ButtonPress and self.on_select:  # shift-click
@@ -133,6 +145,25 @@ class Grid(ttk.Frame):
     def _release(self, event):
         if self.rows and self.sel and self.on_select:
             self.on_select(self.sel)
+
+    def _key_move(self, event):
+        if not self.rows or not self.ncols:
+            return "break"
+        col, row = self.active_cell or (0, 0)
+        col = min(max(col + (event.keysym == "Right") - (event.keysym == "Left"), 0), self.ncols - 1)
+        row = min(max(row + (event.keysym == "Down") - (event.keysym == "Up"), 0), len(self.rows) - 1)
+        self.active_cell = (col, row)
+        if event.state & 0x0001:
+            if self.anchor is None:
+                self.anchor = self.sel[:2] if self.sel else (col, row)
+        else:
+            self.anchor = self.active_cell
+        ac, ar = self.anchor
+        self.sel = (min(ac, col), min(ar, row), max(ac, col), max(ar, row))
+        self.see(col, row)
+        if self.on_select:
+            self.on_select(self.sel)
+        return "break"
 
     # ---- drawing
     def _box(self, bounds):
@@ -145,8 +176,11 @@ class Grid(ttk.Frame):
         c.delete("all")
         width, height = c.winfo_width(), c.winfo_height()
         if not self.rows or not self.ncols:
-            c.create_text(width / 2, height / 2, text="Open a CSV file from the machine to see it here",
-                          fill="#888888", font=("Segoe UI", 10))
+            c.create_text(width / 2, height / 2 - 16, text="Start by opening a machine file",
+                          fill=TEXT, font=self.heading_font)
+            c.create_text(width / 2, height / 2 + 12,
+                          text="Use Open CSV file… above, or choose Newest machine file.",
+                          fill=MUTED, font=self.body_font)
             return
         x0, y0, rh, rw = int(c.canvasx(0)), int(c.canvasy(0)), self.rh, self.rw
         r_first = max(0, y0 // rh)
