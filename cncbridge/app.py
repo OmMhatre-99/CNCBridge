@@ -3,6 +3,8 @@ import ctypes
 import logging
 import os
 import queue
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -44,6 +46,7 @@ class App(tk.Tk):
         self.cfg = load_config(self.cfg_path)
         self.ledger = engine.Ledger(self.data_dir / "ledger.db")
         self.engine = self.thread = None
+        self.simulation_process = None
         self.busy = False            # a one-off "Process now" run is in progress
         self.closing = threading.Event()
         self.snapshot = None         # latest counters + history, produced by the stats thread
@@ -155,8 +158,7 @@ class App(tk.Tk):
         self._make_vars()
         self._build_toolbar()
         self._build_header()
-        self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=16, pady=(4, 0))
+        self._build_tabs_scroller()
         self._build_setup()
         self._build_delivery()
         self._build_pick()
@@ -222,6 +224,50 @@ class App(tk.Tk):
         return normalize_config(cfg)
 
     # ================================================================ layout
+    def _build_tabs_scroller(self):
+        """Keep the tab content usable when the main window is shorter than its ideal height."""
+        host = ttk.Frame(self)
+        host.pack(fill="both", expand=True, padx=16, pady=(4, 0))
+        self.tabs_canvas = tk.Canvas(host, background=BACKGROUND, highlightthickness=0, borderwidth=0)
+        self.tabs_scrollbar = ttk.Scrollbar(host, orient="vertical", command=self.tabs_canvas.yview)
+        self.tabs_canvas.configure(yscrollcommand=self.tabs_scrollbar.set)
+        self.tabs_canvas.pack(side="left", fill="both", expand=True)
+        self.tabs_scrollbar.pack(side="right", fill="y")
+
+        self.tabs_frame = ttk.Frame(self.tabs_canvas)
+        self.tabs_window = self.tabs_canvas.create_window((0, 0), window=self.tabs_frame, anchor="nw")
+        self.tabs_frame.bind("<Configure>", self._tabs_content_changed, add="+")
+        self.tabs_canvas.bind("<Configure>", self._tabs_viewport_changed, add="+")
+        self.bind_all("<MouseWheel>", self._tabs_mousewheel, add="+")
+
+        self.tabs = ttk.Notebook(self.tabs_frame)
+        self.tabs.pack(fill="both", expand=True)
+
+    def _tabs_content_changed(self, _event=None):
+        self.tabs_canvas.configure(scrollregion=self.tabs_canvas.bbox("all"))
+
+    def _tabs_viewport_changed(self, event):
+        self.tabs_canvas.itemconfigure(self.tabs_window, width=event.width)
+        self._tabs_content_changed()
+
+    def _tabs_mousewheel(self, event):
+        try:
+            inside = self.tabs_canvas.winfo_containing(event.x_root, event.y_root)
+        except tk.TclError:
+            inside = None
+        if inside is None:
+            return
+        widget = inside
+        while widget is not None:
+            if widget == self.tabs_canvas or widget == self.tabs_frame:
+                delta = -1 if event.delta > 0 else 1
+                self.tabs_canvas.yview_scroll(delta, "units")
+                return
+            try:
+                widget = widget.master
+            except AttributeError:
+                return
+
     def _build_toolbar(self):
         bar = ttk.Frame(self, padding=(8, 4))
         bar.pack(fill="x")
@@ -254,6 +300,7 @@ class App(tk.Tk):
                          command=lambda: self._open_folder(self.data_dir))
         folders["menu"] = menu
         folders.pack(side="left", padx=1)
+        self.simulation_btn = button("Simulation", self.open_simulation)
         ttk.Separator(self).pack(fill="x")
 
     def _build_header(self):
@@ -633,6 +680,7 @@ class App(tk.Tk):
         Tooltip(self.save_btn, "Save all current settings to configuration.")
         Tooltip(self.open_csv_btn, "Open a machine CSV file in the range picker.")
         Tooltip(self.open_folders_btn, "Open a configured folder or CNCBridge's data folder.")
+        Tooltip(self.simulation_btn, "Open the CNCBridge simulation controls in a separate window. It uses an isolated workspace and does not change this configuration.")
         Tooltip(self.sample_open_btn, "Choose a sample machine file to inspect and select cell ranges.")
         Tooltip(self.sample_newest_btn, "Open the newest file waiting in the machine folder or most recent back-up.")
         Tooltip(self.grid_view.canvas, "Drag across cells to select them. Arrow keys move; hold Shift to extend a range.")
@@ -685,6 +733,26 @@ class App(tk.Tk):
             4: "Technical event log for processing and delivery details.",
         })
         Tooltip(self.slot_box, "Select which slot (range) you are editing.")
+
+    def open_simulation(self):
+        """Open the optional simulator control window without opening a console."""
+        if self.simulation_process is not None and self.simulation_process.poll() is None:
+            self.status_msg.set("Simulation window is already open.")
+            return
+
+        base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
+        if getattr(sys, "frozen", False):
+            command = [str(base / "CNCBridgeDemo.exe")]
+        else:
+            python = Path(sys.executable)
+            pythonw = python.with_name("pythonw.exe")
+            command = [str(pythonw if pythonw.exists() else python), "-m", "demo.run_demo"]
+        try:
+            self.simulation_process = subprocess.Popen(command, cwd=str(base))
+            self.status_msg.set("Simulation window opened.")
+        except OSError as exc:
+            self.simulation_process = None
+            messagebox.showerror(APP_NAME, f"Could not open the simulation window:\n{exc}", parent=self)
 
     @property
     def running(self):

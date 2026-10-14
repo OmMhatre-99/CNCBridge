@@ -8,6 +8,12 @@ def _tooltip_window(widget, text, x, y):
     window = tk.Toplevel(widget)
     window.wm_overrideredirect(True)
     root = widget.winfo_toplevel()
+    # Demo controls stay above other windows; keep their help popups above the
+    # parent too, otherwise an overrideredirect tooltip can be painted behind
+    # the always-on-top demo window on Windows.
+    window.transient(root)
+    window.attributes("-topmost", True)
+    window.lift()
     fonts = getattr(root, "font_families", None) or resolve_font_families(root)
     label = tk.Label(window, text=text, background=SURFACE, foreground=TEXT,
                      relief="solid", borderwidth=1, highlightthickness=1, highlightbackground=BORDER,
