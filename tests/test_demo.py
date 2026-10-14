@@ -130,7 +130,11 @@ class FixedCases(unittest.TestCase):
 class StandInMES(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.mes = MockMES(self.tmp / "inbox", "tok", port=8790).start()
+        try:
+            self.mes = MockMES(self.tmp / "inbox", "tok", port=8790).start()
+        except PermissionError as exc:
+            shutil.rmtree(self.tmp)
+            self.skipTest(f"Local HTTP listeners are unavailable: {exc}")
 
     def tearDown(self):
         self.mes.close()
@@ -143,6 +147,7 @@ class StandInMES(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=5) as r:
                 return r.status
         except urllib.error.HTTPError as e:
+            e.close()
             return e.code
 
     def test_accepts_and_stores(self):

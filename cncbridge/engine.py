@@ -33,6 +33,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import APP_NAME, VERSION, normalize_config
+from .storage import atomic_write
 
 CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "txt": "text/plain"}
 DELIMITERS = {",": ",", ";": ";", "tab": "\t", "|": "|"}
@@ -147,14 +148,14 @@ def resolve_range(rows, text):
 
 
 def _header(cells):
-    out, seen = [], {}
+    out, seen = [], set()
     for i, h in enumerate(cells):
-        h = h or f"col{i + 1}"
-        if h in seen:
-            seen[h] += 1
-            h = f"{h}_{seen[h]}"
-        else:
-            seen[h] = 1
+        base = h or f"col{i + 1}"
+        h, suffix = base, 1
+        while h in seen:
+            suffix += 1
+            h = f"{base}_{suffix}"
+        seen.add(h)
         out.append(h)
     return out
 
@@ -285,7 +286,7 @@ def parse_headers(text):
 
 
 def _same_folder(a, b):
-    return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+    return os.path.normcase(str(Path(a).resolve())) == os.path.normcase(str(Path(b).resolve()))
 
 
 def validate(cfg):
@@ -310,6 +311,9 @@ def validate(cfg):
                 p.append(f"Selection {i}: {e}")
     if not ranges and not any(msg.startswith("Selection") for msg in p):
         p.append("Enter at least one cell range to extract (for example L1:M8).")
+    names = [m["name"] for m in cfg["manual_inputs"] if m["name"]]
+    if len(names) != len(set(names)):
+        p.append("Manual input names must be different; duplicate names would lose data.")
 
     if not cfg["shared_enabled"] and not cfg["api_enabled"]:
         p.append("Turn on at least one delivery: shared folder or API link.")
@@ -319,8 +323,17 @@ def validate(cfg):
         elif src and _same_folder(src, cfg["shared_folder"]):
             p.append("The shared folder must be different from the machine CSV folder.")
     if cfg["api_enabled"]:
-        if not re.match(r"https?://\S+$", cfg["api_url"], re.I):
+        try:
+            url = urllib.parse.urlsplit(cfg["api_url"])
+            valid_url = (url.scheme in ("http", "https") and url.hostname and not url.username
+                         and not url.password and not url.fragment and not re.search(r"\s", cfg["api_url"]))
+            url.port  # reject malformed ports before queuing files
+        except ValueError:
+            valid_url = False
+        if not valid_url:
             p.append("Enter the API link (it must start with http:// or https://).")
+        if any("\r" in cfg[k] or "\n" in cfg[k] for k in ("api_token", "station_name")):
+            p.append("API token and station name must not contain line breaks.")
         try:
             parse_headers(cfg["api_headers"])
         except ValueError as e:
@@ -383,14 +396,6 @@ class Ledger:
 
 
 # =============================================================== delivery
-def atomic_write(path, data):
-    """Write to a temp name then rename, so an MES polling the folder never reads a half-written file."""
-    path = Path(path)
-    tmp = path.with_name(f".{path.name}.{uuid.uuid4().hex[:6]}.part")
-    tmp.write_bytes(data if isinstance(data, bytes) else data.encode("utf-8"))
-    os.replace(tmp, path)
-
-
 def _multipart(file_path, extra):
     boundary = uuid.uuid4().hex
     p = Path(file_path)
@@ -434,6 +439,8 @@ def send_api(file_path, cfg):
     if cfg["api_token"]:
         headers["Authorization"] = f"Bearer {cfg['api_token']}"
     headers.update(parse_headers(cfg["api_headers"]))
+    # Stable across retries, including multipart boundaries and process restarts.
+    headers["Idempotency-Key"] = hashlib.sha256(p.name.encode("utf-8") + p.read_bytes()).hexdigest()
     req = urllib.request.Request(cfg["api_url"], data=body, method="POST", headers=headers)
     try:
         with _opener.open(req, timeout=cfg["api_timeout"]) as resp:
@@ -445,6 +452,7 @@ def send_api(file_path, cfg):
         else:
             detail = " ".join(e.read(300).decode("utf-8", "replace").split())
             msg += f": {detail}" if detail else ""
+        e.close()
         if e.code in PERMANENT_HTTP:
             raise Rejected(msg) from None
         raise RuntimeError(msg) from None
@@ -455,7 +463,7 @@ def send_api(file_path, cfg):
 def copy_shared(file_path, cfg):
     dest = Path(cfg["shared_folder"])
     dest.mkdir(parents=True, exist_ok=True)
-    atomic_write(dest / Path(file_path).name, Path(file_path).read_bytes())
+    atomic_write(dest / Path(file_path).name, Path(file_path).read_bytes(), private=False)
 
 
 DESTINATIONS = {
@@ -549,6 +557,16 @@ class Engine:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
+    @staticmethod
+    def _route(kind, cfg):
+        if kind == "shared":
+            return {"folder": os.path.normcase(str(Path(cfg["shared_folder"]).resolve()))}
+        return {"url": cfg["api_url"], "body": cfg["api_body"]}
+
+    @staticmethod
+    def _route_path(payload):
+        return payload.with_name(f".{payload.name}.route.json")
+
     def _report(self, subject, problem, level=logging.WARNING):
         """Log a fault when it appears or changes; pass problem=None when the subject is healthy again."""
         if problem is None:
@@ -567,10 +585,16 @@ class Engine:
             files = sorted(_visible(self.outbox(kind)), key=lambda p: (p.stat().st_mtime, p.name))
             for f in files:
                 try:
+                    route_path = self._route_path(f)
+                    if route_path.exists():
+                        route = json.loads(route_path.read_text(encoding="utf-8"))
+                        if route != self._route(kind, cfg):
+                            raise RuntimeError("Queued destination differs from current settings; restore the original destination to drain this queue")
                     fn(f, cfg)
                 except Rejected as e:
                     shutil.move(str(f), str(_unique(self.data / "rejected" / kind, f.name)))
                     self.ledger.set_delivery(f.name, kind, f"rejected ({e})")
+                    self._route_path(f).unlink(missing_ok=True)
                     log.error("%s refused %s: %s - moved to data/rejected", kind, f.name, e)
                     continue
                 except Exception as e:
@@ -578,6 +602,7 @@ class Engine:
                     self._report(kind, f"{kind} delivery not possible, {len(files)} file(s) waiting: {e}")
                     break
                 f.unlink()
+                self._route_path(f).unlink(missing_ok=True)
                 self.ledger.set_delivery(f.name, kind, "ok")
                 if self._report(kind, None):
                     log.info("%s delivery is working again", kind)
@@ -587,7 +612,13 @@ class Engine:
     def process_file(self, src):
         cfg, src = self.cfg, Path(src)
         now = datetime.now()
-        sha, size = sha256_file(src), src.stat().st_size
+        before = src.stat()
+        payload = src.read_bytes()
+        after = src.stat()
+        signature = lambda st: (st.st_dev, st.st_ino, st.st_size, st.st_mtime_ns)
+        if signature(before) != signature(after):
+            raise OSError("Source changed while reading; waiting for the machine to finish")
+        sha, size = hashlib.sha256(payload).hexdigest(), len(payload)
         backup = Path(cfg["backup_folder"])
 
         if cfg["skip_duplicates"] and self.ledger.seen(sha):
@@ -598,7 +629,7 @@ class Engine:
             return "duplicate"
 
         try:
-            rows = read_rows(src, cfg["encoding"], cfg["delimiter"])
+            rows = read_rows(payload, cfg["encoding"], cfg["delimiter"])
         except csv.Error as e:
             raise FileError(f"not a readable CSV ({e})") from None
         text, blocks, warnings = build_output(src.name, rows, cfg, now)
@@ -608,19 +639,23 @@ class Engine:
         kinds = [k for k, (_, enabled) in DESTINATIONS.items() if enabled(cfg)]
         day = backup / f"{now:%Y-%m-%d}"
         day.mkdir(parents=True, exist_ok=True)  # if the back-up drive is away, fail before anything is queued
-        stem, name, n = f"{src.stem}_{now:%Y%m%d_%H%M%S}", "", 0
+        stem, name, n = f"{src.stem}_{now:%Y%m%d_%H%M%S}_{uuid.uuid4().hex}", "", 0
         while not name or any((self.outbox(k) / name).exists() for k in kinds):
             name = f"{stem}{f'_{n}' if n else ''}.{cfg['output_format']}"
             n += 1
         queued = []
         try:
+            if signature(src.stat()) != signature(after):
+                raise OSError("Source changed during extraction; waiting for the machine to finish")
             for k in kinds:
                 queued.append(self.outbox(k) / name)
+                atomic_write(self._route_path(queued[-1]), json.dumps(self._route(k, cfg)))
                 atomic_write(queued[-1], text)
             shutil.move(str(src), str(_unique(day, src.name)))
         except OSError:
             for q in queued:  # the source stays where it is and is processed again, so nothing may go out twice
                 q.unlink(missing_ok=True)
+                self._route_path(q).unlink(missing_ok=True)
             raise
         self.ledger.add(processed_at=now.isoformat(timespec="seconds"), source=src.name, sha256=sha, size=size,
                         status="ok", output=name, message="; ".join(warnings),

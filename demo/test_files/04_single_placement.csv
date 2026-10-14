@@ -1,0 +1,17 @@
+[HEADER],,,,,,,,,,,Item,Value
+Key,Value,,,,,,,,,,Placed,1
+Machine,PNP-M8,,,,,,,,,,Errors,0
+Line,L1,,,,,,,,,,Result,PASS
+Program,ECU-MAIN-REV3,,,,,,,,,,Yield_pct,100.0
+Board_Serial,B240004,,,,,,,,,,Machine,PNP-M8
+Start_Time,2026-10-09T10:00:00,,,,,,,,,,Line,L1
+End_Time,2026-10-09T10:00:01,,,,,,,,,,Board,B240004
+Cycle_Time_s,0.7,,,,,,,,,,,
+,,,,,,,,,,,,
+[PLACEMENTS],,,,,,,,,,,,
+Timestamp,Ref,Part_No,Feeder,Nozzle,X_mm,Y_mm,Rot_deg,Result,,,,
+2026-10-09T10:00:00.000,R101,RC0402-10K,F10,N1,26.24,12.22,0,OK,,,,
+,,,,,,,,,,,,
+[FEEDERS],,,,,,,,,,,,
+Feeder,Remaining,,,,,,,,,,,
+F10,4800,,,,,,,,,,,

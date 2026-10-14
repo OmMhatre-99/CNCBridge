@@ -46,10 +46,22 @@ def main(argv=None):
     ap = argparse.ArgumentParser(prog=APP_NAME, description="Machine CSV -> MES-ready JSON / CSV / TXT")
     ap.add_argument("--headless", action="store_true", help="monitor without opening the window")
     ap.add_argument("--once", action="store_true", help="with --headless: process the waiting files and exit")
-    ap.add_argument("--data", help="folder for settings, ledger, queue and logs")
+    mode = ap.add_mutually_exclusive_group()
+    mode.add_argument("--demo", action="store_true", help="open the integrated machine/MES demo")
+    mode.add_argument("--demo-check", action="store_true", help="verify simulated delivery and retain a proof report")
+    ap.add_argument("--data", help="data folder, or an isolated workspace when using --demo / --demo-check")
     args = ap.parse_args(argv)
 
-    data_dir = Path(args.data).resolve() if args.data else default_data_dir()
+    if args.demo_check:
+        from demo.verify import main as verify
+        return verify(["--workspace", args.data] if args.data else [])
+
+    workspace = None
+    if args.demo:
+        workspace = Path(args.data).resolve() if args.data else default_data_dir() / "demo-workspace"
+        data_dir = workspace / "data"
+    else:
+        data_dir = Path(args.data).resolve() if args.data else default_data_dir()
     data_dir.mkdir(parents=True, exist_ok=True)
     setup_logging(data_dir, console=args.headless)
     lock = acquire_lock(data_dir)
@@ -63,20 +75,44 @@ def main(argv=None):
             messagebox.showerror(APP_NAME, message)
         return 1
 
-    if not args.headless:
-        from .app import run
-        run(data_dir)
-        return 0
-
-    eng = engine.Engine(load_config(data_dir / "config.json"), data_dir)
-    if args.once:
-        log.info("Processed %d file(s)", eng.scan_once())
-        return 0
+    session = None
     try:
-        eng.run_forever()
-    except KeyboardInterrupt:
-        eng.stop()
-    return 0
+        if args.demo:
+            from demo.control import DemoSession
+            session = DemoSession(workspace)
+        if not args.headless:
+            from .app import run
+            run(data_dir, demo_session=session)
+            return 0
+
+        eng = engine.Engine(load_config(data_dir / "config.json"), data_dir)
+        if args.once:
+            if session:
+                session.drop_board()
+                eng.cfg["stable_seconds"] = 0
+            log.info("Processed %d file(s)", eng.scan_once())
+            return 0
+        if session:
+            session.start_machine()
+        try:
+            eng.run_forever()
+        except KeyboardInterrupt:
+            eng.stop()
+        return 0
+    except (OSError, ValueError) as exc:
+        log.error("Could not start CNCBridge: %s", exc)
+        if not args.headless:
+            import tkinter
+            from tkinter import messagebox
+            root = tkinter.Tk()
+            root.withdraw()
+            messagebox.showerror(APP_NAME, f"Could not start the demo or open its workspace:\n{exc}", parent=root)
+            root.destroy()
+        return 1
+    finally:
+        if session:
+            session.close()
+        lock.release()
 
 
 if __name__ == "__main__":

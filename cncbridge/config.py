@@ -3,12 +3,14 @@ import base64
 import ctypes
 import json
 import logging
+import math
 import os
 import sys
 from pathlib import Path
+from .storage import atomic_write
 
 APP_NAME = "CNCBridge"
-VERSION = "1.0.0"
+VERSION = "1.1.0"
 
 MAX_SELECTIONS = 10
 MAX_MANUAL = 2
@@ -44,21 +46,30 @@ log = logging.getLogger("cncbridge")
 
 def _number(value, default, low):
     try:
-        return max(low, float(value))
+        number = float(value)
+        return max(low, number) if math.isfinite(number) else default
     except (TypeError, ValueError):
         return default
+
+
+def _boolean(value):
+    if isinstance(value, str):
+        return value.strip().lower() in ("true", "yes", "1", "on")
+    return bool(value)
 
 
 def normalize_config(cfg):
     """Fill in defaults and force every setting into its expected shape."""
     base = json.loads(json.dumps(DEFAULT_CONFIG))
+    if cfg is not None and not isinstance(cfg, dict):
+        raise ValueError("Settings must be a JSON object")
     base.update({k: v for k, v in (cfg or {}).items() if k in base})
 
-    sels = [s for s in base["selections"] if isinstance(s, dict)]
+    sels = [s for s in (base["selections"] or []) if isinstance(s, dict)] if isinstance(base["selections"], list) else []
     sels += [{} for _ in range(MAX_SELECTIONS)]
     base["selections"] = [{"name": str(s.get("name", "")).strip(), "range": str(s.get("range", "")).strip(),
-                           "header": bool(s.get("header", True))} for s in sels[:MAX_SELECTIONS]]
-    mans = [m for m in base["manual_inputs"] if isinstance(m, dict)]
+                           "header": _boolean(s.get("header", True))} for s in sels[:MAX_SELECTIONS]]
+    mans = [m for m in (base["manual_inputs"] or []) if isinstance(m, dict)] if isinstance(base["manual_inputs"], list) else []
     mans += [{} for _ in range(MAX_MANUAL)]
     base["manual_inputs"] = [{"name": str(m.get("name", "")).strip(), "value": str(m.get("value", ""))}
                              for m in mans[:MAX_MANUAL]]
@@ -68,7 +79,7 @@ def normalize_config(cfg):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart"):
-        base[key] = bool(base[key])
+        base[key] = _boolean(base[key])
     base["file_pattern"] = base["file_pattern"] or "*.csv"
     base["encoding"] = base["encoding"] or "auto"
     base["delimiter"] = base["delimiter"] or "auto"
@@ -114,6 +125,8 @@ def protect(text):
 def unprotect(stored):
     if not stored.startswith("dpapi:"):
         return stored  # typed into the file by hand
+    if os.name != "nt":
+        raise ValueError("Windows-protected tokens must be entered again on this platform")
     return _dpapi(base64.b64decode(stored[6:]), False).decode("utf-8")
 
 
@@ -135,13 +148,17 @@ def save_config(cfg, path):
     out = normalize_config(cfg)
     out["api_token"] = protect(out["api_token"])
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".part")
-    tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, p)
+    atomic_write(p, json.dumps(out, indent=2, ensure_ascii=False))
 
 
 def default_data_dir():
     """Settings, ledger, outbox and logs live in 'data' beside the program, or in LocalAppData if that is read-only."""
+    if os.name != "nt":
+        base = (Path.home() / "Library" / "Application Support" if sys.platform == "darwin"
+                else Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state"))
+        d = base / APP_NAME
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
     d = base / "data"
     try:

@@ -53,13 +53,23 @@ class Receiver:
 
             do_GET = do_POST
 
-        self.server = ThreadingHTTPServer(("127.0.0.1", 0), H)
-        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/api/upload"
-        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.handler = H
+        self.server = None
+
+    @property
+    def url(self):
+        if self.server is None:
+            try:
+                self.server = ThreadingHTTPServer(("127.0.0.1", 0), self.handler)
+            except PermissionError as exc:
+                raise unittest.SkipTest(f"Local HTTP listeners are unavailable: {exc}")
+            threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        return f"http://127.0.0.1:{self.server.server_address[1]}/api/upload"
 
     def close(self):
-        self.server.shutdown()
-        self.server.server_close()
+        if self.server:
+            self.server.shutdown()
+            self.server.server_close()
 
 
 class Ranges(unittest.TestCase):
@@ -175,6 +185,7 @@ class Rendering(unittest.TestCase):
 
 
 class Settings(unittest.TestCase):
+    @unittest.skipUnless(os.name == "nt", "DPAPI token encryption is a Windows feature")
     def test_token_is_encrypted_on_disk(self):
         with tempfile.TemporaryDirectory() as d:
             path = Path(d) / "config.json"
@@ -277,8 +288,9 @@ class Pipeline(unittest.TestCase):
         eng = self.engine(stable_seconds=30)
         self.assertEqual(eng.pending_files(), [])
         eng = self.engine()
-        with open(self.src / "board1.csv", "ab"):  # the machine still has it open
-            self.assertEqual(eng.pending_files(), [])
+        if os.name == "nt":
+            with open(self.src / "board1.csv", "ab"):  # Windows denies renaming a held-open file
+                self.assertEqual(eng.pending_files(), [])
         self.assertEqual(len(eng.pending_files()), 1)
 
     def test_backup_drive_away_sends_nothing(self):

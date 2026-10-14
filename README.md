@@ -1,16 +1,35 @@
 # CNCBridge
 
+The simulator is now integrated with this desktop application. Use **Getting started → Open integrated
+demo**, or run **python -m cncbridge --demo** from the repository folder. This opens the real CNCBridge
+engine with invented machine data, a local HTTP MES receiver, and a separate demo workspace.
+
+**Appearance** offers Light, Dark and High contrast themes, plus Small, Medium, Large and Extra large
+text. The spreadsheet, preview, history and log follow these preferences, which are saved separately
+from the machine profile. Setup and Delivery have scrollbars so settings remain reachable.
+
+The **Checks** tab reports settings, folder access, extraction preview and optional API test results.
+An untested API is labelled **NOT TESTED**. Full delivery proof is available with
+**Verify demo pipeline**, which requires successful HTTP uploads and checks the delivered bytes,
+archived originals, retries after restart, duplicate blocking, stability gate and bad-file handling.
+
+The older **linebridge-Simulation** directory is retained for reference. Running its web demo alone
+does not exercise the CNCBridge desktop engine.
+
 Takes the CSV file an assembly machine writes for every board, cuts out the cell ranges you
 choose, adds two operator-entered values, and delivers the result as JSON, CSV or TXT to a
 shared folder and/or an API link. The used machine file is then moved to a back-up folder.
 
-It is a native Windows program (`CNCBridge.exe`, about 12 MB). Nothing else has to be
-installed on the machine PC and it needs no internet connection.
+It is a native Tk desktop application. Windows executables and macOS app bundles
+bundle Python; the Debian package uses the distribution's Python and Tk packages.
+Local extraction needs no internet connection; API delivery needs access to its endpoint.
+See [release readiness and build instructions](docs/RELEASE_READINESS.md) for limitations.
 
 ## What it does with each file
 
 1. Watches the machine CSV folder. A file is picked up once the machine has finished with it:
-   unchanged for 2 seconds and no longer held open.
+   unchanged for 2 seconds, with an additional open-file check on Windows. Prefer
+   temporary filenames followed by an atomic rename; timestamps alone cannot prove completion.
 2. Reads it (comma, semicolon, tab or `|` separated; UTF-8, UTF-16 or Windows code page).
 3. Cuts out up to **10 cell ranges**, written like in a spreadsheet:
 
@@ -29,12 +48,27 @@ installed on the machine PC and it needs no internet connection.
 
 ## Install
 
+To run from source on Kali/Linux (Python and Tkinter required), open a terminal in the repository and
+run **python3 -m pip install -r requirements.txt**, then **python3 -m cncbridge**. If the system Python
+requires a virtual environment, create one with **python3 -m venv .venv** and activate it before
+installing requirements. Kali may need its **python3-tk** package for the desktop window.
+
+Start the integrated demo with **python3 -m cncbridge --demo** or **sh start_demo.sh**.
+On Windows, use **start_demo.bat** or **CNCBridge.exe --demo** after rebuilding.
+The existing committed executable is an older build; these changes are in the source.
+
 Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for example
 `C:\CNCBridge\`, and start it. It creates a `data` folder beside itself for its settings,
 history, send queue and log. (If that location is read-only, `%LOCALAPPDATA%\CNCBridge` is
 used instead.)
 
 For two machine folders on one PC, use two copies in two folders. Each has its own `data`.
+
+On Linux, default state lives in `$XDG_STATE_HOME/CNCBridge` (normally
+`~/.local/state/CNCBridge`); on macOS it lives in `~/Library/Application Support/CNCBridge`.
+Use `--data DIR` for separate stations or to keep using an existing data directory.
+Build the Linux package with `python scripts/package.py --deb`; artifacts and SHA-256
+checksums are written to `artifacts/`. The GitHub workflow builds Windows and macOS natively.
 
 ## Set up
 
@@ -67,7 +101,8 @@ data folder in Explorer).
 
 ## Output files
 
-Named `<machine file name>_<date>_<time>.<json|csv|txt>`.
+Named `<machine file name>_<date>_<time>_<unique ID>.<json|csv|txt>` to avoid overwriting
+previous outputs when a machine reuses a filename.
 
 JSON:
 
@@ -134,16 +169,35 @@ exit), `--data DIR` (use another data folder).
 
 ## Demo and test kit
 
-To show CNCBridge working without a real machine or a real MES, put `CNCBridgeDemo.exe`
-in the same folder as `CNCBridge.exe` and start it. It:
+The preferred entry point is **python -m cncbridge --demo**. It opens a **Demo & integration** tab in
+the same CNCBridge window, automatically starts monitoring the demo machine folder, and provides the
+machine, outage, refusal, fixed-test and inbox controls. **CNCBridgeDemo.pyw** remains a compatible
+launcher for the same integrated demo.
 
-- creates a folder `CNCBridge_demo` beside itself with a pretend machine folder, back-up
-  folder and shared folder (your normal `data` folder is not used);
+The demo workspace is **demo-workspace** inside the application's data directory by default; **--data DIR** with
+**--demo** chooses a different workspace. It preserves files between runs. To repeat a clean presentation,
+choose a new workspace. No automatic reset removes existing evidence.
+
+Run **python -m cncbridge --demo-check** to perform the complete scripted proof without a window.
+It prints a JSON result and retains its report, originals, payloads, ledger and rejected file in the
+reported workspace. A failed receiver or delivery produces a failed result, not an integration pass.
+Use **--demo-check --data EMPTY_DIRECTORY** to choose where the evidence stays.
+
+For the presentation: Drop one board, inspect its ranges and manual inputs in the MES inbox, then
+compare its shared file and back-up original. Simulate an outage and drop another board: the shared
+route succeeds and the API queue grows. End the outage and observe the API queue drain. Finally send a
+duplicate, drop a broken file, and use Write a file slowly. The slow writer publishes a CSV only after
+finishing its temporary .part file; the engine also waits for its configured stability interval.
+
+To show CNCBridge working without a real machine or a real MES, start the integrated demo. It:
+
+- creates an isolated `demo-workspace` with a pretend machine folder, back-up
+  folder and shared folder (normal machine settings and queues are not used);
 - starts a stand-in customer MES on this PC that receives what CNCBridge sends, with an
   inbox page you can open in a browser;
-- opens CNCBridge already set up for the demo. Press **Start monitoring** there.
+- opens CNCBridge already set up for the demo with monitoring started automatically.
 
-The Demo control window then drives the show:
+The **Demo & integration** tab drives the show:
 
 | Button | What it demonstrates |
 |---|---|
@@ -155,7 +209,7 @@ The Demo control window then drives the show:
 | Refuse next file | one refused file is put aside, the rest continue |
 | Copy all test files / Copy one | eight fixed, numbered test files, one situation each |
 | Open test script | the step-by-step sheet: do this, see that |
-| Reset demo | empties the demo folder (close CNCBridge first) |
+| Verify demo pipeline | checks all formats, both routes, back-up, stability, refusal and retry in a new workspace |
 
 The test data are invented pick-and-place board logs. Each has a header block (`B5`
 program, `B6` board serial), a summary block at `L1:M8`, and a parts table from `A12`
@@ -170,6 +224,11 @@ script says.
 - The API token is stored encrypted with Windows DPAPI, bound to this PC. A `config.json`
   copied to another PC keeps every setting except the token. Any Windows user of this PC
   can run the program with it.
+- On Linux/macOS, the configuration is private to its owner (mode 0600), but tokens
+  are not encrypted. Use HTTPS and protect the account and disk.
+- New queue entries remember their destination. Restore the original link/folder
+  to drain them before changing customers. Delivery is at-least-once; a receiving MES
+  must honor Idempotency-Key to suppress duplicates after ambiguous network failures.
 - Closing the window stops monitoring. Files that arrive meanwhile wait in the machine
   folder and are processed at the next start.
 - Not included: picking tables by title, column filters, automatic deletion of old back-ups.
@@ -178,7 +237,19 @@ script says.
 
 ## For developers
 
-Python 3.9 or newer, standard library only.
+Python 3.9 or newer and the filelock package (used by the existing single-instance lock).
+The UI uses Tkinter. Install source dependencies from requirements.txt.
+
+Run **python -m unittest discover -s tests -v**. HTTP tests require loopback sockets; DPAPI tests run on
+Windows. In restricted environments those checks are explicitly skipped. The offline verification
+test uses a named transport double and exercises disk/engine behavior; it does not certify HTTP
+connectivity. Run **python -m demo.verify** on the demo PC for actual HTTP proof.
+
+The eight fixed test fixtures and presentation script can be regenerated with **python -m demo.testdata**.
+For an actual factory pilot, use an approved machine CSV, configure its real ranges and manual values,
+enter the customer shared path/API contract, run Checks, then monitor and verify delivery in History
+and at the destination. The bundled MES is a demonstration receiver; the customer MES still needs its
+own endpoint, authentication and expected schema.
 
 ```
 CNCBridge.pyw            double-click to run from source
