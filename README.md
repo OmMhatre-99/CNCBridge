@@ -1,5 +1,14 @@
 # CNCBridge
 
+New to the project? Read the [complete operator guide](docs/USER_GUIDE.md), also available
+inside the application as **Detailed user guide**. It explains every folder, range selection,
+manual fields, output formats, delivery, daily operation, demo steps and troubleshooting.
+The **Interface** selector offers **Guided** (numbered sidebar with Back/Next) and
+**Full workspace** (tabs). Both use the same machine profile and preserve unsaved values.
+For component-by-component results plus the complete delivery proof, run
+`xvfb-run -a python scripts/verify_all.py --gui` on Linux. See the
+[test coverage and evidence guide](docs/TESTING.md).
+
 The simulator is now integrated with this desktop application. Use **Getting started → Open integrated
 demo**, or run **python -m cncbridge --demo** from the repository folder. This opens the real CNCBridge
 engine with invented machine data, a local HTTP MES receiver, and a separate demo workspace.

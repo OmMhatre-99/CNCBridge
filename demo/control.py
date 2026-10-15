@@ -205,7 +205,7 @@ def build_demo_tab(app, session):
               "acceptance, matching shared-folder bytes, archived originals, retry after restart, "
               "and duplicate / bad-file checks. Open CSV → Load demo sample previews the same ranges."
               ).grid(row=2, column=0, columnspan=3, sticky="w")
-    return tab
+    return tab.notebook_page
 
 
 def main(argv=None):

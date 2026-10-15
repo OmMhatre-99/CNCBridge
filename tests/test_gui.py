@@ -25,12 +25,15 @@ class Desktop(unittest.TestCase):
                         app.change_appearance()
                         app.update()
                         self.assertEqual(app.cget("background"), PALETTES[theme]["background"])
-                        for tab in app.tabs.tabs():
-                            app.tabs.select(tab)
-                            app.update()
+                        for mode in ("Guided", "Full workspace"):
+                            app.workspace.set_mode(mode)
+                            for tab in app.tabs.tabs():
+                                app.tabs.select(tab)
+                                app.update()
+                        app.workspace.set_mode("Guided")
                 self.assertFalse(errors, errors)
                 self.assertEqual(json.loads((Path(tmp) / "appearance.json").read_text()),
-                                 {"theme": theme, "text_size": size})
+                                 {"theme": theme, "text_size": size, "interface": "Guided"})
                 self.assertEqual(len(app.sel_vars), 10)
                 self.assertEqual(len(app.man_vars), 2)
                 self.assertGreater(len(app.help_popups), 30)

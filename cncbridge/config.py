@@ -10,7 +10,7 @@ from pathlib import Path
 from .storage import atomic_write
 
 APP_NAME = "CNCBridge"
-VERSION = "1.1.1"
+VERSION = "1.2.0"
 
 MAX_SELECTIONS = 10
 MAX_MANUAL = 2

@@ -16,6 +16,7 @@ from .font_registration import register_bundled_fonts
 from .operator_help import install_help
 from .config import APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, load_config, normalize_config, save_config
 from .grid import MARK_COLOURS, Grid
+from .workspace import Workspace
 
 log = logging.getLogger("cncbridge")
 
@@ -80,8 +81,9 @@ class App(tk.Tk):
         self._make_vars()
         self._build_toolbar()
         self._build_header()
-        self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=10, pady=(4, 0))
+        self.workspace = Workspace(self)
+        self.workspace.pack(fill="both", expand=True)
+        self.tabs = self.workspace.notebook
         self._build_help()
         self._build_setup()
         self._build_delivery()
@@ -90,17 +92,21 @@ class App(tk.Tk):
         self._build_log()
         self._build_checks()
         self._build_preferences()
+        from .guide_view import UserGuide
+        self.user_guide = UserGuide(self.tabs, self)
+        self.tabs.add(self.user_guide, text="  User guide  ")
         if self.demo_session:
             from demo.control import build_demo_tab
             self.demo_tab = build_demo_tab(self, self.demo_session)
             self.tabs.select(self.demo_tab)
         self._build_footer()
+        self.workspace.configure_pages()
         self.fill(self.cfg)
         self.refresh_preview()
         self.apply_appearance()
         self.help_popups = install_help(self)
         self.tabs.enable_traversal()
-        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
+        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed, add="+")
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         self.stats_thread = threading.Thread(target=self._stats_loop, daemon=True)
@@ -168,7 +174,7 @@ class App(tk.Tk):
         return normalize_config(cfg)
 
     # ================================================================ layout
-    def settings_tab(self, title):
+    def settings_tab(self, title, flexible=False):
         """Keep every setting reachable on small screens and at larger font sizes."""
         outer = ttk.Frame(self.tabs)
         self.tabs.add(outer, text=title)
@@ -181,18 +187,26 @@ class App(tk.Tk):
         canvas.grid(row=0, column=0, sticky="nsew")
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal.grid(row=1, column=0, sticky="ew")
+        if flexible:
+            horizontal.grid_remove()
         body = ttk.Frame(canvas, padding=10)
+        body.notebook_page = outer
         item = canvas.create_window((0, 0), window=body, anchor="nw")
 
         def resize(_event=None):
-            canvas.itemconfigure(item, width=max(canvas.winfo_width(), body.winfo_reqwidth()))
+            canvas.itemconfigure(item, width=canvas.winfo_width() if flexible else max(canvas.winfo_width(), body.winfo_reqwidth()))
             canvas.configure(scrollregion=canvas.bbox("all"))
         canvas.bind("<Configure>", resize)
         body.bind("<Configure>", resize)
         return body
 
+    def reading_label(self, parent, text, **kwargs):
+        label = ttk.Label(parent, text=text, justify="left", wraplength=600, **kwargs)
+        label.bind("<Configure>", lambda event: label.configure(wraplength=max(160, event.width - 12)))
+        return label
+
     def _build_help(self):
-        tab = self.settings_tab("  Getting started  ")
+        tab = self.settings_tab("  Getting started  ", flexible=True)
         ttk.Label(tab, text="Connect your machine CSV files to the MES", style="Go.TLabel").pack(anchor="w")
         for title, detail in (
             ("1. Try the demo", "Open the integrated demo to generate invented board logs and see real "
@@ -209,10 +223,14 @@ class App(tk.Tk):
         ):
             box = ttk.LabelFrame(tab, text=f" {title} ", padding=10)
             box.pack(fill="x", pady=6)
-            ttk.Label(box, text=detail, wraplength=self.px(950), justify="left").pack(anchor="w")
+            self.reading_label(box, detail).pack(fill="x")
         ttk.Button(tab, text="Open integrated demo", command=self.launch_demo).pack(anchor="w", pady=6)
         ttk.Label(tab, text="Use Appearance to change colors or enlarge all text.",
                   style="Small.TLabel").pack(anchor="w")
+        ttk.Button(tab, text="Read the detailed user guide", command=lambda: self.workspace.go_to("User guide")
+                   ).pack(anchor="w", pady=6)
+        self.reading_label(tab, "New here? Use Guided in the Interface selector, then follow the numbered sidebar. "
+                           "Use Full workspace for the tabbed layout.").pack(fill="x", pady=6)
 
     def launch_demo(self):
         if self.demo_session:
@@ -251,7 +269,7 @@ class App(tk.Tk):
                   wraplength=self.px(900)).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=12)
 
     def change_appearance(self):
-        self.appearance.preferences = {"theme": self.theme_choice.get(), "text_size": self.size_choice.get()}
+        self.appearance.preferences.update(theme=self.theme_choice.get(), text_size=self.size_choice.get())
         self.apply_appearance()
         self.appearance.save()
         self.status_msg.set("Appearance saved.")
@@ -434,7 +452,8 @@ class App(tk.Tk):
         self.headers_text.grid(row=4, column=1, sticky="ew", padx=(6, 0), pady=3)
         ttk.Label(box, style="Small.TLabel", wraplength=self.px(380), justify="left",
                   text="One per line, for example  X-Api-Key: abc123. The token is sent as "
-                       "Authorization: Bearer <token> and is stored encrypted.").grid(row=5, column=1, sticky="w",
+                       "Authorization: Bearer <token>. Windows encrypts saved tokens; Linux/macOS "
+                       "save them in a private configuration file.").grid(row=5, column=1, sticky="w",
                                                                                       padx=(6, 0))
         ttk.Button(box, text="Test connection", command=self.test_api).grid(row=6, column=1, sticky="w", padx=6,
                                                                            pady=(6, 0))

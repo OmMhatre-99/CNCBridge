@@ -30,7 +30,7 @@ class Hardening(unittest.TestCase):
         with self.assertRaises(ValueError):
             config.normalize_config([])
         self.assertEqual(normalize_preferences({"theme": [], "text_size": {}}),
-                         {"theme": "Light", "text_size": "Medium"})
+                         {"theme": "Light", "text_size": "Medium", "interface": "Guided"})
 
     def test_failed_publication_preserves_previous_file_and_cleans_temp(self):
         with tempfile.TemporaryDirectory() as tmp:

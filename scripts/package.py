@@ -48,6 +48,8 @@ def deb(out):
         docs.mkdir(parents=True)
         shutil.copy2(ROOT / "README.md", docs)
         shutil.copy2(ROOT / "docs" / "RELEASE_READINESS.md", docs)
+        shutil.copy2(ROOT / "docs" / "USER_GUIDE.md", docs)
+        shutil.copy2(ROOT / "docs" / "TESTING.md", docs)
         control = stage / "DEBIAN"
         control.mkdir()
         (control / "control").write_text(
@@ -95,6 +97,7 @@ def frozen(out):
         for name in ("CNCBridge", "CNCBridgeDemo"):
             shutil.copytree(build / "dist" / f"{name}.app", staging / f"{name}.app", symlinks=True)
         (staging / "Applications").symlink_to("/Applications")
+        shutil.copy2(ROOT / "docs" / "USER_GUIDE.md", staging / "User guide.md")
         run(staging / "CNCBridge.app" / "Contents" / "MacOS" / "CNCBridge", "--demo-check",
             "--data", build / "frozen-proof")
         target = out / f"CNCBridge-{VERSION}-macos-{platform.machine()}.dmg"
@@ -110,6 +113,9 @@ def main():
     out = ROOT / "artifacts"
     out.mkdir(exist_ok=True)
     artifacts = deb(out) if args.deb else frozen(out)
+    guide = out / f"CNCBridge-{VERSION}-User-Guide.md"
+    shutil.copy2(ROOT / "docs" / "USER_GUIDE.md", guide)
+    artifacts.append(guide)
     for artifact in artifacts:
         digest = hashlib.sha256(artifact.read_bytes()).hexdigest()
         artifact.with_suffix(artifact.suffix + ".sha256").write_text(f"{digest}  {artifact.name}\n")

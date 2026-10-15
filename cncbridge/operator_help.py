@@ -27,6 +27,7 @@ TAB_HELP = {
     "History": "Recent source files and the delivery status of each output.",
     "Log": "Technical messages for troubleshooting processing and delivery.",
     "Appearance": "Change colors and text size without changing machine settings.",
+    "User guide": "Search the complete offline manual, folder meanings, setup steps and troubleshooting.",
     "Checks": "Check folders and extraction. API testing sends a small test file only when selected.",
 }
 

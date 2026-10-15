@@ -43,9 +43,10 @@ def resolve_font_families(root):
 
 def normalize_preferences(values):
     values = values if isinstance(values, dict) else {}
-    theme, size = values.get("theme"), values.get("text_size")
+    theme, size, interface = values.get("theme"), values.get("text_size"), values.get("interface")
     return {"theme": theme if isinstance(theme, str) and theme in PALETTES else "Light",
-            "text_size": size if isinstance(size, str) and size in SIZES else "Medium"}
+            "text_size": size if isinstance(size, str) and size in SIZES else "Medium",
+            "interface": interface if isinstance(interface, str) and interface in ("Guided", "Full workspace") else "Guided"}
 
 
 class Appearance:
@@ -109,6 +110,7 @@ class Appearance:
         self.style.configure("Count.TLabel", font=(family, size + 5, "bold"))
         self.style.configure("Treeview", background=c["panel"], fieldbackground=c["panel"],
                              rowheight=self.root.px(size * 2 + 6))
+        self.style.configure("Nav.Treeview", rowheight=self.root.px(size * 2 + 14), font=(family, size))
         self.style.map("Treeview", background=[("selected", c["selection"])],
                        foreground=[("selected", c["text"])])
         self.style.map("TNotebook.Tab", background=[("selected", c["panel"])],
@@ -131,7 +133,7 @@ class Appearance:
                         root=self.root, font=configured).actual()
                 original = self.explicit_fonts[key]
                 font = self.font_objects.get(key) or tkfont.Font(root=self.root, **original)
-                mono = isinstance(widget, tk.Text) or original["family"].lower() in (
+                mono = (isinstance(widget, tk.Text) and not getattr(widget, "reading_text", False)) or original["family"].lower() in (
                     "consolas", "courier", "courier new", "roboto mono", "dejavu sans mono")
                 font.configure(family=self.root.font_families["mono" if mono else "body"],
                                size=max(7, round(abs(original["size"]) * self.points / 9)))

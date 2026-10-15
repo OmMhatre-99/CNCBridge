@@ -51,6 +51,8 @@ def main(argv=None):
     mode.add_argument("--demo-check", action="store_true", help="verify simulated delivery and retain a proof report")
     ap.add_argument("--data", help="data folder, or an isolated workspace when using --demo / --demo-check")
     args = ap.parse_args(argv)
+    if args.once and not args.headless:
+        ap.error("--once requires --headless")
 
     if args.demo_check:
         from demo.verify import main as verify
@@ -86,6 +88,10 @@ def main(argv=None):
             return 0
 
         eng = engine.Engine(load_config(data_dir / "config.json"), data_dir)
+        problems = engine.validate(eng.cfg)
+        if problems:
+            log.error("Monitoring cannot start: %s", " ".join(problems))
+            return 2
         if args.once:
             if session:
                 session.drop_board()
