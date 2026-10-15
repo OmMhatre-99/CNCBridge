@@ -7,6 +7,7 @@ from email.parser import BytesParser
 from email.policy import default
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from socketserver import TCPServer
 from urllib.parse import urlparse
 
 
@@ -15,6 +16,13 @@ class ExclusiveHTTPServer(ThreadingHTTPServer):
     # versions. Demo instances must never accept each other's customer payloads.
     allow_reuse_address = False
     allow_reuse_port = False
+
+    def server_bind(self):
+        # The receiver is loopback-only. HTTPServer's reverse-DNS lookup can
+        # otherwise block startup for tens of seconds on macOS.
+        TCPServer.server_bind(self)
+        self.server_name = "localhost"
+        self.server_port = self.server_address[1]
 
 PAGE = """<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">

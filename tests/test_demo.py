@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -171,6 +172,15 @@ class StandInMES(unittest.TestCase):
             self.assertNotEqual(other.port, self.mes.port)
         finally:
             other.server.server_close()
+
+    def test_receiver_startup_does_not_require_reverse_dns(self):
+        with patch("socket.getfqdn", side_effect=AssertionError("reverse DNS must not be consulted")):
+            other = MockMES(self.tmp / "no-dns", port=0)
+        try:
+            self.assertEqual(other.server.server_name, "localhost")
+            self.assertEqual(other.server.server_port, other.port)
+        finally:
+            other.close()
 
     def test_engine_delivers_to_it(self):
         ws = self.tmp / "ws"

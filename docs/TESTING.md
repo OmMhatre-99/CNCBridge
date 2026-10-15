@@ -19,7 +19,7 @@ the assertions and report determine whether handling worked.
 | Component | Verified behavior |
 | --- | --- |
 | Configuration | Defaults, malformed values, numeric intervals, booleans, duplicate manual names, token save/load and POSIX permissions |
-| Instance/CLI | A second instance is blocked; lock releases; bad/incomplete profiles return errors; headless demo performs real delivery |
+| Instance/CLI | A second instance is blocked; lock releases; bad/incomplete profiles return errors; headless demo delivers without importing Tk |
 | CSV reading | UTF variants and Windows encoding; explicit/automatic separators; semicolon files with decimal commas |
 | Range selection | Fixed/single/open ranges, headers, empty/out-of-bounds data and collision-free column keys |
 | Rendering | JSON, CSV and TXT include selections, metadata and two manual fields |
@@ -28,7 +28,7 @@ the assertions and report determine whether handling worked.
 | File pipeline | Source snapshot consistency, changing/unfinished files, available/unavailable backup and bad-file quarantine |
 | Shared delivery | Exact output bytes, writable probes, independent queuing and held queues after destination changes |
 | HTTP delivery | Raw/multipart bodies, authentication, redirects, outage retry/restart and isolated permanent refusal |
-| Demo components | Deterministic test cases, variable table lengths, receiver storage and exclusive-port behavior |
+| Demo components | Deterministic test cases, variable table lengths, receiver storage, exclusive ports and startup without reverse DNS |
 | Fonts/themes | Font assets/licenses, bundle paths and missing-library fallback; all 32 layout/theme/size combinations in Linux UI tests |
 | Tooltips/grid | Keyboard anchors, theme changes, tooltip colors and callback cleanup |
 | Guided/full layouts | Navigation and mode changes preserve the selected page and unsaved settings |

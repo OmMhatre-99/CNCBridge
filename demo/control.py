@@ -9,7 +9,6 @@ import time
 import uuid
 import webbrowser
 from pathlib import Path
-from tkinter import messagebox, ttk
 
 from cncbridge import engine
 from cncbridge.config import load_config, normalize_config, save_config
@@ -129,6 +128,7 @@ class DemoSession:
 
 
 def build_demo_tab(app, session):
+    from tkinter import messagebox, ttk
     tab = app.settings_tab("  Demo & integration  ")
     intro = ttk.LabelFrame(tab, text=" Live demonstration with the CNCBridge engine ", padding=12)
     intro.pack(fill="x", pady=(0, 10))

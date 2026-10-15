@@ -21,7 +21,7 @@ queued payloads to their original destination. Demo listeners require exclusive
 ports on Windows/macOS. The ZIP's older engine, private data and Git metadata are
 excluded; docs/FRIEND_ZIP_MERGE.md records the integration decisions.
 
-Validation includes 75 tests on Kali with native Tk enabled, with the Windows DPAPI
+Validation includes 77 tests on Kali with native Tk enabled, with the Windows DPAPI
 check skipped. GUI coverage includes all 32 layout/theme/size combinations, keyboard
 anchors, tooltip cleanup, mode changes and guide search. A complete desktop test
 uses both layouts and all three formats with real shared/HTTP delivery and archives.

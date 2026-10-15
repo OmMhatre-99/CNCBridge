@@ -72,3 +72,12 @@ class EntryPoint(unittest.TestCase):
             self.assertTrue(json.loads(shared.read_text())["manual_inputs"])
             self.assertEqual(len(list((root / "backup").glob("*/*.csv"))), 1)
             self.assertEqual(list((root / "machine").glob("*.csv")), [])
+
+    def test_headless_demo_does_not_require_tk(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            code = ("import sys, runpy; sys.modules['tkinter'] = None; "
+                    "runpy.run_module('cncbridge', run_name='__main__')")
+            result = subprocess.run([sys.executable, "-c", code, "--demo", "--headless", "--once",
+                                     "--data", temporary], cwd=ROOT, capture_output=True, text=True, timeout=30)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(Ledger(Path(temporary) / "data/ledger.db").stats(), {"ok": 1})
