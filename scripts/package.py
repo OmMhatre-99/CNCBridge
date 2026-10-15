@@ -32,6 +32,7 @@ def deb(out):
         for name in ("cncbridge", "demo"):
             shutil.copytree(ROOT / name, install / name,
                             ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "workspace"))
+        shutil.copytree(ROOT / "assets", install / "assets")
         launcher = stage / "usr" / "bin" / "cncbridge"
         launcher.parent.mkdir(parents=True)
         launcher.write_text('#!/bin/sh\nexec /usr/bin/python3 /usr/lib/cncbridge/launcher.py "$@"\n')
@@ -69,6 +70,7 @@ def frozen(out):
         build = Path(tmp)
         for name in ("CNCBridge", "CNCBridgeDemo"):
             command = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--windowed",
+                       "--add-data", str(ROOT / "assets") + ":assets",
                        "--name", name, "--distpath", str(build / "dist"),
                        "--workpath", str(build / "work"), "--specpath", str(build)]
             if system == "Windows":

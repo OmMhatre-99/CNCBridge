@@ -14,7 +14,7 @@ Run `python -m unittest discover -s tests -v` and
 `python -m cncbridge --demo-check`. The proof creates an isolated workspace and
 retains exact shared/HTTP payloads, archived originals, a ledger and verification.json.
 Linux UI checks: `CNCBRIDGE_GUI_TESTS=1 xvfb-run -a python -m unittest discover -s tests -v`.
-The UI test exercises all three themes and four sizes; it is not a substitute for
+The UI test exercises all four themes and four sizes; it is not a substitute for
 operator usability testing, screen-reader evaluation, or a visual layout review.
 
 Build `.deb` with `python scripts/package.py --deb` on Debian/Kali/Ubuntu.

@@ -6,6 +6,11 @@ from tkinter import font as tkfont, ttk
 from .storage import atomic_write
 
 PALETTES = {
+    "Industrial": {
+        "background": "#f4f5f2", "panel": "#ffffff", "text": "#26343d", "muted": "#52636b",
+        "line": "#d3dcda", "accent": "#176b70", "selection": "#dcefee",
+        "success": "#176b45", "error": "#a92720", "warning": "#855600",
+    },
     "Light": {
         "background": "#f2f5f8", "panel": "#ffffff", "text": "#17212e", "muted": "#4f5f72",
         "line": "#c7d0db", "accent": "#0759aa", "selection": "#d6e8ff",
@@ -23,6 +28,17 @@ PALETTES = {
     },
 }
 SIZES = {"Small": 9, "Medium": 10, "Large": 12, "Extra large": 14}
+
+
+def resolve_font_families(root):
+    """Friend's bundled typography, with installed-font fallbacks on every OS."""
+    available = {family.casefold(): family for family in tkfont.families(root)}
+    def choose(names, fallback):
+        return next((available[n.casefold()] for n in names if n.casefold() in available),
+                    tkfont.nametofont(fallback, root).actual("family"))
+    return {"body": choose(("Roboto", "Segoe UI", "Helvetica Neue"), "TkDefaultFont"),
+            "heading": choose(("Josefin Sans", "Avenir Next", "Roboto", "Segoe UI"), "TkDefaultFont"),
+            "mono": choose(("Roboto Mono", "Menlo", "Consolas", "DejaVu Sans Mono"), "TkFixedFont")}
 
 
 def normalize_preferences(values):
@@ -63,7 +79,9 @@ class Appearance:
         c, size = self.colors, self.points
         self.root.configure(background=c["background"])
         for name, original in self.defaults.items():
-            tkfont.nametofont(name).configure(size=max(7, round(abs(original["size"]) * size / 9)))
+            tkfont.nametofont(name).configure(
+                family=self.root.font_families["mono" if name == "TkFixedFont" else "body"],
+                size=max(7, round(abs(original["size"]) * size / 9)))
         family = tkfont.nametofont("TkDefaultFont").actual("family")
         self.style.configure(".", background=c["background"], foreground=c["text"],
                              font=(family, size), bordercolor=c["line"],
@@ -80,6 +98,12 @@ class Appearance:
         self.style.map("TButton", background=[("active", c["selection"])],
                        foreground=[("disabled", c["muted"]), ("active", c["text"])])
         self.style.configure("Small.TLabel", foreground=c["muted"], font=(family, max(8, size - 1)))
+        self.style.configure("PageTitle.TLabel", font=(self.root.font_families["heading"], size + 4, "bold"))
+        self.style.configure("EmptyState.TLabel", foreground=c["muted"], padding=12)
+        self.style.configure("Metric.TFrame", relief="solid", borderwidth=1)
+        for name in ("TButton", "Toolbutton", "TEntry", "TCombobox", "TCheckbutton", "TRadiobutton"):
+            self.style.configure(name, focuscolor=c["accent"])
+            self.style.map(name, bordercolor=[("focus", c["accent"])])
         for style in ("Go.TButton", "Go.Toolbutton", "Go.TLabel"):
             self.style.configure(style, font=(family, size, "bold"))
         self.style.configure("Count.TLabel", font=(family, size + 5, "bold"))
@@ -107,7 +131,10 @@ class Appearance:
                         root=self.root, font=configured).actual()
                 original = self.explicit_fonts[key]
                 font = self.font_objects.get(key) or tkfont.Font(root=self.root, **original)
-                font.configure(size=max(7, round(abs(original["size"]) * self.points / 9)))
+                mono = isinstance(widget, tk.Text) or original["family"].lower() in (
+                    "consolas", "courier", "courier new", "roboto mono", "dejavu sans mono")
+                font.configure(family=self.root.font_families["mono" if mono else "body"],
+                               size=max(7, round(abs(original["size"]) * self.points / 9)))
                 self.font_objects[key] = font
                 widget.configure(font=font)
             if isinstance(widget, tk.Text):

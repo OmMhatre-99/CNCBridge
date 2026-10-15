@@ -1,38 +1,32 @@
-Title: Integrate the desktop demo and add operator appearance and preflight controls
+CNCBridge's demo entry point referenced a missing package, and its separate web
+simulator did not exercise the native application. The integrated demo now uses
+the production extraction and delivery engine with generated machine CSVs, a
+local HTTP MES, outage/refusal controls, and retained verification evidence.
 
-The demo launcher and tests referenced a missing demo package, while the committed
-LineBridge simulation exercised a separate engine. CNCBridge now opens its own
-integrated demo with generated CSVs, the production extraction/delivery engine,
-an HTTP MES inbox, outage and refusal controls, and fixed presentation cases.
+The desktop adds a setup guide, preflight checks, four themes and four text sizes.
+UI work from the supplied friend ZIP is integrated through the existing theme
+system: Industrial palette, bundled Roboto fonts with OFL licenses, contextual
+tooltips, keyboard range selection, metric cards, empty states and horizontal
+history/log scrolling. Font assets ship in every package. Simulator entry points
+share the current demo, and shutdown cancels pending window callbacks.
 
-The desktop UI adds a getting-started guide, explicit preflight results, three
-themes and four text sizes. Font and color changes cover the spreadsheet, preview,
-history and log. Scrollable settings keep controls reachable at larger sizes.
+Reliability fixes prevent column-name collisions and output overwrites, use one
+file snapshot for fingerprinting/extraction, validate settings, close HTTP error
+responses, publish durable writes, send stable idempotency keys and bind new
+queued payloads to their original destination. Demo listeners require exclusive
+ports on Windows/macOS. The ZIP's older engine, private data and Git metadata are
+excluded; docs/FRIEND_ZIP_MERGE.md records the integration decisions.
 
-A headless verification command retains evidence for all formats, exact shared/API
-bytes, manual inputs, original archives, duplicate blocking, malformed files,
-incomplete writes, HTTP 503 recovery after restart and HTTP 422 isolation.
-Verification fails if the HTTP receiver cannot start or a delivery check fails.
+Validation: 67 tests on Kali with native Tk enabled, with the Windows DPAPI check
+skipped. GUI coverage includes all 16 theme/size combinations, keyboard anchors
+and tooltip cleanup. The nine real HTTP checks cover JSON/CSV/TXT bytes on both
+routes, original archives, outage/restart recovery, duplicates, malformed files,
+incomplete writes and isolated file refusals. The three-OS workflow reruns native
+tests, verifies delivery and builds Windows EXEs, a Debian package and a macOS DMG.
 
-Validation:
-
-- Source compilation and the available unit tests pass.
-- Loopback HTTP tests are skipped only when local sockets are denied.
-- DPAPI encryption is checked on Windows.
-- On Kali, 62 tests ran: 61 passed and one Windows-only DPAPI check was skipped.
-- Native Tk smoke checks pass all 12 theme/text-size combinations under Xvfb.
-- All nine real HTTP integration proof checks pass. Debian packaging builds locally.
-
-Additional hardening fixes column-key collisions, reused output filenames,
-inconsistent file snapshots, malformed settings and HTTP response resource leaks.
-Atomic writes are durable, POSIX config files are private, uploads include stable
-idempotency keys, and new queues retain their original destination. Native Windows
-and macOS build jobs and a Debian packaging script are included.
-
-This is a release candidate, not a claim of zero bugs or industrial certification.
-See docs/RELEASE_READINESS.md for site qualification, crash reconciliation and
-signing limitations. Native artifacts require successful workflow runs.
+Version 1.1.1 is an unsigned release candidate. See docs/RELEASE_READINESS.md for
+site qualification, crash reconciliation, signing and other deployment gates.
 
 Launch: python -m cncbridge --demo
 Proof: python -m cncbridge --demo-check
-Tests: python -m unittest discover -s tests -v
+Tests: CNCBRIDGE_GUI_TESTS=1 xvfb-run -a python -m unittest discover -s tests -v

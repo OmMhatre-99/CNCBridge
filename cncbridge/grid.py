@@ -25,7 +25,7 @@ class Grid(ttk.Frame):
         super().__init__(master)
         self.on_select = on_select
         self.rows, self.ncols, self.colx = [], 0, [0]
-        self.sel = self.anchor = None
+        self.sel = self.anchor = self.active_cell = None
         self.marks = []  # (slot index, (col1, row1, col2, row2))
         self.colors = {"background": "white", "text": "#17212e", "muted": HEAD_FG,
                        "line": LINE, "panel": HEAD_BG, "selection": SEL_FILL, "accent": SEL_EDGE}
@@ -38,6 +38,7 @@ class Grid(ttk.Frame):
         self.rw = self.cw * 5 + 10
 
         self.canvas = tk.Canvas(self, background="white", highlightthickness=1, highlightbackground="#b5b5b5",
+                                takefocus=True,
                                 yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
         vs = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         hs = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
@@ -54,6 +55,8 @@ class Grid(ttk.Frame):
         c.bind("<Shift-Button-1>", self._drag)
         c.bind("<B1-Motion>", self._drag)
         c.bind("<ButtonRelease-1>", self._release)
+        for key in ("Left", "Right", "Up", "Down"):
+            c.bind(f"<{key}>", self._key_move)
         c.bind("<MouseWheel>", lambda e: self._yview("scroll", -1 if e.delta > 0 else 1, "units"))
         c.bind("<Shift-MouseWheel>", lambda e: self._xview("scroll", -1 if e.delta > 0 else 1, "units"))
         c.bind("<Button-4>", lambda e: self._yview("scroll", -1, "units"))
@@ -63,23 +66,25 @@ class Grid(ttk.Frame):
     def set_appearance(self, colors, points):
         self.colors = colors
         self.font.configure(size=points)
+        families = getattr(self.winfo_toplevel(), "font_families", {})
+        self.font.configure(family=families.get("mono", self.font.actual("family")))
         self.badge_font.configure(size=max(7, points - 2))
         self.cw = max(self.font.measure("0"), 6)
         self.rh = self.font.metrics("linespace") + 8
         self.canvas.configure(background=colors["panel"], highlightbackground=colors["line"],
                               yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
         # Darken the range tints so light cell text stays legible in dark/high-contrast themes.
-        if colors["text"] == "#17212e":
+        if colors["text"] in ("#17212e", "#26343d"):
             self.mark_colors = MARK_COLOURS
         else:
             self.mark_colors = [
                 ("#" + "".join(f"{int(tint[i:i + 2], 16) // 4:02x}" for i in (1, 3, 5)), edge)
                 for tint, edge in MARK_COLOURS
             ]
-        selection, anchor = self.sel, self.anchor
+        selection, anchor, active = self.sel, self.anchor, self.active_cell
         position = (self.canvas.xview()[0], self.canvas.yview()[0])
         self.set_rows(self.rows)
-        self.sel, self.anchor = selection, anchor
+        self.sel, self.anchor, self.active_cell = selection, anchor, active
         self.canvas.xview_moveto(position[0])
         self.canvas.yview_moveto(position[1])
         self.redraw()
@@ -87,7 +92,7 @@ class Grid(ttk.Frame):
     def set_rows(self, rows):
         self.rows = rows
         self.ncols = max((len(r) for r in rows), default=0)
-        self.sel = self.anchor = None
+        self.sel = self.anchor = self.active_cell = None
         widths = [3] * self.ncols
         for r in rows[:500]:  # the first rows are enough to size the columns
             for i, cell in enumerate(r):
@@ -108,6 +113,8 @@ class Grid(ttk.Frame):
 
     def set_selection(self, bounds):
         self.sel = bounds
+        self.anchor = bounds[:2] if bounds else None
+        self.active_cell = bounds[2:] if bounds else None
         self.redraw()
 
     def see(self, col, row):
@@ -138,6 +145,8 @@ class Grid(ttk.Frame):
     def _press(self, event):
         if self.rows:
             self.anchor = self._cell_at(event)
+            self.active_cell = self.anchor
+            self.canvas.focus_set()
             self.sel = self.anchor * 2
             self.redraw()
 
@@ -154,6 +163,7 @@ class Grid(ttk.Frame):
         elif event.x < self.rw:
             c.xview_scroll(-1, "units")
         (ac, ar), (col, row) = self.anchor, self._cell_at(event)
+        self.active_cell = (col, row)
         self.sel = (min(ac, col), min(ar, row), max(ac, col), max(ar, row))
         self.redraw()
         if event.type == tk.EventType.ButtonPress and self.on_select:  # shift-click
@@ -162,6 +172,23 @@ class Grid(ttk.Frame):
     def _release(self, event):
         if self.rows and self.sel and self.on_select:
             self.on_select(self.sel)
+
+    def _key_move(self, event):
+        """Arrow-key range picking from the ZIP; Shift extends from the anchor."""
+        if not self.rows or not self.ncols:
+            return "break"
+        previous = self.active_cell or (0, 0)
+        col, row = previous
+        col = min(max(col + (event.keysym == "Right") - (event.keysym == "Left"), 0), self.ncols - 1)
+        row = min(max(row + (event.keysym == "Down") - (event.keysym == "Up"), 0), len(self.rows) - 1)
+        self.active_cell = (col, row)
+        self.anchor = (self.anchor or previous) if event.state & 1 else self.active_cell
+        ac, ar = self.anchor
+        self.sel = (min(ac, col), min(ar, row), max(ac, col), max(ar, row))
+        self.see(col, row)
+        if self.on_select:
+            self.on_select(self.sel)
+        return "break"
 
     # ---- drawing
     def _box(self, bounds):

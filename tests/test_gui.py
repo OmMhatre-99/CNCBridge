@@ -4,6 +4,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 from cncbridge.appearance import PALETTES, SIZES
 
@@ -32,5 +33,60 @@ class Desktop(unittest.TestCase):
                                  {"theme": theme, "text_size": size})
                 self.assertEqual(len(app.sel_vars), 10)
                 self.assertEqual(len(app.man_vars), 2)
+                self.assertGreater(len(app.help_popups), 30)
+            finally:
+                app.on_close()
+
+    def test_keyboard_ranges_preserve_anchor_and_survive_theme_change(self):
+        from cncbridge.app import App
+        with tempfile.TemporaryDirectory() as tmp:
+            app = App(tmp)
+            try:
+                grid = app.grid_view
+                grid.set_rows([["a", "b", "c"], ["1", "2", "3"]])
+                grid._key_move(SimpleNamespace(keysym="Right", state=1))
+                self.assertEqual(grid.sel, (0, 0, 1, 0))
+                grid._key_move(SimpleNamespace(keysym="Down", state=1))
+                self.assertEqual(grid.sel, (0, 0, 1, 1))
+                app.theme_choice.set("Industrial")
+                app.change_appearance()
+                self.assertEqual(grid.sel, (0, 0, 1, 1))
+                self.assertEqual(grid.active_cell, (1, 1))
+                grid._key_move(SimpleNamespace(keysym="Right", state=0))
+                self.assertEqual(grid.sel, (2, 1, 2, 1))
+                grid._key_move(SimpleNamespace(keysym="Right", state=0))
+                self.assertEqual(grid.sel, (2, 1, 2, 1))
+                grid.set_rows([])
+                self.assertEqual(grid._key_move(SimpleNamespace(keysym="Down", state=1)), "break")
+                self.assertIsNone(grid.sel)
+            finally:
+                app.on_close()
+
+    def test_tooltip_theme_and_destroy_cancel_pending_callbacks(self):
+        from cncbridge.app import App
+        from cncbridge.tooltip import Tooltip
+        from tkinter import ttk
+        with tempfile.TemporaryDirectory() as tmp:
+            app = App(tmp)
+            errors = []
+            app.report_callback_exception = lambda *args: errors.append(args)
+            try:
+                button = ttk.Button(app, text="Help test")
+                button.pack()
+                app.update()
+                tip = Tooltip(button, "Help text", delay=0)
+                tip._enter()
+                app.update()
+                self.assertIsNotNone(tip.tipwindow)
+                label = tip.tipwindow.winfo_children()[0]
+                self.assertEqual(label.cget("background"), app.appearance.colors["panel"])
+                tip._leave()
+                tip.delay = 5000
+                tip._enter()
+                button.destroy()
+                app.update()
+                self.assertIsNone(tip.id)
+                self.assertIsNone(tip.tipwindow)
+                self.assertFalse(errors, errors)
             finally:
                 app.on_close()

@@ -4,9 +4,14 @@ The simulator is now integrated with this desktop application. Use **Getting sta
 demo**, or run **python -m cncbridge --demo** from the repository folder. This opens the real CNCBridge
 engine with invented machine data, a local HTTP MES receiver, and a separate demo workspace.
 
-**Appearance** offers Light, Dark and High contrast themes, plus Small, Medium, Large and Extra large
+**Appearance** offers Light, Industrial, Dark and High contrast themes, plus Small, Medium, Large and Extra large
 text. The spreadsheet, preview, history and log follow these preferences, which are saved separately
 from the machine profile. Setup and Delivery have scrollbars so settings remain reachable.
+
+The friend's UI improvements are integrated: bundled Roboto/Roboto Mono fonts,
+contextual tooltips, keyboard range selection (arrows; Shift extends), history/log
+horizontal scrolling, and a Simulation toolbar shortcut. Font files are loaded
+privately for this process, not installed system-wide. See [merge notes](docs/FRIEND_ZIP_MERGE.md).
 
 The **Checks** tab reports settings, folder access, extraction preview and optional API test results.
 An untested API is labelled **NOT TESTED**. Full delivery proof is available with
