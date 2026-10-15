@@ -25,8 +25,11 @@ class Grid(ttk.Frame):
         super().__init__(master)
         self.on_select = on_select
         self.rows, self.ncols, self.colx = [], 0, [0]
-        self.sel = self.anchor = None
+        self.sel = self.anchor = self.active_cell = None
         self.marks = []  # (slot index, (col1, row1, col2, row2))
+        self.colors = {"background": "white", "text": "#17212e", "muted": HEAD_FG,
+                       "line": LINE, "panel": HEAD_BG, "selection": SEL_FILL, "accent": SEL_EDGE}
+        self.mark_colors = MARK_COLOURS
 
         self.font = tkfont.Font(family="Consolas", size=10)
         self.badge_font = tkfont.Font(family="Segoe UI", size=7, weight="bold")
@@ -35,6 +38,7 @@ class Grid(ttk.Frame):
         self.rw = self.cw * 5 + 10
 
         self.canvas = tk.Canvas(self, background="white", highlightthickness=1, highlightbackground="#b5b5b5",
+                                takefocus=True,
                                 yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
         vs = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         hs = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
@@ -51,14 +55,44 @@ class Grid(ttk.Frame):
         c.bind("<Shift-Button-1>", self._drag)
         c.bind("<B1-Motion>", self._drag)
         c.bind("<ButtonRelease-1>", self._release)
+        for key in ("Left", "Right", "Up", "Down"):
+            c.bind(f"<{key}>", self._key_move)
         c.bind("<MouseWheel>", lambda e: self._yview("scroll", -1 if e.delta > 0 else 1, "units"))
         c.bind("<Shift-MouseWheel>", lambda e: self._xview("scroll", -1 if e.delta > 0 else 1, "units"))
+        c.bind("<Button-4>", lambda e: self._yview("scroll", -1, "units"))
+        c.bind("<Button-5>", lambda e: self._yview("scroll", 1, "units"))
 
     # ---- content
+    def set_appearance(self, colors, points):
+        self.colors = colors
+        self.font.configure(size=points)
+        families = getattr(self.winfo_toplevel(), "font_families", {})
+        self.font.configure(family=families.get("mono", self.font.actual("family")))
+        self.badge_font.configure(size=max(7, points - 2))
+        self.cw = max(self.font.measure("0"), 6)
+        self.rh = self.font.metrics("linespace") + 8
+        self.canvas.configure(background=colors["panel"], highlightbackground=colors["line"],
+                              yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
+        # Darken the range tints so light cell text stays legible in dark/high-contrast themes.
+        if colors["text"] in ("#17212e", "#26343d"):
+            self.mark_colors = MARK_COLOURS
+        else:
+            self.mark_colors = [
+                ("#" + "".join(f"{int(tint[i:i + 2], 16) // 4:02x}" for i in (1, 3, 5)), edge)
+                for tint, edge in MARK_COLOURS
+            ]
+        selection, anchor, active = self.sel, self.anchor, self.active_cell
+        position = (self.canvas.xview()[0], self.canvas.yview()[0])
+        self.set_rows(self.rows)
+        self.sel, self.anchor, self.active_cell = selection, anchor, active
+        self.canvas.xview_moveto(position[0])
+        self.canvas.yview_moveto(position[1])
+        self.redraw()
+
     def set_rows(self, rows):
         self.rows = rows
         self.ncols = max((len(r) for r in rows), default=0)
-        self.sel = self.anchor = None
+        self.sel = self.anchor = self.active_cell = None
         widths = [3] * self.ncols
         for r in rows[:500]:  # the first rows are enough to size the columns
             for i, cell in enumerate(r):
@@ -79,6 +113,8 @@ class Grid(ttk.Frame):
 
     def set_selection(self, bounds):
         self.sel = bounds
+        self.anchor = bounds[:2] if bounds else None
+        self.active_cell = bounds[2:] if bounds else None
         self.redraw()
 
     def see(self, col, row):
@@ -109,6 +145,8 @@ class Grid(ttk.Frame):
     def _press(self, event):
         if self.rows:
             self.anchor = self._cell_at(event)
+            self.active_cell = self.anchor
+            self.canvas.focus_set()
             self.sel = self.anchor * 2
             self.redraw()
 
@@ -125,6 +163,7 @@ class Grid(ttk.Frame):
         elif event.x < self.rw:
             c.xview_scroll(-1, "units")
         (ac, ar), (col, row) = self.anchor, self._cell_at(event)
+        self.active_cell = (col, row)
         self.sel = (min(ac, col), min(ar, row), max(ac, col), max(ar, row))
         self.redraw()
         if event.type == tk.EventType.ButtonPress and self.on_select:  # shift-click
@@ -133,6 +172,23 @@ class Grid(ttk.Frame):
     def _release(self, event):
         if self.rows and self.sel and self.on_select:
             self.on_select(self.sel)
+
+    def _key_move(self, event):
+        """Arrow-key range picking from the ZIP; Shift extends from the anchor."""
+        if not self.rows or not self.ncols:
+            return "break"
+        previous = self.active_cell or (0, 0)
+        col, row = previous
+        col = min(max(col + (event.keysym == "Right") - (event.keysym == "Left"), 0), self.ncols - 1)
+        row = min(max(row + (event.keysym == "Down") - (event.keysym == "Up"), 0), len(self.rows) - 1)
+        self.active_cell = (col, row)
+        self.anchor = (self.anchor or previous) if event.state & 1 else self.active_cell
+        ac, ar = self.anchor
+        self.sel = (min(ac, col), min(ar, row), max(ac, col), max(ar, row))
+        self.see(col, row)
+        if self.on_select:
+            self.on_select(self.sel)
+        return "break"
 
     # ---- drawing
     def _box(self, bounds):
@@ -146,7 +202,7 @@ class Grid(ttk.Frame):
         width, height = c.winfo_width(), c.winfo_height()
         if not self.rows or not self.ncols:
             c.create_text(width / 2, height / 2, text="Open a CSV file from the machine to see it here",
-                          fill="#888888", font=("Segoe UI", 10))
+                          fill=self.colors["muted"], font=self.font)
             return
         x0, y0, rh, rw = int(c.canvasx(0)), int(c.canvasy(0)), self.rh, self.rw
         r_first = max(0, y0 // rh)
@@ -156,14 +212,14 @@ class Grid(ttk.Frame):
 
         visible = [(slot, b) for slot, b in self.marks if b[3] >= b[1] and b[0] < self.ncols]
         for slot, bounds in visible:
-            c.create_rectangle(*self._box(bounds), fill=MARK_COLOURS[slot % 10][0], outline="")
+            c.create_rectangle(*self._box(bounds), fill=self.mark_colors[slot % 10][0], outline="")
         if self.sel:
-            c.create_rectangle(*self._box(self.sel), fill=SEL_FILL, outline="")
+            c.create_rectangle(*self._box(self.sel), fill=self.colors["selection"], outline="")
 
         for r in range(r_first, r_last + 2):
-            c.create_line(x0, rh * (r + 1), x0 + width, rh * (r + 1), fill=LINE)
+            c.create_line(x0, rh * (r + 1), x0 + width, rh * (r + 1), fill=self.colors["line"])
         for col in range(c_first, c_last + 2):
-            c.create_line(rw + self.colx[col], y0, rw + self.colx[col], y0 + height, fill=LINE)
+            c.create_line(rw + self.colx[col], y0, rw + self.colx[col], y0 + height, fill=self.colors["line"])
 
         for r in range(r_first, r_last + 1):
             row, y = self.rows[r], rh * (r + 1) + rh / 2
@@ -173,33 +229,40 @@ class Grid(ttk.Frame):
                     room = (self.colx[col + 1] - self.colx[col] - 10) // self.cw
                     if len(text) > room:
                         text = text[:room - 1] + "…"
-                    c.create_text(rw + self.colx[col] + 5, y, text=text, anchor="w", font=self.font)
+                    c.create_text(rw + self.colx[col] + 5, y, text=text, anchor="w", font=self.font,
+                                  fill=self.colors["text"])
 
         for slot, bounds in visible:
             left, top, right, bottom = self._box(bounds)
-            c.create_rectangle(left, top, right, bottom, outline=MARK_COLOURS[slot % 10][1])
+            c.create_rectangle(left, top, right, bottom, outline=self.mark_colors[slot % 10][1])
         if self.sel:
-            c.create_rectangle(*self._box(self.sel), outline=SEL_EDGE, width=2)
+            c.create_rectangle(*self._box(self.sel), outline=self.colors["accent"], width=2)
 
         # frozen headers, drawn last so that cells scroll underneath them
         sc1, sr1, sc2, sr2 = self.sel or (-1, -1, -1, -1)
-        c.create_rectangle(x0, y0, x0 + width, y0 + rh, fill=HEAD_BG, outline=LINE)
+        c.create_rectangle(x0, y0, x0 + width, y0 + rh, fill=self.colors["background"], outline=self.colors["line"])
         for col in range(c_first, c_last + 1):
             left, right = rw + self.colx[col], rw + self.colx[col + 1]
             if sc1 <= col <= sc2:
-                c.create_rectangle(left, y0, right, y0 + rh, fill=HEAD_SEL, outline=LINE)
-            c.create_line(left, y0, left, y0 + rh, fill=LINE)
-            c.create_text((left + right) / 2, y0 + rh / 2, text=col_letter(col), fill=HEAD_FG, font=self.font)
-        c.create_rectangle(x0, y0, x0 + rw, y0 + height, fill=HEAD_BG, outline=LINE)
+                c.create_rectangle(left, y0, right, y0 + rh, fill=self.colors["selection"],
+                                   outline=self.colors["line"])
+            c.create_line(left, y0, left, y0 + rh, fill=self.colors["line"])
+            c.create_text((left + right) / 2, y0 + rh / 2, text=col_letter(col),
+                          fill=self.colors["text"], font=self.font)
+        c.create_rectangle(x0, y0, x0 + rw, y0 + height, fill=self.colors["background"],
+                           outline=self.colors["line"])
         for r in range(r_first, r_last + 1):
             top = rh * (r + 1)
             if top < y0 + rh:
                 continue
             if sr1 <= r <= sr2:
-                c.create_rectangle(x0, top, x0 + rw, top + rh, fill=HEAD_SEL, outline=LINE)
-            c.create_line(x0, top, x0 + rw, top, fill=LINE)
-            c.create_text(x0 + rw / 2, top + rh / 2, text=str(r + 1), fill=HEAD_FG, font=self.font)
-        c.create_rectangle(x0, y0, x0 + rw, y0 + rh, fill=HEAD_BG, outline=LINE)
+                c.create_rectangle(x0, top, x0 + rw, top + rh, fill=self.colors["selection"],
+                                   outline=self.colors["line"])
+            c.create_line(x0, top, x0 + rw, top, fill=self.colors["line"])
+            c.create_text(x0 + rw / 2, top + rh / 2, text=str(r + 1),
+                          fill=self.colors["text"], font=self.font)
+        c.create_rectangle(x0, y0, x0 + rw, y0 + rh, fill=self.colors["background"],
+                           outline=self.colors["line"])
 
         # slot number on the top-left corner of each assigned range, on top of the headers so column A shows it too
         for slot, bounds in visible:

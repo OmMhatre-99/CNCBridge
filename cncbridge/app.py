@@ -3,14 +3,20 @@ import ctypes
 import logging
 import os
 import queue
+import subprocess
+import sys
 import threading
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import engine
+from .appearance import Appearance, PALETTES, SIZES, resolve_font_families
+from .font_registration import register_bundled_fonts
+from .operator_help import install_help
 from .config import APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, load_config, normalize_config, save_config
 from .grid import MARK_COLOURS, Grid
+from .workspace import Workspace
 
 log = logging.getLogger("cncbridge")
 
@@ -31,11 +37,15 @@ class QueueHandler(logging.Handler):
 
 
 class App(tk.Tk):
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, demo_session=None):
+        self.bundled_fonts = register_bundled_fonts()
         super().__init__()
+        self.font_families = resolve_font_families(self)
         self.data_dir = Path(data_dir)
         self.cfg_path = self.data_dir / "config.json"
         self.cfg = load_config(self.cfg_path)
+        self.demo_session = demo_session
+        self.simulation_process = None
         self.ledger = engine.Ledger(self.data_dir / "ledger.db")
         self.engine = self.thread = None
         self.busy = False            # a one-off "Process now" run is in progress
@@ -46,6 +56,7 @@ class App(tk.Tk):
         self.ui_q, self.log_q = queue.Queue(), queue.Queue()
 
         handler = QueueHandler(self.log_q)
+        self.log_handler = handler
         handler.setFormatter(logging.Formatter("%(asctime)s  %(levelname)-7s  %(message)s", "%H:%M:%S"))
         log.addHandler(handler)
         log.setLevel(logging.INFO)
@@ -66,28 +77,59 @@ class App(tk.Tk):
         style.configure("Go.Toolbutton", font=("Segoe UI", 9, "bold"))
         style.configure("Treeview", rowheight=self.px(22))
 
+        self.appearance = Appearance(self, self.data_dir)
         self._make_vars()
         self._build_toolbar()
         self._build_header()
-        self.tabs = ttk.Notebook(self)
-        self.tabs.pack(fill="both", expand=True, padx=10, pady=(4, 0))
+        self.workspace = Workspace(self)
+        self.workspace.pack(fill="both", expand=True)
+        self.tabs = self.workspace.notebook
+        self._build_help()
         self._build_setup()
         self._build_delivery()
         self._build_pick()
         self._build_history()
         self._build_log()
+        self._build_checks()
+        self._build_preferences()
+        from .guide_view import UserGuide
+        self.user_guide = UserGuide(self.tabs, self)
+        self.tabs.add(self.user_guide, text="  User guide  ")
+        if self.demo_session:
+            from demo.control import build_demo_tab
+            self.demo_tab = build_demo_tab(self, self.demo_session)
+            self.tabs.select(self.demo_tab)
         self._build_footer()
+        self.workspace.configure_pages()
         self.fill(self.cfg)
-        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
+        self.refresh_preview()
+        self.apply_appearance()
+        self.help_popups = install_help(self)
+        self.tabs.enable_traversal()
+        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed, add="+")
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
-        threading.Thread(target=self._stats_loop, daemon=True).start()
-        self.after(200, self._tick)
+        self.stats_thread = threading.Thread(target=self._stats_loop, daemon=True)
+        self.stats_thread.start()
+        self._tick_after = self.after(200, self._tick)
         if self.cfg["autostart"]:
-            self.after(400, lambda: self.start(quiet=True))
+            self._autostart_after = self.after(400, lambda: self.start(quiet=True))
 
     def px(self, n):
         return int(n * self.scale)
+
+    def destroy(self):
+        self.closing.set()
+        for name in ("_tick_after", "_autostart_after", "_close_after"):
+            callback = getattr(self, name, None)
+            if callback:
+                self.after_cancel(callback)
+                setattr(self, name, None)
+        if hasattr(self, "stats_thread"):
+            self.stats_thread.join(timeout=0.2)
+        log.removeHandler(self.log_handler)
+        self.log_handler.close()
+        super().destroy()
 
     # ================================================================ variables <-> settings
     def _make_vars(self):
@@ -132,12 +174,125 @@ class App(tk.Tk):
         return normalize_config(cfg)
 
     # ================================================================ layout
+    def settings_tab(self, title, flexible=False):
+        """Keep every setting reachable on small screens and at larger font sizes."""
+        outer = ttk.Frame(self.tabs)
+        self.tabs.add(outer, text=title)
+        canvas = tk.Canvas(outer, highlightthickness=0)
+        vertical = ttk.Scrollbar(outer, orient="vertical", command=canvas.yview)
+        horizontal = ttk.Scrollbar(outer, orient="horizontal", command=canvas.xview)
+        canvas.configure(yscrollcommand=vertical.set, xscrollcommand=horizontal.set)
+        outer.columnconfigure(0, weight=1)
+        outer.rowconfigure(0, weight=1)
+        canvas.grid(row=0, column=0, sticky="nsew")
+        vertical.grid(row=0, column=1, sticky="ns")
+        horizontal.grid(row=1, column=0, sticky="ew")
+        if flexible:
+            horizontal.grid_remove()
+        body = ttk.Frame(canvas, padding=10)
+        body.notebook_page = outer
+        item = canvas.create_window((0, 0), window=body, anchor="nw")
+
+        def resize(_event=None):
+            canvas.itemconfigure(item, width=canvas.winfo_width() if flexible else max(canvas.winfo_width(), body.winfo_reqwidth()))
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        canvas.bind("<Configure>", resize)
+        body.bind("<Configure>", resize)
+        return body
+
+    def reading_label(self, parent, text, **kwargs):
+        label = ttk.Label(parent, text=text, justify="left", wraplength=600, **kwargs)
+        label.bind("<Configure>", lambda event: label.configure(wraplength=max(160, event.width - 12)))
+        return label
+
+    def _build_help(self):
+        tab = self.settings_tab("  Getting started  ", flexible=True)
+        ttk.Label(tab, text="Connect your machine CSV files to the MES", style="Go.TLabel").pack(anchor="w")
+        for title, detail in (
+            ("1. Try the demo", "Open the integrated demo to generate invented board logs and see real "
+             "shared-folder and API delivery. Use Simulate outage to see files queue and recover."),
+            ("2. Choose your folders", "In Setup, choose the folder where the machine saves CSV files and "
+             "a separate back-up folder. Used originals are moved into dated back-up folders."),
+            ("3. Pick data and format", "Open a machine CSV in Pick ranges & preview. Drag over cells, choose "
+             "one of ten slots and press Assign. Add Operator and Work order in the two manual input fields. "
+             "Choose JSON, CSV or TXT and inspect the preview."),
+            ("4. Choose where to send", "In Delivery, enable a shared folder, an API link, or both. "
+             "Test each route. In Checks, inspect settings and the sample before starting."),
+            ("5. Start and observe", "Press Save settings, then Start monitoring. History shows each "
+             "destination's result. Queued files retry automatically; originals stay in back-up."),
+        ):
+            box = ttk.LabelFrame(tab, text=f" {title} ", padding=10)
+            box.pack(fill="x", pady=6)
+            self.reading_label(box, detail).pack(fill="x")
+        ttk.Button(tab, text="Open integrated demo", command=self.launch_demo).pack(anchor="w", pady=6)
+        ttk.Label(tab, text="Use Appearance to change colors or enlarge all text.",
+                  style="Small.TLabel").pack(anchor="w")
+        ttk.Button(tab, text="Read the detailed user guide", command=lambda: self.workspace.go_to("User guide")
+                   ).pack(anchor="w", pady=6)
+        self.reading_label(tab, "New here? Use Guided in the Interface selector, then follow the numbered sidebar. "
+                           "Use Full workspace for the tabbed layout.").pack(fill="x", pady=6)
+
+    def launch_demo(self):
+        if self.demo_session:
+            self.tabs.select(self.demo_tab)
+            return
+        if self.simulation_process is not None and self.simulation_process.poll() is None:
+            self.status_msg.set("The simulation window is already open.")
+            return
+        if getattr(sys, "frozen", False):
+            command = [sys.executable, "--demo"]
+        else:
+            command = [sys.executable, "-m", "cncbridge", "--demo"]
+        try:
+            self.simulation_process = subprocess.Popen(command, cwd=str(Path(__file__).resolve().parent.parent))
+        except OSError as exc:
+            messagebox.showerror(APP_NAME, f"Could not open the simulation:\n{exc}", parent=self)
+            return
+        self.status_msg.set("Demo opened in a separate window and workspace.")
+
+    def _build_preferences(self):
+        tab = self.settings_tab("  Appearance  ")
+        box = ttk.LabelFrame(tab, text=" Make the window comfortable to read ", padding=16)
+        box.pack(fill="x")
+        self.theme_choice = tk.StringVar(self, self.appearance.preferences["theme"])
+        self.size_choice = tk.StringVar(self, self.appearance.preferences["text_size"])
+        for row, (title, variable, choices) in enumerate((
+            ("Theme", self.theme_choice, tuple(PALETTES)),
+            ("Text size", self.size_choice, tuple(SIZES)),
+        )):
+            ttk.Label(box, text=title).grid(row=row, column=0, sticky="w", padx=6, pady=8)
+            control = ttk.Combobox(box, textvariable=variable, values=choices, state="readonly", width=24)
+            control.grid(row=row, column=1, sticky="w", padx=6, pady=8)
+            control.bind("<<ComboboxSelected>>", lambda event: self.change_appearance())
+        ttk.Label(box, text="Changes apply immediately to the window, spreadsheet, preview, history and log. "
+                  "They are saved automatically on this PC. Scrollbars keep settings reachable at larger sizes.",
+                  wraplength=self.px(900)).grid(row=2, column=0, columnspan=2, sticky="w", padx=6, pady=12)
+
+    def change_appearance(self):
+        self.appearance.preferences.update(theme=self.theme_choice.get(), text_size=self.size_choice.get())
+        self.apply_appearance()
+        self.appearance.save()
+        self.status_msg.set("Appearance saved.")
+
+    def apply_appearance(self):
+        for popup in getattr(self, "help_popups", []):
+            popup._leave()
+        self.appearance.apply()
+        colors = self.appearance.colors
+        self.grid_view.set_appearance(colors, self.appearance.points)
+        for tag, key in (("failed", "error"), ("duplicate", "muted"), ("pending", "warning")):
+            self.history.tag_configure(tag, foreground=colors[key])
+        self.preview_note.configure(foreground=colors["warning"])
+        for tag, key in (("WARNING", "warning"), ("ERROR", "error")):
+            self.log_text.tag_configure(tag, foreground=colors[key])
+        self.shown_history = None
+
     def _build_toolbar(self):
         bar = ttk.Frame(self, padding=(8, 4))
         bar.pack(fill="x")
 
         def button(text, command, style="Toolbutton"):
-            b = ttk.Button(bar, text=text, style=style, command=command, takefocus=False)
+            b = ttk.Button(bar, text=text, style=style, command=command, takefocus=True)
             b.pack(side="left", padx=1)
             return b
 
@@ -149,9 +304,11 @@ class App(tk.Tk):
         self.once_btn = button("↻  Process now", self.process_now)
         divider()
         button("✔  Save settings", self.save)
-        divider()
+        bar = ttk.Frame(self, padding=(8, 2))
+        bar.pack(fill="x")
         button("▦  Open CSV file...", self.open_csv)
-        folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton", takefocus=False)
+        button("Simulation", self.launch_demo)
+        folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton", takefocus=True)
         menu = tk.Menu(folders, tearoff=False)
         for label, key in (("Machine CSV folder", "source_folder"), ("Back-up folder", "backup_folder"),
                            ("Shared folder", "shared_folder")):
@@ -175,7 +332,7 @@ class App(tk.Tk):
         for key, caption in reversed((("ok", "Processed"), ("waiting", "Waiting in folder"),
                                       ("queued", "Queued to send"), ("failed", "Failed files"),
                                       ("rejected", "Refused by API"))):
-            box = ttk.Frame(bar)
+            box = ttk.Frame(bar, style="Metric.TFrame", padding=(6, 3))
             box.pack(side="right", padx=(18, 0))
             self.counts[key] = ttk.Label(box, text="0", style="Count.TLabel", anchor="e")
             self.counts[key].pack(anchor="e")
@@ -195,8 +352,7 @@ class App(tk.Tk):
             var.set(os.path.normpath(folder))
 
     def _build_setup(self):
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="  Setup  ")
+        tab = self.settings_tab("  Setup  ")
         tab.columnconfigure(0, weight=1, uniform="half")
         tab.columnconfigure(1, weight=1, uniform="half")
         tab.rowconfigure(0, weight=1)
@@ -262,8 +418,7 @@ class App(tk.Tk):
                   ).grid(row=MAX_SELECTIONS + 1, column=0, columnspan=5, sticky="w", pady=(8, 0))
 
     def _build_delivery(self):
-        tab = ttk.Frame(self.tabs, padding=10)
-        self.tabs.add(tab, text="  Delivery  ")
+        tab = self.settings_tab("  Delivery  ")
         tab.columnconfigure(0, weight=1, uniform="half")
         tab.columnconfigure(1, weight=1, uniform="half")
         left, right = ttk.Frame(tab), ttk.Frame(tab)
@@ -297,7 +452,8 @@ class App(tk.Tk):
         self.headers_text.grid(row=4, column=1, sticky="ew", padx=(6, 0), pady=3)
         ttk.Label(box, style="Small.TLabel", wraplength=self.px(380), justify="left",
                   text="One per line, for example  X-Api-Key: abc123. The token is sent as "
-                       "Authorization: Bearer <token> and is stored encrypted.").grid(row=5, column=1, sticky="w",
+                       "Authorization: Bearer <token>. Windows encrypts saved tokens; Linux/macOS "
+                       "save them in a private configuration file.").grid(row=5, column=1, sticky="w",
                                                                                       padx=(6, 0))
         ttk.Button(box, text="Test connection", command=self.test_api).grid(row=6, column=1, sticky="w", padx=6,
                                                                            pady=(6, 0))
@@ -338,6 +494,7 @@ class App(tk.Tk):
         top.pack(fill="x")
         ttk.Button(top, text="Open CSV file...", command=self.open_sample_dialog).pack(side="left")
         ttk.Button(top, text="Newest machine file", command=self.open_newest).pack(side="left", padx=6)
+        ttk.Button(top, text="Load demo sample", command=self.load_demo_sample).pack(side="left", padx=6)
         self.sample_label = ttk.Label(top, text="No file open", style="Small.TLabel")
         self.sample_label.pack(side="left", padx=8)
         for fmt in reversed(FORMATS):
@@ -383,6 +540,10 @@ class App(tk.Tk):
     def _build_history(self):
         tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(tab, text="  History  ")
+        ttk.Label(tab, text="File history", style="PageTitle.TLabel").pack(anchor="w", pady=(0, 6))
+        self.history_empty = ttk.Label(tab, text="No files processed yet. Recent deliveries will appear here.",
+                                       style="EmptyState.TLabel")
+        self.history_empty.pack(fill="x")
         bar = ttk.Frame(tab)
         bar.pack(fill="x", pady=(0, 8))
         ttk.Button(bar, text="Open back-up folder",
@@ -401,19 +562,27 @@ class App(tk.Tk):
         self.history.tag_configure("duplicate", foreground=GREY)
         self.history.tag_configure("pending", foreground=AMBER)
         ys = ttk.Scrollbar(tab, orient="vertical", command=self.history.yview)
-        self.history.configure(yscrollcommand=ys.set)
+        xs = ttk.Scrollbar(tab, orient="horizontal", command=self.history.xview)
+        self.history.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+        xs.pack(side="bottom", fill="x")
         ys.pack(side="right", fill="y")
         self.history.pack(fill="both", expand=True)
 
     def _build_log(self):
         tab = ttk.Frame(self.tabs, padding=10)
         self.tabs.add(tab, text="  Log  ")
+        ttk.Label(tab, text="Activity log", style="PageTitle.TLabel").pack(anchor="w", pady=(0, 6))
+        self.log_empty = ttk.Label(tab, text="No activity messages yet. Messages appear as CNCBridge works.",
+                                   style="EmptyState.TLabel")
+        self.log_empty.pack(fill="x")
         self.log_text = tk.Text(tab, wrap="none", font=("Consolas", 9), state="disabled", relief="solid",
                                 borderwidth=1)
         self.log_text.tag_configure("WARNING", foreground=AMBER)
         self.log_text.tag_configure("ERROR", foreground=RED)
         ys = ttk.Scrollbar(tab, orient="vertical", command=self.log_text.yview)
-        self.log_text.configure(yscrollcommand=ys.set)
+        xs = ttk.Scrollbar(tab, orient="horizontal", command=self.log_text.xview)
+        self.log_text.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
+        xs.pack(side="bottom", fill="x")
         ys.pack(side="right", fill="y")
         self.log_text.pack(fill="both", expand=True)
 
@@ -421,6 +590,63 @@ class App(tk.Tk):
         bar = ttk.Frame(self, padding=(12, 8))
         bar.pack(fill="x")
         ttk.Label(bar, textvariable=self.status_msg, style="Small.TLabel").pack(side="left")
+
+    def _build_checks(self):
+        tab = self.settings_tab("  Checks  ")
+        ttk.Label(tab, text="Check your current settings before starting", style="Go.TLabel").pack(anchor="w")
+        ttk.Label(tab, wraplength=self.px(950), text="These checks inspect folders and the sample currently "
+                  "open in the range picker. A successful connection test confirms that a test was accepted. "
+                  "Use Verify demo pipeline for a full simulated machine-to-MES delivery test."
+                  ).pack(anchor="w", pady=8)
+        self.check_api_choice = tk.BooleanVar(self, False)
+        ttk.Checkbutton(tab, text="Send a small API test file to the entered link",
+                        variable=self.check_api_choice).pack(anchor="w")
+        self.check_button = ttk.Button(tab, text="Run checks", command=self.run_checks)
+        self.check_button.pack(anchor="w", pady=8)
+        self.check_result = tk.Text(tab, height=16, width=95, wrap="word", state="disabled",
+                                    font=("Consolas", 10))
+        self.check_result.pack(fill="both", expand=True)
+        ttk.Button(tab, text="Verify demo pipeline (invented data)", command=self.verify_demo).pack(
+            anchor="w", pady=8)
+
+    def run_checks(self):
+        from .checks import run_checks
+        cfg = self.collect()
+        rows = self.sample_rows if self.sample_name else None
+        sample_name = self.sample_name
+        check_api = self.check_api_choice.get()
+        self.check_button.configure(state="disabled")
+        self.status_msg.set("Checking folders, extraction and enabled destinations...")
+
+        def show(text):
+            self.check_result.configure(state="normal")
+            self.check_result.delete("1.0", "end")
+            self.check_result.insert("1.0", text)
+            self.check_result.configure(state="disabled")
+            self.check_button.configure(state="normal")
+            self.status_msg.set("Checks finished. Review results before starting.")
+
+        def job():
+            try:
+                result = run_checks(cfg, self.data_dir, rows, sample_name, check_api)
+                text = "\n\n".join(f"{c['status']} — {c['name']}\n{c['detail']}" for c in result)
+            except Exception as exc:
+                text = f"FAIL — Check could not complete\n{exc}"
+            self.ui_q.put(lambda: show(text))
+        threading.Thread(target=job, daemon=True).start()
+
+    def verify_demo(self):
+        from demo.verify import run_verification
+        self.status_msg.set("Verifying an isolated demo with real HTTP delivery...")
+
+        def work():
+            result = run_verification()
+            lines = [f"{'PASS' if c['ok'] else 'FAIL'}: {c['name']}\n{c['detail']}" for c in result["checks"]]
+            summary = "\n\n".join(lines) + f"\n\nEvidence and report: {result['workspace']}"
+            if not result["ok"]:
+                raise RuntimeError(summary)
+            return summary
+        self._in_background("Demo pipeline verification", work)
 
     # ================================================================ run control
     @property
@@ -498,9 +724,18 @@ class App(tk.Tk):
                           "folder until the program is started again.\n\nClose anyway?", parent=self):
             return
         self.closing.set()
+        if self.demo_session:
+            self.demo_session.stop_machine()
         if self.engine:
             self.engine.stop()
-        self.destroy()
+
+        def finish():
+            if self.running or self.busy:
+                self.status_msg.set("Finishing the current file before closing...")
+                self._close_after = self.after(100, finish)
+            else:
+                self.destroy()
+        finish()
 
     # ================================================================ tests for the two destinations
     def _in_background(self, title, work):
@@ -527,7 +762,8 @@ class App(tk.Tk):
 
     def _open_folder(self, folder):
         if folder and Path(folder).is_dir():
-            os.startfile(folder)
+            from demo.control import open_path
+            open_path(folder)
         else:
             messagebox.showinfo(APP_NAME, "That folder does not exist yet.", parent=self)
 
@@ -548,6 +784,15 @@ class App(tk.Tk):
     def open_csv(self):
         self.tabs.select(self.pick_tab)
         self.open_sample_dialog()
+
+    def load_demo_sample(self):
+        from demo.testdata import CASES
+        self.sample_rows = engine.read_rows(CASES[0].data)
+        self.sample_name = CASES[0].name
+        self.sample_label.configure(text="Invented demo sample: " + self.sample_name)
+        self.pick_range.set("")
+        self.grid_view.set_rows(self.sample_rows)
+        self.refresh_preview()
 
     def open_sample_dialog(self):
         start = self.v["source_folder"].get() if Path(self.v["source_folder"].get() or "?").is_dir() else None
@@ -640,7 +885,7 @@ class App(tk.Tk):
 
     def refresh_preview(self):
         cfg = self.collect()
-        marks, note, text = [], "", ""
+        marks, note, text = [], "", "Your output preview will appear here.\n\nOpen a sample machine file to get started."
         if self.sample_rows:
             for i, sel in enumerate(cfg["selections"]):
                 try:
@@ -681,6 +926,9 @@ class App(tk.Tk):
             self.closing.wait(1.5)
 
     def _tick(self):
+        self._tick_after = None
+        if self.closing.is_set():
+            return
         while True:
             try:
                 self.ui_q.get_nowait()()
@@ -693,6 +941,7 @@ class App(tk.Tk):
             except queue.Empty:
                 break
         if lines:
+            self.log_empty.pack_forget()
             at_end = self.log_text.yview()[1] > 0.999
             self.log_text.configure(state="normal")
             for level, line in lines:
@@ -704,7 +953,9 @@ class App(tk.Tk):
                 self.log_text.see("end")
 
         running = self.running
-        text, colour = ("Monitoring", GREEN) if running else ("Working...", AMBER) if self.busy else ("Stopped", GREY)
+        colors = self.appearance.colors
+        text, colour = ("Monitoring", colors["success"]) if running else (
+            "Working...", colors["warning"]) if self.busy else ("Stopped", colors["muted"])
         self.state_label.configure(text=text)
         self.state_dot.configure(fg=colour)
         idle = not running and not self.busy
@@ -717,11 +968,13 @@ class App(tk.Tk):
         snap = self.snapshot
         if snap:
             for key, label in self.counts.items():
-                colour = RED if key in ("failed", "rejected") and snap[key] else AMBER if key == "queued" and snap[
-                    key] else ""
+                colour = colors["error"] if key in ("failed", "rejected") and snap[key] else colors[
+                    "warning"] if key == "queued" and snap[key] else colors["text"]
                 label.configure(text=str(snap[key]), foreground=colour)
             if snap["history"] != self.shown_history:
                 self.shown_history = snap["history"]
+                if self.shown_history:
+                    self.history_empty.pack_forget()
                 self.history.delete(*self.history.get_children())
                 for row in self.shown_history:
                     pending = "queued" in (row["shared"], row["api"]) or "rejected" in (row["api"] or "")
@@ -729,12 +982,12 @@ class App(tk.Tk):
                     self.history.insert("", "end", tags=(tag,), values=[
                         (row["processed_at"] or "").replace("T", "  "), row["source"], row["status"],
                         row["output"] or "", row["shared"] or "", row["api"] or "", row["message"] or ""])
-        self.after(300, self._tick)
+        self._tick_after = self.after(300, self._tick)
 
 
-def run(data_dir):
+def run(data_dir, demo_session=None):
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp text on high-DPI screens
     except (AttributeError, OSError):
         pass
-    App(data_dir).mainloop()
+    App(data_dir, demo_session=demo_session).mainloop()

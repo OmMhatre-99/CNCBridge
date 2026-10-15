@@ -113,6 +113,7 @@ class EngineEndToEnd(unittest.TestCase):
     @classmethod
     def tearDownClass(cls):
         cls.srv.shutdown()
+        cls.srv.server_close()
         shutil.rmtree(cls.tmp, ignore_errors=True)
 
     def setUp(self):

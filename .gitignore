@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+build/
+/CNCBridge_demo/
+/demo/workspace/
+/data/
+/dist/
+/artifacts/

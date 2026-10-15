@@ -5,7 +5,7 @@ a = Analysis(
     ['CNCBridge.pyw'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('assets', 'assets')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},

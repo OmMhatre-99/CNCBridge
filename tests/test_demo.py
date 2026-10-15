@@ -7,6 +7,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest.mock import patch
 import urllib.error
 import urllib.request
 from datetime import datetime
@@ -130,7 +131,11 @@ class FixedCases(unittest.TestCase):
 class StandInMES(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
-        self.mes = MockMES(self.tmp / "inbox", "tok", port=8790).start()
+        try:
+            self.mes = MockMES(self.tmp / "inbox", "tok", port=8790).start()
+        except PermissionError as exc:
+            shutil.rmtree(self.tmp)
+            self.skipTest(f"Local HTTP listeners are unavailable: {exc}")
 
     def tearDown(self):
         self.mes.close()
@@ -143,6 +148,7 @@ class StandInMES(unittest.TestCase):
             with urllib.request.urlopen(req, timeout=5) as r:
                 return r.status
         except urllib.error.HTTPError as e:
+            e.close()
             return e.code
 
     def test_accepts_and_stores(self):
@@ -166,6 +172,15 @@ class StandInMES(unittest.TestCase):
             self.assertNotEqual(other.port, self.mes.port)
         finally:
             other.server.server_close()
+
+    def test_receiver_startup_does_not_require_reverse_dns(self):
+        with patch("socket.getfqdn", side_effect=AssertionError("reverse DNS must not be consulted")):
+            other = MockMES(self.tmp / "no-dns", port=0)
+        try:
+            self.assertEqual(other.server.server_name, "localhost")
+            self.assertEqual(other.server.server_port, other.port)
+        finally:
+            other.close()
 
     def test_engine_delivers_to_it(self):
         ws = self.tmp / "ws"
