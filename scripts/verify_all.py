@@ -10,6 +10,8 @@ import faulthandler
 import json
 import os
 import platform
+import re
+import subprocess
 from pathlib import Path
 import sys
 import unittest
@@ -67,16 +69,30 @@ def main(argv=None):
             finally:
                 faulthandler.cancel_dump_traceback_later()
     print(f"Tests: {result.testsRun} run; {len(result.failures)} failures, {len(result.errors)} errors, {len(result.skipped)} skipped.", flush=True)
+    print("Checking the retained LineBridge reference implementation...", flush=True)
+    reference_log = output / "reference-tests.log"
+    reference = {"ok": False, "run": None, "log": reference_log.name}
+    with reference_log.open("w", encoding="utf-8") as stream:
+        try:
+            checked = subprocess.run([sys.executable, "-m", "unittest", "discover", "-s",
+                                      str(ROOT / "linebridge-Simulation/tests"), "-v"], cwd=ROOT,
+                                     stdout=stream, stderr=subprocess.STDOUT, timeout=60)
+            reference["ok"] = checked.returncode == 0
+        except (OSError, subprocess.TimeoutExpired) as error:
+            stream.write(f"Reference checks could not complete: {error}\n")
+    count = re.search(r"Ran (\d+) tests?", reference_log.read_text(encoding="utf-8", errors="replace"))
+    if count:
+        reference["run"] = int(count.group(1))
     print("Running nine real HTTP delivery checks...", flush=True)
     from demo.verify import run_verification
     from cncbridge.config import VERSION
     pipeline = run_verification(output / "pipeline")
-    report = {"ok": result.wasSuccessful() and pipeline["ok"],
+    report = {"ok": result.wasSuccessful() and reference["ok"] and pipeline["ok"],
               "version": VERSION, "platform": platform.platform(), "python": sys.version.split()[0],
               "gui_requested": args.gui, "finished_at": datetime.now().isoformat(timespec="seconds"),
               "components": {"run": result.testsRun, "failures": len(result.failures),
                              "errors": len(result.errors), "skipped": len(result.skipped), "tests": result.records},
-              "pipeline": pipeline}
+              "reference": reference, "pipeline": pipeline}
     (output / "report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     def cell(value):
         return str(value).replace("|", "\\|").replace("\n", " ")
@@ -84,6 +100,7 @@ def main(argv=None):
              f"Platform: {report['platform']} / Python {report['python']}",
              f"Desktop tests requested: {args.gui}", "",
              f"{result.testsRun} tests run; {len(result.failures)} failures; {len(result.errors)} errors; {len(result.skipped)} skipped.",
+             f"Retained LineBridge reference: {'PASS' if reference['ok'] else 'FAIL'} ({reference['run']} tests; reference-tests.log).",
              "", "## Complete delivery proof", "", "| Check | Result | Evidence |", "| --- | --- | --- |"]
     for check in pipeline["checks"]:
         lines.append(f"| {cell(check['name'])} | {'PASS' if check['ok'] else 'FAIL'} | {cell(check.get('detail', ''))} |")

@@ -25,7 +25,8 @@ Validation includes 75 tests on Kali with native Tk enabled, with the Windows DP
 check skipped. GUI coverage includes all 32 layout/theme/size combinations, keyboard
 anchors, tooltip cleanup, mode changes and guide search. A complete desktop test
 uses both layouts and all three formats with real shared/HTTP delivery and archives.
-CLI tests cover locking, error exits and a real headless demo. The nine HTTP checks cover bytes on both
+CLI tests cover locking, error exits and a real headless demo. A separate 19-test
+suite checks the retained LineBridge reference implementation. The nine HTTP checks cover bytes on both
 routes, original archives, outage/restart recovery, duplicates, malformed files,
 incomplete writes and isolated file refusals. The three-OS workflow reruns native
 tests, verifies delivery and builds Windows EXEs, a Debian package and a macOS DMG.

@@ -27,9 +27,9 @@ jobs:
       - name: Linux tests including native UI
         if: runner.os == 'Linux'
         run: xvfb-run -a python scripts/verify_all.py --gui --output artifacts/verification
-      - name: Native tests
+      - name: Native tests including desktop
         if: runner.os != 'Linux'
-        run: python scripts/verify_all.py --output artifacts/verification
+        run: python scripts/verify_all.py --gui --output artifacts/verification
       - name: Build Debian package
         if: runner.os == 'Linux'
         run: python scripts/package.py --deb

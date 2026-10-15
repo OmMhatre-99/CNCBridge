@@ -35,11 +35,13 @@ the assertions and report determine whether handling worked.
 | Offline guide | Search, no-results handling, current paths and related-page navigation without exposing tokens |
 | Complete desktop | Both layouts, all three output formats, manual data, real worker threads, History, actual HTTP/shared bytes and original archives |
 | Nine-check proof | Three formats, outage buffering, restart recovery, duplicates, malformed data, completion gate and refusal isolation |
+| Retained LineBridge reference | Its separate 19 parsing/rendering/pipeline/simulator tests, with the receiver socket closed after testing |
 
-The native GitHub workflow runs this verifier on Linux, Windows and macOS. Linux
-includes desktop tests under Xvfb; Windows/macOS record desktop tests as skipped.
+The native GitHub workflow runs this verifier, including automated Tk desktop
+tests, on Linux, Windows and macOS. Linux supplies a display with Xvfb.
 Windows DPAPI is tested on Windows; POSIX file permissions are tested on Unix.
-Each Windows/macOS frozen executable also runs the live proof before packaging.
+The verifier also runs the retained reference implementation in a separate process
+and saves reference-tests.log. Each Windows/macOS frozen executable also runs the live proof before packaging.
 Debian packages can be extracted and tested without installing into the system.
 
 Automated evidence covers the stated cases. Customer hardware, proprietary MES
