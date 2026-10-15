@@ -12,9 +12,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class EntryPoint(unittest.TestCase):
-    def invoke(self, *args):
-        return subprocess.run([sys.executable, "-m", "cncbridge", *map(str, args)],
-                              cwd=ROOT, capture_output=True, text=True, timeout=30)
+    def invoke(self, *args, trace=False):
+        prefix = [sys.executable, "-m", "cncbridge"]
+        if trace:
+            prefix = [sys.executable, "-c", "import faulthandler, runpy; faulthandler.dump_traceback_later(12, repeat=True); runpy.run_module('cncbridge', run_name='__main__')"]
+        try:
+            return subprocess.run([*prefix, *map(str, args)], cwd=ROOT,
+                                  capture_output=True, text=True, timeout=30)
+        except subprocess.TimeoutExpired as error:
+            self.fail(f"CLI exceeded 30 seconds. stdout: {error.stdout!r}\nstderr and thread traces: {error.stderr!r}")
 
     def test_lock_blocks_second_instance_and_is_released(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -53,7 +59,7 @@ class EntryPoint(unittest.TestCase):
     def test_cli_demo_once_delivers_real_http_and_preserves_original(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            result = self.invoke("--demo", "--headless", "--once", "--data", root)
+            result = self.invoke("--demo", "--headless", "--once", "--data", root, trace=True)
             self.assertEqual(result.returncode, 0, result.stderr)
             record = Ledger(root / "data/ledger.db").recent()[0]
             self.assertEqual(record["status"], "ok")
