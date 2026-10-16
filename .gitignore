@@ -2,7 +2,7 @@
 dist/
 build/
 
-# Runtime data: settings with the API token, audit ledger, logs, instance lock, demo workspace
+# Runtime data: settings with the API token, history, logs, lock files
 data/
 logs/
 *.db
@@ -10,10 +10,20 @@ logs/
 *.log
 *.part
 
-# Working folders that the program creates when it runs
+# Folders the program creates when it runs
 /backup/
 /machine/
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
+
+# Environments, test output, system files
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
