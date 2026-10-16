@@ -8,7 +8,7 @@ CNCBridge entry point.
 """
 import argparse
 import logging
-from filelock import FileLock, Timeout
+import msvcrt
 import sys
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
@@ -21,11 +21,13 @@ log = logging.getLogger("cncbridge")
 
 def acquire_lock(data_dir):
     """One running copy per data folder; two would process the same machine files twice."""
-    lock = FileLock(str(Path(data_dir) / "instance.lock"), timeout=0)
+    f = open(Path(data_dir) / "instance.lock", "a+")
     try:
-        lock.acquire()
-        return lock
-    except Timeout:
+        f.seek(0)
+        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
+        return f
+    except OSError:
+        f.close()
         return None
 
 
