@@ -188,5 +188,5 @@ cncbridge/app.py         main window
 cncbridge/grid.py        spreadsheet view with drag selection
 tests/test_engine.py     python -m unittest discover -s tests -v
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)
-build_exe.bat            builds both exe files into dist\ (downloads PyInstaller)
+build_exe.bat            builds CNCBridge.exe, and CNCBridgeDemo.exe where demo\ exists (options: app, demo, clean)
 ```
