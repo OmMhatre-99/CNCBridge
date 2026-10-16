@@ -1,0 +1,29 @@
+# Build output and the exe files (rebuild with build_exe.bat)
+dist/
+build/
+
+# Runtime data: settings with the API token, history, logs, lock files
+data/
+logs/
+*.db
+*.lock
+*.log
+*.part
+
+# Folders the program creates when it runs
+/backup/
+/machine/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments, test output, system files
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.DS_Store
