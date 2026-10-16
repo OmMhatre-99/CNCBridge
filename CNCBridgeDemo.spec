@@ -1,15 +1,11 @@
 # -*- mode: python ; coding: utf-8 -*-
 
-from pathlib import Path
-
-font_dir = Path(SPECPATH) / 'assets' / 'fonts'
-font_data = [(str(path), 'assets/fonts') for path in font_dir.iterdir() if path.is_file()]
 
 a = Analysis(
     ['CNCBridgeDemo.pyw'],
     pathex=[],
     binaries=[],
-    datas=font_data,
+    datas=[('assets/fonts', 'assets/fonts')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
