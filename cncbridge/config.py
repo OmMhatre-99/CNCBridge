@@ -4,7 +4,9 @@ import ctypes
 import json
 import logging
 import os
+import shutil
 import sys
+from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "CNCBridge"
@@ -140,16 +142,66 @@ def save_config(cfg, path):
     os.replace(tmp, p)
 
 
-def default_data_dir():
-    """Settings, ledger, outbox and logs live in 'data' beside the program, or in LocalAppData if that is read-only."""
-    base = Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
-    d = base / "data"
+def program_dir():
+    return Path(sys.executable).parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parent.parent
+
+
+def legacy_data_dir():
+    """Where version 1.0 kept settings and history: 'data' beside the program."""
+    return program_dir() / "data"
+
+
+def _writable(folder):
     try:
-        d.mkdir(parents=True, exist_ok=True)
-        probe = d / ".write_test"
+        folder.mkdir(parents=True, exist_ok=True)
+        probe = folder / ".write_test"
         probe.write_text("ok")
         probe.unlink()
+        return True
     except OSError:
-        d = Path(os.environ.get("LOCALAPPDATA") or Path.home()) / APP_NAME
-        d.mkdir(parents=True, exist_ok=True)
-    return d
+        return False
+
+
+def default_data_dir():
+    """
+    Settings, history, send queue and logs. They are kept outside the program folder, so rebuilding,
+    replacing or tidying up the program cannot delete them: %ProgramData%\\CNCBridge (shared by the
+    window and a background task), else %LOCALAPPDATA%\\CNCBridge.
+    """
+    for root in (os.environ.get("PROGRAMDATA"), os.environ.get("LOCALAPPDATA")):
+        if root and _writable(Path(root) / APP_NAME):
+            return Path(root) / APP_NAME
+    folder = Path.home() / APP_NAME
+    folder.mkdir(parents=True, exist_ok=True)
+    return folder
+
+
+def has_data(folder):
+    """True when a data folder holds settings or history worth keeping."""
+    return any((Path(folder) / name).exists() for name in ("config.json", "ledger.db"))
+
+
+def move_data(old, new, today=None):
+    """
+    Bring an old data folder over to the new location, once: copy everything except the lock file,
+    then rename the old folder so that nothing is processed twice. Returns a sentence for the user,
+    or None when there is nothing to move.
+    """
+    old, new = Path(old), Path(new)
+    if not has_data(old) or has_data(new):
+        return None
+    if old.resolve() == new.resolve():
+        return None
+    shutil.copytree(old, new, dirs_exist_ok=True, ignore=shutil.ignore_patterns("instance.lock"))
+    stamp = f"{today or datetime.now():%Y%m%d}"
+    moved, n = old.with_name(f"{old.name}.moved-{stamp}"), 2
+    while moved.exists():
+        moved, n = old.with_name(f"{old.name}.moved-{stamp}-{n}"), n + 1
+    try:
+        old.rename(moved)
+    except OSError as e:
+        log.warning("Copied %s to %s but could not rename the old folder: %s", old, new, e)
+        return (f"Your settings and history were copied from {old} to {new}. The old folder could not be "
+                f"renamed ({e.strerror}); it is no longer used and can be deleted.")
+    return (f"Your settings and history were moved from {old} to {new}, where a rebuild of the program "
+            f"cannot delete them. The old folder is kept as {moved}.")

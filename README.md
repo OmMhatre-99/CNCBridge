@@ -30,11 +30,17 @@ installed on the machine PC and it needs no internet connection.
 ## Install
 
 Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for example
-`C:\CNCBridge\`, and start it. It creates a `data` folder beside itself for its settings,
-history, send queue and log. (If that location is read-only, `%LOCALAPPDATA%\CNCBridge` is
-used instead.)
+`C:\CNCBridge\`, and start it. Settings, history, send queue and log are kept in the data
+folder `%ProgramData%\CNCBridge` (or `%LOCALAPPDATA%\CNCBridge` if that cannot be written),
+outside the program folder, so replacing or rebuilding the program never removes them.
+**Open folder > Data folder** opens it.
 
-For two machine folders on one PC, use two copies in two folders. Each has its own `data`.
+Upgrading from version 1.0, which kept these in `data` beside the program: the first start
+moves that folder to the new place and renames the old one to `data.moved-<date>`.
+
+For two machine folders on one PC, give each copy its own data folder, for example a shortcut
+to `CNCBridge.exe --data C:\CNCBridge\line2`. Two copies upgraded from 1.0 need nothing: the
+first moves to the new place and the second keeps using its own `data` folder.
 
 ### Bundled fonts
 
@@ -124,8 +130,8 @@ name starting with `.` and ending in `.part`; it gets its real name only when co
 
 | Situation | What happens |
 |---|---|
-| Shared folder or API cannot be reached | Output files wait in `data\outbox` and are sent in order when it is back. Machine files are still processed and backed up. |
-| The API refuses one file (HTTP 400, 409, 413, 415, 422) | That file is moved to `data\rejected`, shown in red in the header and in History, and the next files continue. |
+| Shared folder or API cannot be reached | Output files wait in `outbox` in the data folder and are sent in order when it is back. Machine files are still processed and backed up. |
+| The API refuses one file (HTTP 400, 409, 413, 415, 422) | That file is moved to `rejected` in the data folder, shown in red in the header and in History, and the next files continue. |
 | Wrong token or wrong link (401, 403, 404...) or a redirect | Treated as a problem with the link, not the file: everything waits in the queue until the settings are corrected. |
 | A machine file has no data in any chosen range, or is not a readable CSV | Moved to `back-up\_failed`, listed as failed. |
 | The same file content arrives again | Moved to `back-up\_duplicates` and not sent. Can be switched off under Options. |
@@ -133,7 +139,7 @@ name starting with `.` and ending in `.part`; it gets its real name only when co
 | PC restarted | Settings, history and the send queue are on disk; start the program and it continues. |
 
 The **History** tab lists every file with its result per destination. The **Log** tab and
-`data\logs\cncbridge.log` hold the details.
+`logs\cncbridge.log` in the data folder hold the details.
 
 ## Start automatically
 
@@ -142,8 +148,8 @@ The **History** tab lists every file with its result per destination. The **Log*
   type `shell:startup`).
 - **Without a window**: in Task Scheduler create a task "At startup" that runs
   `C:\CNCBridge\CNCBridge.exe --headless`. Set everything up in the window first; the task
-  uses the same `data` folder. Close the window before the task runs, because only one copy
-  can use a `data` folder at a time.
+  uses the same data folder. Close the window before the task runs, because only one copy
+  can use a data folder at a time.
 
 Command line: `--headless` (no window), `--headless --once` (process what is waiting and
 exit), `--data DIR` (use another data folder).
@@ -190,7 +196,7 @@ script says.
   folder and are processed at the next start.
 - Not included: picking tables by title, column filters, automatic deletion of old back-ups.
 - The rarely changed settings `stable_seconds` (default 2) and `api_timeout` (default 20)
-  are only in `data\config.json`.
+  are only in `config.json` in the data folder.
 
 ## For developers
 

@@ -366,5 +366,108 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(list(self.shared.iterdir()), [])
 
 
+class DataFolder(unittest.TestCase):
+    """Settings and history live outside the program folder, and an old 'data' folder is moved there once."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.old, self.new = self.tmp / "program" / "data", self.tmp / "ProgramData" / "CNCBridge"
+        (self.old / "outbox" / "shared").mkdir(parents=True)
+        (self.old / "logs").mkdir()
+        config.save_config({"station_name": "Line 7", "api_token": "tok"}, self.old / "config.json")
+        engine.Ledger(self.old / "ledger.db").add(source="a.csv", sha256="abc", status="ok", output="a.json")
+        (self.old / "outbox" / "shared" / "a.json").write_text('{"queued": true}')
+        (self.old / "instance.lock").write_text("")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def env(self, **values):
+        saved = {k: os.environ.get(k) for k in values}
+        os.environ.update({k: str(v) for k, v in values.items()})
+        self.addCleanup(lambda: [os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+                                 for k, v in saved.items()])
+
+    def test_default_is_programdata(self):
+        self.env(PROGRAMDATA=self.tmp / "ProgramData", LOCALAPPDATA=self.tmp / "Local")
+        self.assertEqual(config.default_data_dir(), self.tmp / "ProgramData" / "CNCBridge")
+
+    def test_falls_back_to_localappdata(self):
+        (self.tmp / "not_a_folder").write_text("x")  # ProgramData cannot be used
+        self.env(PROGRAMDATA=self.tmp / "not_a_folder", LOCALAPPDATA=self.tmp / "Local")
+        self.assertEqual(config.default_data_dir(), self.tmp / "Local" / "CNCBridge")
+
+    def test_old_folder_is_moved_once(self):
+        message = config.move_data(self.old, self.new, today=datetime(2026, 10, 17))
+        self.assertIn("moved", message)
+        self.assertEqual(config.load_config(self.new / "config.json")["station_name"], "Line 7")
+        self.assertEqual(config.load_config(self.new / "config.json")["api_token"], "tok")
+        self.assertEqual(engine.Ledger(self.new / "ledger.db").recent()[0]["source"], "a.csv")
+        self.assertTrue((self.new / "outbox" / "shared" / "a.json").exists())
+        self.assertFalse((self.new / "instance.lock").exists())
+        self.assertFalse(self.old.exists())
+        self.assertTrue((self.tmp / "program" / "data.moved-20261017" / "config.json").exists())
+        self.assertIsNone(config.move_data(self.old, self.new))  # nothing left to move
+
+    def test_existing_settings_are_never_overwritten(self):
+        config.save_config({"station_name": "New PC"}, self.new / "config.json")
+        self.assertIsNone(config.move_data(self.old, self.new))
+        self.assertEqual(config.load_config(self.new / "config.json")["station_name"], "New PC")
+        self.assertTrue(self.old.exists())
+
+    def test_history_alone_is_moved_too(self):
+        (self.old / "config.json").unlink()  # settings lost, history still there
+        self.assertIn("moved", config.move_data(self.old, self.new, today=datetime(2026, 10, 17)))
+        self.assertEqual(engine.Ledger(self.new / "ledger.db").recent()[0]["source"], "a.csv")
+
+    def test_existing_history_is_never_overwritten(self):
+        engine.Ledger(self.new / "ledger.db").add(source="new.csv", status="ok")
+        self.assertIsNone(config.move_data(self.old, self.new))
+        self.assertEqual(engine.Ledger(self.new / "ledger.db").recent()[0]["source"], "new.csv")
+
+    def test_second_move_on_the_same_day_gets_its_own_name(self):
+        (self.tmp / "program" / "data.moved-20261017").mkdir()
+        config.move_data(self.old, self.new, today=datetime(2026, 10, 17))
+        self.assertTrue((self.tmp / "program" / "data.moved-20261017-2" / "config.json").exists())
+
+    def test_not_moved_while_an_old_copy_runs(self):
+        from cncbridge import __main__ as entry
+        held = entry.acquire_lock(self.old)
+        try:
+            folder, message = entry.choose_data_dir(old=self.old, new=self.new)
+        finally:
+            held.close()
+        self.assertEqual((folder, message), (self.old, None))  # the lock then reports "already running"
+        self.assertFalse((self.new / "config.json").exists())
+        self.assertTrue((self.old / "config.json").exists())
+
+    def test_second_copy_keeps_its_own_folder(self):
+        from cncbridge import __main__ as entry
+        config.save_config({"station_name": "First copy"}, self.new / "config.json")
+        folder, message = entry.choose_data_dir(old=self.old, new=self.new)
+        self.assertEqual((folder, message), (self.old, None))
+        self.assertEqual(config.load_config(self.new / "config.json")["station_name"], "First copy")
+        self.assertEqual(config.load_config(self.old / "config.json")["station_name"], "Line 7")
+
+    def test_fresh_install_and_explicit_folder(self):
+        from cncbridge import __main__ as entry
+        empty = self.tmp / "empty_program" / "data"
+        self.assertEqual(entry.choose_data_dir(old=empty, new=self.new), (self.new, None))
+        self.assertEqual(entry.choose_data_dir(requested=self.tmp / "mine", old=self.old, new=self.new),
+                         ((self.tmp / "mine").resolve(), None))
+        self.assertTrue(self.old.exists())  # an explicit --data never moves anything
+
+    def test_queued_file_is_delivered_after_the_move(self):
+        from cncbridge import __main__ as entry
+        folder, message = entry.choose_data_dir(old=self.old, new=self.new)
+        self.assertEqual(folder, self.new)
+        self.assertIn("moved", message)
+        shared = self.tmp / "shared"
+        eng = engine.Engine(dict(shared_enabled=True, shared_folder=str(shared)), self.new)
+        eng.drain_outbox()
+        self.assertEqual((shared / "a.json").read_text(), '{"queued": true}')
+        self.assertEqual(eng.ledger.recent()[0]["shared"], "ok")
+
+
 if __name__ == "__main__":
     unittest.main()

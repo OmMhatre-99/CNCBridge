@@ -38,7 +38,7 @@ class QueueHandler(logging.Handler):
 
 
 class App(tk.Tk):
-    def __init__(self, data_dir):
+    def __init__(self, data_dir, notice=None):
         self.bundled_fonts = register_bundled_fonts()
         super().__init__()
         self.data_dir = Path(data_dir)
@@ -172,6 +172,8 @@ class App(tk.Tk):
 
         threading.Thread(target=self._stats_loop, daemon=True).start()
         self.after(200, self._tick)
+        if notice:  # e.g. the one-time move of the data folder
+            self.after(600, lambda: messagebox.showinfo(APP_NAME, notice, parent=self))
         if self.cfg["autostart"]:
             self.after(400, lambda: self.start(quiet=True))
 
@@ -1072,9 +1074,9 @@ class App(tk.Tk):
         self.after(300, self._tick)
 
 
-def run(data_dir):
+def run(data_dir, notice=None):
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp text on high-DPI screens
     except (AttributeError, OSError):
         pass
-    App(data_dir).mainloop()
+    App(data_dir, notice).mainloop()
