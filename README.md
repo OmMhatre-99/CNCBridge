@@ -143,7 +143,11 @@ name starting with `.` and ending in `.part`; it gets its real name only when co
 | Back-up drive not available | The machine file is left where it is and nothing is sent for it until the drive is back. |
 | PC restarted | Settings, history and the send queue are on disk; start the program and it continues. |
 
-The **History** tab lists every file with its result per destination. The **Log** tab and
+The **History** tab lists every file with its result per destination. Select rows there and press
+**Send again** to put files the receiving site refused back in the send queue (once its problem is
+fixed), or **Process again** to put machine files that were set aside back in the machine folder
+(for example after correcting a cell range). A duplicate processed again is delivered a second time,
+so CNCBridge asks first. The **Log** tab and
 `logs\cncbridge.log` in the data folder hold the details.
 
 ## Alerts

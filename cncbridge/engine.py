@@ -374,6 +374,12 @@ class Ledger:
         with self._db() as c:
             c.execute(f"UPDATE files SET {kind}=? WHERE output=?", (status, output))
 
+    def note(self, row_id, text):
+        """Add a remark to a file's row, e.g. that it was sent back for another try."""
+        with self._db() as c:
+            c.execute("UPDATE files SET message = CASE WHEN message IS NULL OR message = '' THEN ? "
+                      "ELSE message || '; ' || ? END WHERE id=?", (text, text, row_id))
+
     def stats(self):
         with self._db() as c:
             return dict(c.execute("SELECT status, COUNT(*) FROM files GROUP BY status").fetchall())
@@ -535,6 +541,76 @@ def count_rejected(data_dir):
     return sum(len(_visible(Path(data_dir) / "rejected" / k)) for k in DESTINATIONS)
 
 
+# =============================================================== second chances
+ALLOW_ONCE = "allow_once.json"  # fingerprints that may pass the duplicate check one more time
+
+
+def _allowed(data_dir):
+    try:
+        return json.loads((Path(data_dir) / ALLOW_ONCE).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+
+
+def allow_once(data_dir, sha):
+    shas = _allowed(data_dir)
+    if sha not in shas:
+        atomic_write(Path(data_dir) / ALLOW_ONCE, json.dumps(shas + [sha]))
+
+
+def take_allowance(data_dir, sha):
+    """True (once) when this content was sent back on purpose and may be processed again."""
+    shas = _allowed(data_dir)
+    if sha not in shas:
+        return False
+    shas.remove(sha)
+    atomic_write(Path(data_dir) / ALLOW_ONCE, json.dumps(shas))
+    return True
+
+
+def _kept_copy(folder, name):
+    """The file kept under this name in a back-up folder, also when it was stored as name_1.csv etc."""
+    stem, suffix = Path(name).stem, Path(name).suffix
+    pattern = re.compile(rf"^{re.escape(stem)}(_\d+)?{re.escape(suffix)}$", re.I)
+    found = [f for f in Path(folder).glob(f"{stem}*{suffix}") if pattern.match(f.name)] if Path(folder).is_dir() else []
+    return max(found, key=lambda f: f.stat().st_mtime) if found else None
+
+
+def resend_rejected(data_dir, row, ledger):
+    """Put an output file that the receiving site refused back in the send queue. Returns the destinations."""
+    sent = []
+    for kind in DESTINATIONS:
+        refused = _kept_copy(Path(data_dir) / "rejected" / kind, row["output"] or "")
+        if row["output"] and refused:
+            queue = Path(data_dir) / "outbox" / kind
+            queue.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(refused), str(queue / row["output"]))
+            ledger.set_delivery(row["output"], kind, "queued")
+            sent.append(kind)
+    if sent:
+        ledger.note(row["id"], f"queued to send again at {datetime.now():%H:%M}")
+        log.info("%s queued to send again (%s)", row["output"], ", ".join(sent))
+    return sent
+
+
+def reprocess(cfg, data_dir, row, ledger):
+    """
+    Put a machine file that was set aside (failed or duplicate) back in the machine folder, so it is
+    processed again. A duplicate is let through the duplicate check once. Returns the new path or None.
+    """
+    folder = Path(cfg["backup_folder"]) / ("_failed" if row["status"] == "failed" else "_duplicates")
+    kept = _kept_copy(folder, row["source"])
+    if not kept or not cfg["source_folder"]:
+        return None
+    if row["status"] == "duplicate" and row["sha256"]:
+        allow_once(data_dir, row["sha256"])
+    target = _unique(Path(cfg["source_folder"]), row["source"])
+    shutil.move(str(kept), str(target))
+    ledger.note(row["id"], f"sent back to the machine folder at {datetime.now():%H:%M}")
+    log.info("%s sent back to the machine folder to be processed again", row["source"])
+    return target
+
+
 class Engine:
     def __init__(self, cfg, data_dir, config_path=None):
         self.cfg = normalize_config(cfg)  # may be replaced while running; each file uses the current one
@@ -628,7 +704,7 @@ class Engine:
         sha, size = sha256_file(src), src.stat().st_size
         backup = Path(cfg["backup_folder"])
 
-        if cfg["skip_duplicates"] and self.ledger.seen(sha):
+        if cfg["skip_duplicates"] and self.ledger.seen(sha) and not take_allowance(self.data, sha):
             shutil.move(str(src), str(_unique(backup / "_duplicates", src.name)))
             self.ledger.add(source=src.name, sha256=sha, size=size, status="duplicate",
                             message="identical content was already processed")

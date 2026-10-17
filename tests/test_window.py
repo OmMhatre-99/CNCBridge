@@ -310,6 +310,48 @@ class ConnectedToBackground(WindowTest):
         self.run_steps(steps)
 
 
+class HistoryActions(WindowTest):
+    def test_send_again_and_process_again(self):
+        w, api = self.window, Receiver()
+        self.addCleanup(api.close)
+
+        def row_id(source, status):
+            return next(str(r["id"]) for r in w.shown_history if r["source"] == source and r["status"] == status)
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.v["poll_seconds"].set("1")
+            w.b["api_enabled"].set(True)
+            w.v["api_url"].set(api.url)
+            w.sel_vars[0][1].set("B6")
+            w.v["alert_after_minutes"].set("60")
+            w.cfg["stable_seconds"] = 0.3
+            api.status = 422
+            w.start()
+            self.drop("b1.csv", "S1")
+            (self.machine / "junk.csv").write_text("only,one,line\n")
+            yield lambda: w.snapshot and w.snapshot["rejected"] == 1 and w.snapshot["failed"] == 1
+            yield lambda: len(w.history.get_children()) == 2
+
+            w.history.selection_set([row_id("b1.csv", "ok")])
+            w.update()
+            self.assertEqual((str(w.resend_btn["state"]), str(w.reprocess_btn["state"])), ("normal", "disabled"))
+            api.status = 200
+            w.resend_selected()
+            yield lambda: len(api.got) == 1 and w.snapshot["rejected"] == 0
+
+            w.history.selection_set([row_id("junk.csv", "failed")])
+            w.update()
+            self.assertEqual((str(w.resend_btn["state"]), str(w.reprocess_btn["state"])), ("disabled", "normal"))
+            w.reprocess_selected()
+            self.assertIn("put back in the machine folder", w.status_msg.get())
+            yield lambda: w.snapshot["failed"] == 2  # still not a board log, so it is set aside again
+            w.stop()
+            yield lambda: not w.running
+        self.run_steps(steps)
+
+
 class SettingsFiles(WindowTest):
     def test_export_import_and_restore(self):
         w = self.window

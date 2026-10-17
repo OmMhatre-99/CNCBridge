@@ -568,6 +568,86 @@ class Alerting(unittest.TestCase):
         self.assertNotIn("mail-secret", exported.read_text(encoding="utf-8"))
 
 
+class SecondChances(unittest.TestCase):
+    """Send a refused file again, and process a set-aside machine file again."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.machine, self.backup, self.shared = self.tmp / "machine", self.tmp / "backup", self.tmp / "shared"
+        self.machine.mkdir()
+        self.api = Receiver()
+        self.addCleanup(self.api.close)
+        self.cfg = {"source_folder": str(self.machine), "backup_folder": str(self.backup), "stable_seconds": 0,
+                    "selections": [sel("B6", "Serial")], "alert_after_minutes": 60}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def engine(self, **overrides):
+        return engine.Engine(dict(self.cfg, **overrides), self.tmp / "data")
+
+    def drop(self, name, serial):
+        (self.machine / name).write_bytes(SAMPLE.read_bytes().replace(b"B240001", serial.encode()))
+
+    def row(self, eng, source, status=None):
+        return next(r for r in eng.ledger.recent() if r["source"] == source and (status is None or r["status"] == status))
+
+    def test_refused_file_can_be_sent_again(self):
+        eng = self.engine(api_enabled=True, api_url=self.api.url)
+        self.api.status = 422
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        self.assertTrue(self.row(eng, "a.csv")["api"].startswith("rejected"))
+        self.api.status = 200  # the receiving side fixed its problem
+        self.assertEqual(engine.resend_rejected(eng.data, self.row(eng, "a.csv"), eng.ledger), ["api"])
+        self.assertEqual(self.row(eng, "a.csv")["api"], "queued")
+        eng.drain_outbox()
+        row = self.row(eng, "a.csv")
+        self.assertEqual(row["api"], "ok")
+        self.assertIn("queued to send again", row["message"])
+        self.assertEqual(len(self.api.got), 1)
+        self.assertEqual(engine.count_rejected(eng.data), 0)
+
+    def test_failed_file_can_be_processed_again_after_a_fix(self):
+        eng = self.engine(shared_enabled=True, shared_folder=str(self.shared), selections=[sel("X1:Z5")])
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        self.assertEqual(self.row(eng, "a.csv")["status"], "failed")
+        eng.cfg = config.normalize_config(dict(self.cfg, shared_enabled=True, shared_folder=str(self.shared)))
+        target = engine.reprocess(eng.cfg, eng.data, self.row(eng, "a.csv", "failed"), eng.ledger)
+        self.assertEqual(target, self.machine / "a.csv")
+        eng.scan_once()
+        self.assertEqual(self.row(eng, "a.csv", "ok")["status"], "ok")
+        self.assertIn("sent back to the machine folder", self.row(eng, "a.csv", "failed")["message"])
+        self.assertEqual(len(list(self.shared.glob("a_*.json"))), 1)
+
+    def test_duplicate_passes_once_when_sent_back(self):
+        eng = self.engine(shared_enabled=True, shared_folder=str(self.shared))
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        self.drop("a_copy.csv", "S1")
+        eng.scan_once()
+        duplicate = self.row(eng, "a_copy.csv", "duplicate")
+        engine.reprocess(eng.cfg, eng.data, duplicate, eng.ledger)
+        eng.scan_once()
+        self.assertEqual(self.row(eng, "a_copy.csv", "ok")["status"], "ok")  # let through once
+        self.drop("a_third.csv", "S1")
+        eng.scan_once()
+        self.assertEqual(self.row(eng, "a_third.csv")["status"], "duplicate")  # the pass is used up
+        self.assertEqual(len(list(self.shared.glob("*.json"))), 2)
+
+    def test_kept_copy_with_a_number_is_found(self):
+        folder = self.backup / "_failed"
+        folder.mkdir(parents=True)
+        (folder / "a.csv").write_text("old")
+        newer = folder / "a_1.csv"
+        newer.write_text("newer")
+        os.utime(folder / "a.csv", (time.time() - 60,) * 2)
+        (folder / "ab.csv").write_text("other file")
+        self.assertEqual(engine._kept_copy(folder, "a.csv"), newer)
+        self.assertIsNone(engine._kept_copy(folder, "missing.csv"))
+
+
 class Background(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
