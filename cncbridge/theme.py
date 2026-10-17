@@ -23,6 +23,7 @@ FOCUS = "#a85b00"
 SUCCESS = "#176b45"
 WARNING = "#855600"
 ERROR = "#a92720"
+ERROR_TINT = "#fbe9e7"
 IDLE = MUTED
 WHITE = "#ffffff"
 

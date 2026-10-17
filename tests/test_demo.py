@@ -15,7 +15,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from cncbridge import config, engine  # noqa: E402
+from cncbridge import alerts, config, engine  # noqa: E402
+
+alerts.SENDERS["notify"] = lambda *a, **k: None  # no Windows notifications on screen during tests
 
 try:
     from demo import testdata

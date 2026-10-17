@@ -17,7 +17,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from cncbridge import config, engine  # noqa: E402
+from cncbridge import alerts, config, engine  # noqa: E402
+
+alerts.SENDERS["notify"] = lambda *a, **k: None  # no Windows notifications on screen during tests
 
 logging.getLogger("cncbridge").setLevel(logging.CRITICAL)
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
@@ -402,6 +404,168 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(engine.test_api(cfg), 200)
         self.assertTrue(Path(engine.test_shared(cfg)).is_dir())
         self.assertEqual(list(self.shared.iterdir()), [])
+
+
+class _MailServer:
+    """A minimal SMTP server that keeps the messages it receives (no encryption, no login)."""
+
+    def __init__(self):
+        import socketserver
+        self.messages = []
+        outer = self
+
+        class Handler(socketserver.StreamRequestHandler):
+            def handle(self):
+                def say(line):
+                    self.wfile.write(line.encode() + b"\r\n")
+                say("220 test mail server")
+                while True:
+                    line = self.rfile.readline().decode(errors="replace").strip()
+                    if not line or line.upper().startswith("QUIT"):
+                        say("221 bye")
+                        return
+                    if line.upper().startswith("DATA"):
+                        say("354 go on")
+                        body = []
+                        for raw in iter(self.rfile.readline, b""):
+                            if raw in (b".\r\n", b".\n"):
+                                break
+                            body.append(raw.decode(errors="replace"))
+                        outer.messages.append("".join(body))
+                        say("250 stored")
+                    else:
+                        say("250 ok")
+
+        self.server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), Handler)
+        self.server.daemon_threads = True
+        self.port = self.server.server_address[1]
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+
+class Alerting(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "machine").mkdir()
+        self.sent = []
+        for name in ("notify", "webhook", "email"):
+            original = alerts.SENDERS[name]
+            self.addCleanup(alerts.SENDERS.__setitem__, name, original)
+            alerts.SENDERS[name] = lambda *a, _n=name, **k: self.sent.append((_n, a))
+        self.api = Receiver()
+        self.addCleanup(self.api.close)
+        self.cfg = {"station_name": "Line 7", "source_folder": str(self.tmp / "machine"),
+                    "backup_folder": str(self.tmp / "backup"), "selections": [sel("A12:I*"), sel("B6")],
+                    "api_enabled": True, "api_url": self.api.url, "stable_seconds": 0,
+                    "alert_after_minutes": 0}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def engine(self, **overrides):
+        return engine.Engine(dict(self.cfg, **overrides), self.tmp / "data")
+
+    def drop(self, name, serial):
+        (self.tmp / "machine" / name).write_bytes(SAMPLE.read_bytes().replace(b"B240001", serial.encode()))
+
+    def messages(self, eng):
+        eng.alerts.flush()
+        return [a for name, a in self.sent if name == "notify"]  # (title, text, kind)
+
+    def test_lasting_problem_is_announced_once_and_its_end_too(self):
+        eng = self.engine()
+        self.api.status = 503
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        eng.scan_once()  # still down: no second alert
+        titles = [t for t, *_ in self.messages(eng)]
+        self.assertEqual(titles, ["CNCBridge needs attention - Line 7"])
+        self.assertIn("api", alerts.read_state(self.tmp / "data"))
+        self.api.status = 200
+        eng.scan_once()
+        titles = [t for t, *_ in self.messages(eng)]
+        self.assertEqual(titles[-1], "CNCBridge is working again - Line 7")
+        self.assertEqual(alerts.read_state(self.tmp / "data"), {})
+
+    def test_short_problem_does_not_alert(self):
+        eng = self.engine(alert_after_minutes=10)
+        self.api.status = 503
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        self.assertEqual(self.messages(eng), [])
+
+    def test_files_set_aside_are_announced_each_time(self):
+        eng = self.engine(alert_after_minutes=10)
+        self.api.status = 422
+        self.drop("a.csv", "S1")
+        (self.tmp / "machine" / "junk.csv").write_text("only,one,line\n")
+        os.utime(self.tmp / "machine" / "junk.csv", (time.time() - 60,) * 2)
+        eng.scan_once()
+        texts = [text for _, text, _ in self.messages(eng)]
+        self.assertTrue(any("junk.csv" in t and "_failed" in t for t in texts), texts)
+        self.assertTrue(any("refused" in t and "a_" in t for t in texts), texts)
+
+    def test_channels_that_are_off_send_nothing(self):
+        eng = self.engine(alert_notify=False)
+        self.api.status = 503
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        eng.alerts.flush()
+        self.assertEqual(self.sent, [])
+
+    def test_stopping_clears_the_open_problems(self):
+        eng = self.engine(poll_seconds=0.5)
+        self.api.status = 503
+        self.drop("a.csv", "S1")
+        worker = threading.Thread(target=eng.run_forever, daemon=True)
+        worker.start()
+        deadline = time.time() + 15
+        while not alerts.read_state(self.tmp / "data") and time.time() < deadline:
+            time.sleep(0.1)
+        self.assertIn("api", alerts.read_state(self.tmp / "data"))
+        eng.stop()
+        worker.join(10)
+        self.assertEqual(alerts.read_state(self.tmp / "data"), {})
+
+    def test_webhook_is_really_posted(self):
+        alerts.SENDERS["webhook"] = alerts.post_webhook
+        hook = Receiver()
+        self.addCleanup(hook.close)
+        cfg = config.normalize_config(dict(self.cfg, alert_notify=False, alert_webhook_enabled=True,
+                                           alert_webhook_url=hook.url))
+        self.assertEqual(alerts.send_test(cfg), "Webhook: sent")
+        payload = json.loads(hook.got[0]["body"])
+        self.assertEqual((payload["station"], payload["state"]), ("Line 7", "test"))
+        self.assertIn("Line 7", payload["text"])
+
+    def test_email_is_really_sent(self):
+        alerts.SENDERS["email"] = alerts.send_email
+        mail = _MailServer()
+        self.addCleanup(mail.close)
+        cfg = config.normalize_config(dict(self.cfg, alert_notify=False, alert_email_enabled=True,
+                                           alert_email_server="127.0.0.1", alert_email_port=mail.port,
+                                           alert_email_starttls=False, alert_email_to="qa@example.com"))
+        self.assertEqual(alerts.send_test(cfg), "Email: sent")
+        self.assertIn("Subject: CNCBridge test alert - Line 7", mail.messages[0])
+        self.assertIn("To: qa@example.com", mail.messages[0])
+
+    def test_a_failing_channel_is_reported_not_raised(self):
+        alerts.SENDERS["email"] = alerts.send_email
+        cfg = config.normalize_config(dict(self.cfg, alert_notify=False, alert_email_enabled=True))
+        self.assertIn("Email: failed - enter the mail server", alerts.send_test(cfg))
+        self.assertEqual(alerts.send_test(config.normalize_config(dict(self.cfg, alert_notify=False))),
+                         "No alert channel is switched on.")
+
+    def test_email_password_is_encrypted_and_never_exported(self):
+        path, exported = self.tmp / "config.json", self.tmp / "export.json"
+        config.save_config({"alert_email_password": "mail-secret"}, path)
+        self.assertNotIn("mail-secret", path.read_text(encoding="utf-8"))
+        self.assertEqual(config.load_config(path)["alert_email_password"], "mail-secret")
+        config.export_settings(config.load_config(path), exported)
+        self.assertNotIn("mail-secret", exported.read_text(encoding="utf-8"))
 
 
 class DataFolder(unittest.TestCase):

@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
-from cncbridge import app, engine  # noqa: E402
+from cncbridge import alerts, app, engine  # noqa: E402
 from test_engine import Receiver  # noqa: E402
 
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
@@ -102,6 +102,8 @@ class WindowTest(unittest.TestCase):
         for name in ("showinfo", "showerror", "showwarning"):
             self._patch(messagebox, name, lambda *a, _n=name, **k: self.dialogs.append((_n, a)))
         self._patch(messagebox, "askokcancel", lambda *a, **k: True)
+        self.notified = []  # Windows notifications are recorded, not shown
+        self._patch(alerts, "SENDERS", dict(alerts.SENDERS, notify=lambda *a, **k: self.notified.append(a)))
         self.window = app.App(self.tmp / "data")
 
     def tearDown(self):
@@ -213,6 +215,38 @@ class Monitoring(WindowTest):
             yield lambda: len(w.history.get_children()) == 6
             w.stop()
             yield lambda: not w.running
+        self.run_steps(steps)
+
+
+class AlertsInWindow(WindowTest):
+    def test_banner_follows_the_problem_and_test_alert_reports(self):
+        w, api = self.window, Receiver()
+        self.addCleanup(api.close)
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.v["poll_seconds"].set("1")
+            w.b["api_enabled"].set(True)
+            w.v["api_url"].set(api.url)
+            w.sel_vars[0][1].set("A12:I*")
+            w.v["alert_after_minutes"].set("0")
+            w.cfg["stable_seconds"] = 0.3
+            api.status = 503
+            w.start()
+            self.drop("b1.csv", "S1")
+            yield lambda: w.alert_banner_shown and "api delivery not possible" in w.alert_banner["text"]
+            yield lambda: any("needs attention" in title for title, *_ in self.notified)
+            api.status = 200
+            yield lambda: not w.alert_banner_shown
+            yield lambda: any("working again" in title for title, *_ in self.notified)
+            w.stop()
+            yield lambda: not w.running
+
+            self.dialogs.clear()
+            w.test_alert()
+            yield lambda: self.dialogs
+            self.assertEqual(self.dialogs[0][1][1], "Windows notification: sent")
         self.run_steps(steps)
 
 

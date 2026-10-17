@@ -11,14 +11,14 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import engine
+from . import alerts, engine
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
 from .tooltip import NotebookTabTooltip, Tooltip
 from .grid import MARK_COLOURS, Grid
 from .theme import (ACCENT, ACCENT_HOVER, ACCENT_TINT, ACTIVE_HEADER, BACKGROUND, BORDER,
-                    DISABLED_ACCENT, DISABLED_SURFACE, DISABLED_TEXT, ERROR, FOCUS, FOCUS_SURFACE,
+                    DISABLED_ACCENT, DISABLED_SURFACE, DISABLED_TEXT, ERROR, ERROR_TINT, FOCUS, FOCUS_SURFACE,
                     HOVER_SURFACE, IDLE, MUTED, SUCCESS, SURFACE, SURFACE_ALT, TEXT, WARNING,
                     WHITE, apply_tk_palette, resolve_font_families)
 
@@ -186,8 +186,12 @@ class App(tk.Tk):
     def _make_vars(self):
         self.v = {k: tk.StringVar(self) for k in (
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
-            "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds")}
-        self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart")}
+            "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
+            "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
+            "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to")}
+        self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
+                                                    "alert_notify", "alert_webhook_enabled", "alert_email_enabled",
+                                                    "alert_email_starttls")}
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
@@ -198,8 +202,9 @@ class App(tk.Tk):
 
 
     def fill(self, cfg):
+        numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port")
         for k, var in self.v.items():
-            var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k == "poll_seconds" else cfg[k])
+            var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k in numbers else cfg[k])
         for k, var in self.b.items():
             var.set(cfg[k])
         for (name, rng, header), s in zip(self.sel_vars, cfg["selections"]):
@@ -335,7 +340,12 @@ class App(tk.Tk):
             self.counts[key] = ttk.Label(box, text="0", style="MetricValue.TLabel", anchor="e")
             self.counts[key].pack(anchor="e")
             ttk.Label(box, text=caption, style="CardSmall.TLabel").pack(anchor="e")
-        ttk.Separator(self).pack(fill="x")
+        self.header_sep = ttk.Separator(self)
+        self.header_sep.pack(fill="x")
+        # shown only while an alert is open (see _tick)
+        self.alert_banner = tk.Label(self, text="", anchor="w", justify="left", bg=ERROR_TINT, fg=ERROR,
+                                     font=(self._font_body, 11, "bold"), padx=18, pady=7)
+        self.alert_banner_shown = False
 
     def _page_intro(self, parent, title, hint):
         intro = ttk.Frame(parent)
@@ -546,14 +556,66 @@ class App(tk.Tk):
         delimiter.grid(row=4, column=1, sticky="w", padx=8)
         self.field_widgets["delimiter"] = delimiter
 
+        self._build_alerts(right)
+
         box = ttk.LabelFrame(right, text=" What happens to your files ", padding=(14, 10))
         box.pack(fill="both", expand=True, pady=(14, 0))
         ttk.Label(box, style="Card.TLabel", wraplength=self.px(420), justify="left", text=(
             "1. CNCBridge safely queues each output on this PC.\n\n"
             "2. It sends the file to the destinations you enable. If a destination is unavailable, delivery retries "
             "in order when it returns. Machine files continue to be processed and backed up.\n\n"
-            "3. A file refused by the receiving site is set aside in data\\rejected so other files can continue."
+            "3. A file refused by the receiving site is set aside in 'rejected' in the data folder, so other files "
+            "can continue."
         )).pack(anchor="nw", fill="x", pady=3)
+
+    def _build_alerts(self, parent):
+        box = ttk.LabelFrame(parent, text=" Alerts ", padding=(14, 10))
+        box.pack(fill="x", pady=(14, 0))
+        box.columnconfigure(1, weight=1)
+
+        def check(row, key, text):
+            widget = ttk.Checkbutton(box, text=text, variable=self.b[key])
+            widget.grid(row=row, column=0, columnspan=4, sticky="w", pady=(4, 2))
+            self.field_widgets[key] = widget
+
+        def entry(row, key, label, show=None, width=None):
+            ttk.Label(box, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", padx=(22, 0), pady=3)
+            widget = ttk.Entry(box, textvariable=self.v[key], show=show or "", width=width or 0)
+            widget.grid(row=row, column=1, columnspan=3, sticky="ew" if not width else "w", padx=(8, 0), pady=3)
+            self.field_widgets[key] = widget
+
+        row = ttk.Frame(box)
+        row.grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+        ttk.Label(row, text="Alert when a problem lasts", style="Card.TLabel").pack(side="left")
+        minutes = ttk.Entry(row, textvariable=self.v["alert_after_minutes"], width=4, font=(self._font_mono, 11))
+        minutes.pack(side="left", padx=6)
+        self.field_widgets["alert_after_minutes"] = minutes
+        ttk.Label(row, text="minutes, or a file is set aside", style="Card.TLabel").pack(side="left")
+        check(1, "alert_notify", "Show a Windows notification on this PC")
+        check(2, "alert_webhook_enabled", "Post to a webhook (Teams, Slack or another system)")
+        entry(3, "alert_webhook_url", "Webhook link")
+        check(4, "alert_email_enabled", "Send an email")
+        entry(5, "alert_email_server", "Mail server")
+        ttk.Label(box, text="Port", style="Card.TLabel").grid(row=6, column=0, sticky="w", padx=(22, 0), pady=3)
+        port_row = ttk.Frame(box)
+        port_row.grid(row=6, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=3)
+        port = ttk.Entry(port_row, textvariable=self.v["alert_email_port"], width=7)
+        port.pack(side="left")
+        self.field_widgets["alert_email_port"] = port
+        starttls = ttk.Checkbutton(port_row, text="Encrypt (STARTTLS)", variable=self.b["alert_email_starttls"])
+        starttls.pack(side="left", padx=(16, 0))
+        self.field_widgets["alert_email_starttls"] = starttls
+        entry(7, "alert_email_user", "User name")
+        entry(8, "alert_email_password", "Password", show="●")
+        entry(9, "alert_email_from", "From")
+        entry(10, "alert_email_to", "To")
+        test = ttk.Button(box, text="Send test alert", command=self.test_alert)
+        test.grid(row=11, column=0, columnspan=4, sticky="w", pady=(8, 2))
+        self.field_widgets["test_alert"] = test
+
+    def test_alert(self):
+        cfg = self.collect()
+        self._in_background("Test alert", lambda: alerts.send_test(cfg))
 
     def _build_pick(self):
         tab = ttk.Frame(self.tabs, padding=(20, 18))
@@ -723,6 +785,20 @@ class App(tk.Tk):
             "poll_seconds": "How often CNCBridge checks the machine folder for new files.",
             "encoding": "Choose a character encoding if CSV text looks incorrect; Auto is recommended.",
             "delimiter": "Choose the CSV column separator; Auto is recommended.",
+            "alert_after_minutes": "A problem such as an unreachable destination must last this long before an "
+                                   "alert is sent. Files set aside are announced at once.",
+            "alert_notify": "Show a notification in the corner of this PC's screen.",
+            "alert_webhook_enabled": "Post each alert as JSON to a link, such as a Teams or Slack incoming webhook.",
+            "alert_webhook_url": "The address that receives the alert.",
+            "alert_email_enabled": "Send each alert by email through your mail server.",
+            "alert_email_server": "Name or address of the mail server, for example smtp.example.com.",
+            "alert_email_port": "Usually 587 (with STARTTLS), 465 (encrypted) or 25.",
+            "alert_email_starttls": "Encrypt the connection to the mail server. Leave on unless told otherwise.",
+            "alert_email_user": "Leave empty if the mail server does not ask for a login.",
+            "alert_email_password": "Stored encrypted, like the API token, and never exported.",
+            "alert_email_from": "Sender address; the user name is used when this is empty.",
+            "alert_email_to": "One or more addresses, separated by commas.",
+            "test_alert": "Send a test message through every alert channel that is switched on.",
             "pick_range": "Shows the cell range selected in the grid.",
             "pick_open": "Extend the selected range down to the first empty row.",
             "pick_name": "Name shown for this data in the output file.",
@@ -1059,7 +1135,8 @@ class App(tk.Tk):
                     "waiting": engine.count_waiting(cfg) if cfg["source_folder"] else 0,
                     "queued": sum(engine.count_queued(self.data_dir).values()),
                     "rejected": engine.count_rejected(self.data_dir),
-                    "history": self.ledger.recent(200)}
+                    "history": self.ledger.recent(200),
+                    "alerts": alerts.read_state(self.data_dir)}
             except Exception as e:
                 log.debug("status refresh failed: %s", e)
             self.closing.wait(1.5)
@@ -1102,6 +1179,7 @@ class App(tk.Tk):
 
         snap = self.snapshot
         if snap:
+            self._show_alerts(snap.get("alerts") or {})
             for key, label in self.counts.items():
                 colour = (ERROR if snap[key] else TEXT) if key in ("failed", "rejected") else (
                     WARNING if snap[key] else TEXT) if key == "queued" else (
@@ -1121,6 +1199,19 @@ class App(tk.Tk):
                 else:
                     self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
         self.after(300, self._tick)
+
+
+    def _show_alerts(self, open_alerts):
+        """A red banner under the counters while a problem is open; gone when it is resolved."""
+        if open_alerts:
+            lines = [f"⚠  {item['text']}  (since {item['since'][11:16]})" for item in open_alerts.values()]
+            self.alert_banner.configure(text="\n".join(lines), wraplength=max(self.winfo_width() - 40, 400))
+            if not self.alert_banner_shown:
+                self.alert_banner.pack(fill="x", after=self.header_sep)
+                self.alert_banner_shown = True
+        elif self.alert_banner_shown:
+            self.alert_banner.pack_forget()
+            self.alert_banner_shown = False
 
 
 def run(data_dir, notice=None):

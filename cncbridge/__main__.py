@@ -102,6 +102,7 @@ def main(argv=None):
     eng = engine.Engine(load_config(data_dir / "config.json"), data_dir)
     if args.once:
         log.info("Processed %d file(s)", eng.scan_once())
+        eng.alerts.flush()  # send any alert before the program ends
         return 0
     try:
         eng.run_forever()

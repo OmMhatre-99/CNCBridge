@@ -40,7 +40,21 @@ DEFAULT_CONFIG = {
     "poll_seconds": 3,
     "stable_seconds": 2,                  # file must be untouched this long before it is picked up
     "autostart": False,                   # start monitoring when the program opens
+    # alerts: a problem that lasts alert_after_minutes, or a file set aside, is announced
+    "alert_after_minutes": 10,
+    "alert_notify": True,                 # Windows notification on this PC
+    "alert_webhook_enabled": False,
+    "alert_webhook_url": "",
+    "alert_email_enabled": False,
+    "alert_email_server": "",
+    "alert_email_port": 587,
+    "alert_email_starttls": True,
+    "alert_email_user": "",
+    "alert_email_password": "",           # encrypted on disk, like the API token
+    "alert_email_from": "",
+    "alert_email_to": "",                 # one or more addresses, separated by commas
 }
+SECRET_KEYS = ("api_token", "alert_email_password")  # encrypted on disk, never exported
 
 log = logging.getLogger("cncbridge")
 
@@ -67,10 +81,13 @@ def normalize_config(cfg):
                              for m in mans[:MAX_MANUAL]]
 
     for key in ("station_name", "source_folder", "file_pattern", "backup_folder", "shared_folder",
-                "api_url", "api_token", "encoding", "delimiter"):
+                "api_url", "api_token", "encoding", "delimiter", "alert_webhook_url", "alert_email_server",
+                "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")
-    for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart"):
+    base["alert_email_password"] = str(base["alert_email_password"] or "")  # spaces may be part of it
+    for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "alert_notify",
+                "alert_webhook_enabled", "alert_email_enabled", "alert_email_starttls"):
         base[key] = bool(base[key])
     base["file_pattern"] = base["file_pattern"] or "*.csv"
     base["encoding"] = base["encoding"] or "auto"
@@ -82,6 +99,8 @@ def normalize_config(cfg):
     base["poll_seconds"] = _number(base["poll_seconds"], 3, 0.5)
     base["stable_seconds"] = _number(base["stable_seconds"], 2, 0)
     base["api_timeout"] = _number(base["api_timeout"], 20, 1)
+    base["alert_after_minutes"] = _number(base["alert_after_minutes"], 10, 0)
+    base["alert_email_port"] = int(_number(base["alert_email_port"], 587, 1))
     return base
 
 
@@ -125,18 +144,20 @@ def load_config(path):
     p = Path(path)
     raw = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     cfg = normalize_config(raw)
-    try:
-        cfg["api_token"] = unprotect(cfg["api_token"])
-    except (OSError, ValueError):
-        log.warning("The saved API token cannot be read on this PC - enter it again")
-        cfg["api_token"] = ""
+    for key in SECRET_KEYS:
+        try:
+            cfg[key] = unprotect(cfg[key])
+        except (OSError, ValueError):
+            log.warning("The saved %s cannot be read on this PC - enter it again", key.replace("_", " "))
+            cfg[key] = ""
     return cfg
 
 
 def save_config(cfg, path):
     p = Path(path)
     out = normalize_config(cfg)
-    out["api_token"] = protect(out["api_token"])
+    for key in SECRET_KEYS:
+        out[key] = protect(out[key])
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".part")
     tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -158,11 +179,12 @@ def _keep_backup(path):
 
 def export_settings(cfg, path):
     """
-    Write the settings to a file, for another PC or for safekeeping. The API token is left out: it is
-    encrypted for this PC and would not work anywhere else.
+    Write the settings to a file, for another PC or for safekeeping. The API token and the email password
+    are left out: they are encrypted for this PC and would not work anywhere else.
     """
     out = normalize_config(cfg)
-    out["api_token"] = ""
+    for key in SECRET_KEYS:
+        out[key] = ""
     doc = {"exported_by": f"{APP_NAME} {VERSION}", "exported_at": datetime.now().isoformat(timespec="seconds")}
     doc.update(out)
     Path(path).write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -170,18 +192,19 @@ def export_settings(cfg, path):
 
 def import_settings(path, current):
     """
-    Settings from an exported file or a backup copy. The current API token is kept when the file has
-    none, or has one that cannot be read on this PC.
+    Settings from an exported file or a backup copy. The current API token and email password are kept
+    when the file has none, or has one that cannot be read on this PC.
     """
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or not set(raw) & set(DEFAULT_CONFIG):
         raise ValueError("this is not a CNCBridge settings file")
     cfg = normalize_config(raw)
-    try:
-        token = unprotect(cfg["api_token"])
-    except (OSError, ValueError):
-        token = ""
-    cfg["api_token"] = token or current.get("api_token", "")
+    for key in SECRET_KEYS:
+        try:
+            secret = unprotect(cfg[key])
+        except (OSError, ValueError):
+            secret = ""
+        cfg[key] = secret or current.get(key, "")
     return cfg
 
 

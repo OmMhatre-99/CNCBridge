@@ -32,6 +32,7 @@ import uuid
 from datetime import datetime
 from pathlib import Path
 
+from .alerts import Alerts
 from .config import APP_NAME, VERSION, normalize_config
 
 CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "txt": "text/plain"}
@@ -538,8 +539,10 @@ class Engine:
         self.cfg = normalize_config(cfg)  # may be replaced while running; each file uses the current one
         self.data = Path(data_dir)
         self.ledger = Ledger(self.data / "ledger.db")
+        self.alerts = Alerts(self.data)
         self._stop = threading.Event()
         self._reported = {}  # last problem logged per subject, so a standing fault is logged once, not every cycle
+        self._since = {}     # when each standing fault was first seen, for alert_after_minutes
 
     def stop(self):
         self._stop.set()
@@ -550,12 +553,20 @@ class Engine:
         return d
 
     def _report(self, subject, problem, level=logging.WARNING):
-        """Log a fault when it appears or changes; pass problem=None when the subject is healthy again."""
+        """
+        Log a fault when it appears or changes; pass problem=None when the subject is healthy again.
+        A fault that lasts alert_after_minutes raises an alert, and its end is announced too.
+        """
         if problem is None:
+            self._since.pop(subject, None)
+            self.alerts.resolved(subject, self.cfg)
             return self._reported.pop(subject, None) is not None
         if self._reported.get(subject) != problem:
             self._reported[subject] = problem
             log.log(level, "%s", problem)
+        since = self._since.setdefault(subject, time.time())
+        if time.time() - since >= self.cfg["alert_after_minutes"] * 60:
+            self.alerts.problem(subject, problem, self.cfg)
         return False
 
     # ---- delivery
@@ -572,6 +583,8 @@ class Engine:
                     shutil.move(str(f), str(_unique(self.data / "rejected" / kind, f.name)))
                     self.ledger.set_delivery(f.name, kind, f"rejected ({e})")
                     log.error("%s refused %s: %s - moved to data/rejected", kind, f.name, e)
+                    self.alerts.event(f"The receiving site refused {f.name} ({e}). It was set aside in "
+                                      f"'rejected' in the data folder; the next files continue.", cfg)
                     continue
                 except Exception as e:
                     # destination is down: keep the order and try again next cycle
@@ -635,6 +648,8 @@ class Engine:
             sha, size = sha256_file(src), src.stat().st_size
             shutil.move(str(src), str(_unique(Path(self.cfg["backup_folder"]) / "_failed", src.name)))
             self.ledger.add(source=src.name, sha256=sha, size=size, status="failed", message=str(reason))
+            self.alerts.event(f"Machine file {src.name} could not be used ({reason}). It was moved to "
+                              f"back-up\\_failed.", self.cfg)
         except OSError as e:
             self._report(src.name, f"Could not move {src.name} to back-up/_failed: {e}", logging.ERROR)
 
@@ -675,4 +690,5 @@ class Engine:
             except Exception as e:  # never let the watcher die on the shop floor
                 self._report("scan", f"Scan error: {e}", logging.ERROR)
             self._stop.wait(self.cfg["poll_seconds"])
+        self.alerts.reset()
         log.info("Monitoring stopped")

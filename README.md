@@ -146,6 +146,27 @@ name starting with `.` and ending in `.part`; it gets its real name only when co
 The **History** tab lists every file with its result per destination. The **Log** tab and
 `logs\cncbridge.log` in the data folder hold the details.
 
+## Alerts
+
+CNCBridge tells someone when it needs attention, instead of only writing it to the log:
+
+- a problem that lasts longer than the set time (default 10 minutes): a destination that cannot
+  be reached, a machine file stuck because a folder is unavailable, or incomplete settings. When
+  it clears, a "working again" message follows;
+- a file set aside: a machine file moved to `back-up\_failed`, or a file the API refused.
+
+Set them up under **Alerts** on the Delivery tab:
+
+| Channel | Default | Needs |
+|---|---|---|
+| Windows notification on this PC | on | nothing |
+| Webhook (JSON POST; Teams and Slack incoming webhooks accept it) | off | the link |
+| Email | off | mail server, port, and the address to send to; a login if the server asks for one |
+
+**Send test alert** sends a test through every channel that is switched on and shows the result.
+While a problem is open, a red banner under the counters shows it. The email password is stored
+encrypted, like the API token, and is never exported.
+
 ## Start automatically
 
 - **With the window**: tick *Start monitoring when the program opens* (Delivery tab,
