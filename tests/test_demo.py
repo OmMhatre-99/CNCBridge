@@ -16,8 +16,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 from cncbridge import config, engine  # noqa: E402
-from demo import testdata  # noqa: E402
-from demo.mock_mes import MockMES  # noqa: E402
+
+try:
+    from demo import testdata
+    from demo.mock_mes import MockMES
+except ImportError as error:  # branches without the demo/ folder
+    raise unittest.SkipTest(f"the demo is not on this branch ({error})")
 
 logging.getLogger("cncbridge").setLevel(logging.CRITICAL)
 START = datetime(2026, 10, 9, 10, 0, 0)
