@@ -1,6 +1,7 @@
 # Build output and the exe files (rebuild with build_exe.bat)
 dist/
 build/
+release/
 
 # Runtime data: settings with the API token, history, logs, lock files
 data/

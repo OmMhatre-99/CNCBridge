@@ -203,6 +203,15 @@ script says.
 - The rarely changed settings `stable_seconds` (default 2) and `api_timeout` (default 20)
   are only in `config.json` in the data folder.
 
+## Making a release
+
+`release.bat` builds both programs and writes `release\CNCBridge-<version>.zip` (the two exe
+files and this README) and `release\CNCBridge-<version>.sha256` (checksums, so the receiving
+PC can check the files arrived intact). Raise `VERSION` in `cncbridge\config.py` before each
+release; an existing zip with the same version is never overwritten. The exe files are not
+kept in git; publish the zip instead, for example on GitHub Releases with the command that
+`release.bat` prints at the end.
+
 ## For developers
 
 Python 3.9 or newer, standard library only.
