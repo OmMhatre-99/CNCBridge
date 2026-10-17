@@ -226,6 +226,18 @@ The fixed test files and the test script are also in `demo	est_files` and
 `demo\TEST_SCRIPT.md`. `tests	est_demo.py` checks that every test file ends up where the
 script says.
 
+## Automatic clean-up
+
+Off by default, so nothing is ever deleted unless you choose it. Under *Monitoring & file
+options* on the Delivery tab:
+
+- **Delete back-up files after N days** removes back-up day folders (judged by the date in the
+  folder name) and files in `back-up\_failed` and `_duplicates` older than N days.
+- **Delete history after N days** removes History rows older than N days.
+
+It runs once an hour while monitoring. It only deletes inside the back-up folder and the
+history; files waiting to be sent and refused files are never touched.
+
 ## Good to know
 
 - The API token is stored encrypted with Windows DPAPI, bound to this PC. A `config.json`

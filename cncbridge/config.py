@@ -40,6 +40,8 @@ DEFAULT_CONFIG = {
     "poll_seconds": 3,
     "stable_seconds": 2,                  # file must be untouched this long before it is picked up
     "autostart": False,                   # start monitoring when the program opens
+    "keep_backup_days": 0,                # delete back-up files older than this; 0 = keep them all
+    "keep_history_days": 0,               # delete history rows older than this; 0 = keep them all
     # alerts: a problem that lasts alert_after_minutes, or a file set aside, is announced
     "alert_after_minutes": 10,
     "alert_notify": True,                 # Windows notification on this PC
@@ -99,6 +101,8 @@ def normalize_config(cfg):
     base["poll_seconds"] = _number(base["poll_seconds"], 3, 0.5)
     base["stable_seconds"] = _number(base["stable_seconds"], 2, 0)
     base["api_timeout"] = _number(base["api_timeout"], 20, 1)
+    base["keep_backup_days"] = int(_number(base["keep_backup_days"], 0, 0))
+    base["keep_history_days"] = int(_number(base["keep_history_days"], 0, 0))
     base["alert_after_minutes"] = _number(base["alert_after_minutes"], 10, 0)
     base["alert_email_port"] = int(_number(base["alert_email_port"], 587, 1))
     return base

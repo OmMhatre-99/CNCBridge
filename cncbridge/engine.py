@@ -29,7 +29,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from .alerts import Alerts
@@ -384,6 +384,12 @@ class Ledger:
         with self._db() as c:
             return dict(c.execute("SELECT status, COUNT(*) FROM files GROUP BY status").fetchall())
 
+    def forget_before(self, cutoff):
+        """Delete history rows processed before this time. Returns how many."""
+        with self._db() as c:
+            return c.execute("DELETE FROM files WHERE processed_at < ?",
+                             (cutoff.isoformat(timespec="seconds"),)).rowcount
+
     def recent(self, n=200):
         with self._db() as c:
             c.row_factory = sqlite3.Row
@@ -611,7 +617,49 @@ def reprocess(cfg, data_dir, row, ledger):
     return target
 
 
+# =============================================================== clean-up
+DAY_FOLDER = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def clean_up(cfg, ledger, now=None):
+    """
+    Delete what is older than the configured number of days (0 = keep everything):
+    back-up day folders (judged by the date in their name), old files in back-up\\_failed and
+    _duplicates, and old history rows. Only ever deletes inside the back-up folder; the send queue and
+    refused files are never touched. Returns (back-up items deleted, history rows deleted).
+    """
+    now = now or datetime.now()
+    removed = forgotten = 0
+    days, backup = cfg["keep_backup_days"], Path(cfg["backup_folder"]) if cfg["backup_folder"] else None
+    if days and backup and backup.is_dir():
+        cutoff = now - timedelta(days=days)
+        for folder in backup.iterdir():
+            if folder.is_dir() and DAY_FOLDER.match(folder.name):
+                try:
+                    if datetime.strptime(folder.name, "%Y-%m-%d") < cutoff.replace(hour=0, minute=0, second=0,
+                                                                                   microsecond=0):
+                        shutil.rmtree(folder)
+                        removed += 1
+                except (ValueError, OSError) as e:
+                    log.warning("Could not delete the old back-up folder %s: %s", folder, e)
+        for name in ("_failed", "_duplicates"):
+            for f in (backup / name).glob("*") if (backup / name).is_dir() else []:
+                try:
+                    if f.is_file() and datetime.fromtimestamp(f.stat().st_mtime) < cutoff:
+                        f.unlink()
+                        removed += 1
+                except OSError as e:
+                    log.warning("Could not delete the old file %s: %s", f, e)
+    if cfg["keep_history_days"]:
+        forgotten = ledger.forget_before(now - timedelta(days=cfg["keep_history_days"]))
+    if removed or forgotten:
+        log.info("Clean-up: %d old back-up folder(s) or file(s) and %d history row(s) deleted", removed, forgotten)
+    return removed, forgotten
+
+
 class Engine:
+    CLEAN_UP_EVERY = 3600  # seconds
+
     def __init__(self, cfg, data_dir, config_path=None):
         self.cfg = normalize_config(cfg)  # may be replaced while running; each file uses the current one
         self.data = Path(data_dir)
@@ -622,6 +670,7 @@ class Engine:
         self.ledger = Ledger(self.data / "ledger.db")
         self.alerts = Alerts(self.data)
         self._stop = threading.Event()
+        self._last_clean_up = 0.0
         self._reported = {}  # last problem logged per subject, so a standing fault is logged once, not every cycle
         self._since = {}     # when each standing fault was first seen, for alert_after_minutes
 
@@ -780,6 +829,9 @@ class Engine:
             except Exception as e:  # folder or disk trouble, not the file's fault: leave it and retry
                 self._report(f.name, f"Could not process {f.name} yet, will retry: {e}", logging.ERROR)
         self.drain_outbox()
+        if time.time() - self._last_clean_up >= self.CLEAN_UP_EVERY:
+            self._last_clean_up = time.time()
+            clean_up(self.cfg, self.ledger)
         return done
 
     def run_forever(self):

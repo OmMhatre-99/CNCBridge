@@ -198,7 +198,8 @@ class App(tk.Tk):
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
             "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
             "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
-            "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to")}
+            "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
+            "keep_backup_days", "keep_history_days")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
                                                     "alert_notify", "alert_webhook_enabled", "alert_email_enabled",
                                                     "alert_email_starttls")}
@@ -214,7 +215,8 @@ class App(tk.Tk):
 
 
     def fill(self, cfg):
-        numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port")
+        numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port", "keep_backup_days",
+                   "keep_history_days")
         for k, var in self.v.items():
             var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k in numbers else cfg[k])
         for k, var in self.b.items():
@@ -572,6 +574,15 @@ class App(tk.Tk):
                                         variable=self.background_on)
         in_background.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 4))
         self.field_widgets["run_in_background"] = in_background
+        for row_no, (key, label) in enumerate((("keep_backup_days", "Delete back-up files after"),
+                                                ("keep_history_days", "Delete history after")), start=6):
+            ttk.Label(box, text=label, style="Card.TLabel").grid(row=row_no, column=0, sticky="w", pady=5)
+            row = ttk.Frame(box)
+            row.grid(row=row_no, column=1, sticky="w", padx=8)
+            days = ttk.Entry(row, textvariable=self.v[key], width=5, font=(self._font_mono, 11))
+            days.pack(side="left")
+            self.field_widgets[key] = days
+            ttk.Label(row, text=" days  (0 = keep everything)", style="Card.TLabel").pack(side="left")
 
         self._build_alerts(right)
 
@@ -823,6 +834,9 @@ class App(tk.Tk):
             "alert_email_from": "Sender address; the user name is used when this is empty.",
             "alert_email_to": "One or more addresses, separated by commas.",
             "test_alert": "Send a test message through every alert channel that is switched on.",
+            "keep_backup_days": "Back-up day folders and set-aside files older than this are deleted, checked "
+                                "once an hour. 0 keeps everything. The send queue is never touched.",
+            "keep_history_days": "History rows older than this are deleted. 0 keeps the whole history.",
             "run_in_background": "Applied with Save settings. Processing then runs as a Windows background task "
                                  "for this user; this window shows it and Start/Stop control it.",
             "pick_range": "Shows the cell range selected in the grid.",

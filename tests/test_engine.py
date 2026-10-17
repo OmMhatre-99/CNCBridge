@@ -10,7 +10,7 @@ import tempfile
 import threading
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
@@ -646,6 +646,64 @@ class SecondChances(unittest.TestCase):
         (folder / "ab.csv").write_text("other file")
         self.assertEqual(engine._kept_copy(folder, "a.csv"), newer)
         self.assertIsNone(engine._kept_copy(folder, "missing.csv"))
+
+
+class CleanUp(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.backup = self.tmp / "backup"
+        self.now = datetime(2026, 10, 17, 9, 0, 0)
+        for day in ("2026-08-01", "2026-09-17", "2026-10-10", "2026-10-17"):
+            (self.backup / day).mkdir(parents=True)
+            (self.backup / day / "board.csv").write_text("x")
+        (self.backup / "notes").mkdir()           # not a day folder: never touched
+        (self.backup / "notes" / "keep.txt").write_text("x")
+        for name, age_days in (("old.csv", 45), ("new.csv", 2)):
+            for sub in ("_failed", "_duplicates"):
+                f = self.backup / sub / name
+                f.parent.mkdir(exist_ok=True)
+                f.write_text("x")
+                stamp = (self.now - timedelta(days=age_days)).timestamp()
+                os.utime(f, (stamp, stamp))
+        self.ledger = engine.Ledger(self.tmp / "data" / "ledger.db")
+        for when in ("2026-08-01T10:00:00", "2026-10-16T10:00:00"):
+            self.ledger.add(processed_at=when, source=f"{when}.csv", status="ok")
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def cfg(self, backup_days=0, history_days=0):
+        return config.normalize_config({"backup_folder": str(self.backup), "keep_backup_days": backup_days,
+                                        "keep_history_days": history_days})
+
+    def test_nothing_is_deleted_by_default(self):
+        self.assertEqual(engine.clean_up(self.cfg(), self.ledger, self.now), (0, 0))
+        self.assertEqual(len(list(self.backup.iterdir())), 7)
+        self.assertEqual(len(self.ledger.recent()), 2)
+
+    def test_old_back_ups_and_history_are_deleted(self):
+        removed, forgotten = engine.clean_up(self.cfg(backup_days=30, history_days=30), self.ledger, self.now)
+        self.assertEqual(sorted(p.name for p in self.backup.iterdir()),
+                         ["2026-09-17", "2026-10-10", "2026-10-17", "_duplicates", "_failed", "notes"])
+        self.assertEqual(sorted(p.name for p in (self.backup / "_failed").iterdir()), ["new.csv"])
+        self.assertEqual(sorted(p.name for p in (self.backup / "_duplicates").iterdir()), ["new.csv"])
+        self.assertEqual((removed, forgotten), (3, 1))
+        self.assertEqual([r["source"] for r in self.ledger.recent()], ["2026-10-16T10:00:00.csv"])
+
+    def test_a_missing_back_up_folder_is_fine(self):
+        shutil.rmtree(self.backup)
+        self.assertEqual(engine.clean_up(self.cfg(backup_days=1), self.ledger, self.now), (0, 0))
+
+    def test_engine_cleans_up_at_most_once_an_hour(self):
+        (self.tmp / "machine").mkdir()
+        eng = engine.Engine({"source_folder": str(self.tmp / "machine"), "backup_folder": str(self.backup),
+                             "selections": [sel("B6")], "shared_enabled": True,
+                             "shared_folder": str(self.tmp / "shared"), "keep_backup_days": 30}, self.tmp / "data")
+        eng.scan_once()
+        self.assertFalse((self.backup / "2026-08-01").exists())
+        (self.backup / "2026-08-02").mkdir()
+        eng.scan_once()  # within the hour: left alone
+        self.assertTrue((self.backup / "2026-08-02").exists())
 
 
 class Background(unittest.TestCase):
