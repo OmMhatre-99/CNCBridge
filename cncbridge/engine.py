@@ -33,7 +33,8 @@ from datetime import datetime
 from pathlib import Path
 
 from .alerts import Alerts
-from .config import APP_NAME, VERSION, normalize_config
+from .background import stop_requested
+from .config import APP_NAME, VERSION, load_config, normalize_config
 
 CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "txt": "text/plain"}
 DELIMITERS = {",": ",", ";": ";", "tab": "\t", "|": "|"}
@@ -535,9 +536,13 @@ def count_rejected(data_dir):
 
 
 class Engine:
-    def __init__(self, cfg, data_dir):
+    def __init__(self, cfg, data_dir, config_path=None):
         self.cfg = normalize_config(cfg)  # may be replaced while running; each file uses the current one
         self.data = Path(data_dir)
+        # In the background there is no window to hand over new settings, so the settings file is
+        # read again whenever it changes.
+        self.config_path = Path(config_path) if config_path else None
+        self._config_mtime = self._settings_time()
         self.ledger = Ledger(self.data / "ledger.db")
         self.alerts = Alerts(self.data)
         self._stop = threading.Event()
@@ -546,6 +551,26 @@ class Engine:
 
     def stop(self):
         self._stop.set()
+
+    def _settings_time(self):
+        try:
+            return self.config_path.stat().st_mtime if self.config_path else None
+        except OSError:
+            return None
+
+    def reload_settings(self):
+        """Pick up settings saved by a window while this runs in the background."""
+        mtime = self._settings_time()
+        if mtime is None or mtime == self._config_mtime:
+            return False
+        self._config_mtime = mtime
+        try:
+            self.cfg = load_config(self.config_path)
+        except (OSError, ValueError) as e:
+            log.error("The changed settings could not be read, the previous ones stay in use: %s", e)
+            return False
+        log.info("Settings reloaded")
+        return True
 
     def outbox(self, kind):
         d = self.data / "outbox" / kind
@@ -683,9 +708,14 @@ class Engine:
 
     def run_forever(self):
         self._stop.clear()
+        stop_requested(self.data)  # an old request must not stop this new run
         log.info("Monitoring %s", self.cfg["source_folder"])
         while not self._stop.is_set():
+            if stop_requested(self.data):
+                log.info("Stop requested from the window")
+                break
             try:
+                self.reload_settings()
                 self.scan_once()
             except Exception as e:  # never let the watcher die on the shop floor
                 self._report("scan", f"Scan error: {e}", logging.ERROR)

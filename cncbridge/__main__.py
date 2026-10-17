@@ -2,33 +2,22 @@
 CNCBridge entry point.
 
   CNCBridge                      open the window
-  CNCBridge --headless           monitor with no window (Task Scheduler, service wrapper)
+  CNCBridge --headless           monitor with no window (the background task, a service wrapper)
   CNCBridge --headless --once    process what is in the folder now, then exit
   CNCBridge --data DIR           keep settings, ledger, queue and logs in DIR instead of %ProgramData%\\CNCBridge
 """
 import argparse
 import logging
-import msvcrt
 import sys
+import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from . import engine
+from . import background, engine
+from .background import acquire_lock  # noqa: F401  (also used by the demo and the tests)
 from .config import APP_NAME, default_data_dir, has_data, legacy_data_dir, load_config, move_data
 
 log = logging.getLogger("cncbridge")
-
-
-def acquire_lock(data_dir):
-    """One running copy per data folder; two would process the same machine files twice."""
-    f = open(Path(data_dir) / "instance.lock", "a+")
-    try:
-        f.seek(0)
-        msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, 1)
-        return f
-    except OSError:
-        f.close()
-        return None
 
 
 def choose_data_dir(requested=None, old=None, new=None):
@@ -58,11 +47,26 @@ def choose_data_dir(requested=None, old=None, new=None):
     return new, move_data(old, new)
 
 
-def setup_logging(data_dir, console):
+def window_mode(data_dir):
+    """
+    How a window works with this data folder:
+      ("normal", lock)     it processes files itself and holds the folder
+      ("connected", None)  background processing is set up or running; the window shows and controls it
+      ("busy", None)       another window already works on this folder
+    """
+    if background.task_exists(data_dir):
+        return "connected", None
+    lock = acquire_lock(data_dir)
+    if lock:
+        return "normal", lock
+    return ("connected", None) if background.holder(data_dir) == "background" else ("busy", None)
+
+
+def setup_logging(data_dir, console, filename="cncbridge.log"):
     log.setLevel(logging.INFO)
     fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(message)s")
     (Path(data_dir) / "logs").mkdir(parents=True, exist_ok=True)
-    handlers = [RotatingFileHandler(Path(data_dir) / "logs" / "cncbridge.log", maxBytes=1_000_000, backupCount=5,
+    handlers = [RotatingFileHandler(Path(data_dir) / "logs" / filename, maxBytes=1_000_000, backupCount=5,
                                     encoding="utf-8")]
     if console and sys.stderr:
         handlers.append(logging.StreamHandler())
@@ -80,34 +84,49 @@ def main(argv=None):
 
     data_dir, notice = choose_data_dir(args.data)  # before anything opens files in the data folder
     data_dir.mkdir(parents=True, exist_ok=True)
-    setup_logging(data_dir, console=args.headless)
+
+    if args.headless:
+        setup_logging(data_dir, console=True)
+        if notice:
+            log.info("%s", notice)
+        for _ in range(25):  # a connected window takes the lock for a moment when it checks on us
+            lock = acquire_lock(data_dir)
+            if lock:
+                break
+            time.sleep(0.2)
+        else:
+            log.error("%s is already running with this data folder: %s", APP_NAME, data_dir)
+            return 1
+        background.mark_holder(data_dir, "background")
+        config_path = data_dir / "config.json"
+        eng = engine.Engine(load_config(config_path), data_dir, config_path=config_path)
+        if args.once:
+            log.info("Processed %d file(s)", eng.scan_once())
+            eng.alerts.flush()  # send any alert before the program ends
+            return 0
+        try:
+            eng.run_forever()
+        except KeyboardInterrupt:
+            eng.stop()
+        return 0
+
+    mode, lock = window_mode(data_dir)
+    # a connected window writes its own log, so two programs never rotate the same file
+    setup_logging(data_dir, console=False, filename="cncbridge.log" if mode == "normal" else "window.log")
     if notice:
         log.info("%s", notice)
-    lock = acquire_lock(data_dir)
-    if not lock:
-        message = f"{APP_NAME} is already running with this data folder:\n{data_dir}"
+    if mode == "busy":
+        message = f"{APP_NAME} is already open with this data folder:\n{data_dir}"
         log.error(message.replace("\n", " "))
-        if not args.headless:
-            import tkinter
-            from tkinter import messagebox
-            tkinter.Tk().withdraw()  # no empty window behind the message
-            messagebox.showerror(APP_NAME, message)
+        import tkinter
+        from tkinter import messagebox
+        tkinter.Tk().withdraw()  # no empty window behind the message
+        messagebox.showerror(APP_NAME, message)
         return 1
-
-    if not args.headless:
-        from .app import run
-        run(data_dir, notice)
-        return 0
-
-    eng = engine.Engine(load_config(data_dir / "config.json"), data_dir)
-    if args.once:
-        log.info("Processed %d file(s)", eng.scan_once())
-        eng.alerts.flush()  # send any alert before the program ends
-        return 0
-    try:
-        eng.run_forever()
-    except KeyboardInterrupt:
-        eng.stop()
+    if lock:
+        background.mark_holder(data_dir, "window")
+    from .app import run
+    run(data_dir, notice, lock)
     return 0
 
 

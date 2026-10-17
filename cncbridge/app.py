@@ -3,15 +3,17 @@ import ctypes
 import logging
 import os
 import queue
+import re
 import subprocess
 import sys
 import threading
 import tkinter as tk
 from datetime import datetime
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from . import alerts, engine
+from . import alerts, background, engine
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
@@ -40,10 +42,18 @@ class QueueHandler(logging.Handler):
 
 
 class App(tk.Tk):
-    def __init__(self, data_dir, notice=None):
+    def __init__(self, data_dir, notice=None, lock=None, connected=False):
+        """
+        lock: the data folder's single-copy lock, held while this window processes files itself.
+        connected: background processing is set up or running; this window shows and controls it.
+        """
         self.bundled_fonts = register_bundled_fonts()
         super().__init__()
         self.data_dir = Path(data_dir)
+        self.lock, self.connected = lock, connected
+        self.bg_running = False          # connected: the background process is working (stats thread)
+        self.take_over_when_stopped = False
+        self._log_pos = None             # connected: how much of the background's log has been shown
         self.cfg_path = self.data_dir / "config.json"
         self.cfg = load_config(self.cfg_path)
         self.ledger = engine.Ledger(self.data_dir / "ledger.db")
@@ -197,6 +207,8 @@ class App(tk.Tk):
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
         self.status_msg = tk.StringVar(self)
+        # set up on this PC (a scheduled task), not part of the settings file
+        self.background_on = tk.BooleanVar(self, background.task_exists(self.data_dir))
 
         self.field_widgets = {}
 
@@ -555,6 +567,11 @@ class App(tk.Tk):
                                  state="readonly", width=12)
         delimiter.grid(row=4, column=1, sticky="w", padx=8)
         self.field_widgets["delimiter"] = delimiter
+        in_background = ttk.Checkbutton(box, text="Process in the background: keeps going after this window\n"
+                                                  "closes, and starts when you log on to Windows",
+                                        variable=self.background_on)
+        in_background.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        self.field_widgets["run_in_background"] = in_background
 
         self._build_alerts(right)
 
@@ -799,6 +816,8 @@ class App(tk.Tk):
             "alert_email_from": "Sender address; the user name is used when this is empty.",
             "alert_email_to": "One or more addresses, separated by commas.",
             "test_alert": "Send a test message through every alert channel that is switched on.",
+            "run_in_background": "Applied with Save settings. Processing then runs as a Windows background task "
+                                 "for this user; this window shows it and Start/Stop control it.",
             "pick_range": "Shows the cell range selected in the grid.",
             "pick_open": "Extend the selected range down to the first empty row.",
             "pick_name": "Name shown for this data in the output file.",
@@ -848,7 +867,13 @@ class App(tk.Tk):
 
     @property
     def running(self):
+        """This window's own monitoring is running."""
         return bool(self.thread and self.thread.is_alive())
+
+    @property
+    def processing(self):
+        """Files are being processed, by this window or by the background process it is connected to."""
+        return self.running or (self.connected and self.bg_running)
 
     def _apply(self, cfg):
         save_config(cfg, self.cfg_path)
@@ -858,7 +883,7 @@ class App(tk.Tk):
     def save(self):
         cfg = self.collect()
         problems = engine.validate(cfg)
-        if self.running and problems:
+        if self.processing and problems:
             messagebox.showerror(APP_NAME, "Monitoring is running, so the settings must stay complete.\n\n- "
                                  + "\n- ".join(problems), parent=self)
             return False
@@ -867,7 +892,72 @@ class App(tk.Tk):
             self.engine.cfg = cfg
         log.info("Settings saved")
         self.status_msg.set("Settings saved." if not problems else "Settings saved. Before starting: " + problems[0])
+        self._apply_background_choice()  # the background process reads the saved settings by itself
         return True
+
+    # ================================================================ background processing
+    def _apply_background_choice(self):
+        """Set up or remove the background task, as ticked on the Delivery tab, and hand over the processing."""
+        want, have = self.background_on.get(), background.task_exists(self.data_dir)
+        if want == have:
+            return
+        try:
+            if want:
+                background.install_task(self.data_dir)
+                log.info("Background processing set up: it also starts when you log on to Windows")
+                self._hand_over_to_background()
+            else:
+                background.remove_task(self.data_dir)
+                log.info("Background processing switched off")
+                if self.connected and self.bg_running:
+                    background.request_stop(self.data_dir)
+                    self.take_over_when_stopped = True
+                    self.status_msg.set("Background processing is stopping. This window takes over when it has.")
+                elif self.connected:
+                    self._become_normal()
+        except OSError as e:
+            self.background_on.set(have)
+            messagebox.showerror(APP_NAME, str(e), parent=self)
+
+    def _hand_over_to_background(self):
+        if self.running:
+            self.engine.stop()
+            self.thread.join(15)
+        self.engine = self.thread = None
+        if self.lock:
+            self.lock.close()
+            self.lock = None
+        self.connected = True
+        self._log_to("window.log")
+        if engine.validate(self.cfg):
+            self.status_msg.set("Background processing is set up. Complete the settings, then press Start "
+                                "monitoring.")
+            return
+        background.start_task(self.data_dir)
+        self.status_msg.set("Processing now runs in the background. It goes on after this window closes and "
+                            "starts when you log on to Windows.")
+
+    def _become_normal(self):
+        """The background is off and stopped: this window processes files itself again."""
+        lock = background.acquire_lock(self.data_dir)
+        if not lock:
+            return False
+        self.lock, self.connected, self.take_over_when_stopped, self.bg_running = lock, False, False, False
+        background.mark_holder(self.data_dir, "window")
+        self._log_to("cncbridge.log")
+        self.status_msg.set("Background processing is off. Press Start monitoring to process in this window.")
+        return True
+
+    def _log_to(self, filename):
+        """Write this window's log to another file (a connected window never shares the background's log)."""
+        for handler in [h for h in log.handlers if isinstance(h, RotatingFileHandler)]:
+            log.removeHandler(handler)
+            handler.close()
+            new = RotatingFileHandler(Path(handler.baseFilename).with_name(filename), maxBytes=1_000_000,
+                                      backupCount=5, encoding="utf-8")
+            new.setFormatter(handler.formatter)
+            log.addHandler(new)
+        self._log_pos = None
 
     def _ready(self, quiet=False):
         cfg = self.collect()
@@ -883,7 +973,19 @@ class App(tk.Tk):
         return cfg
 
     def start(self, quiet=False):
-        if self.running or self.busy:
+        if self.processing or self.busy:
+            return
+        if self.connected:
+            if not self._ready(quiet):
+                return
+            if background.task_exists(self.data_dir):
+                try:
+                    background.start_task(self.data_dir)
+                    self.status_msg.set("Starting the background processing...")
+                except OSError as e:
+                    messagebox.showerror(APP_NAME, str(e), parent=self)
+            elif self._become_normal():  # it was started some other way and has stopped
+                self.start(quiet)
             return
         cfg = self._ready(quiet)
         if cfg:
@@ -893,12 +995,15 @@ class App(tk.Tk):
             self.status_msg.set("Monitoring started.")
 
     def stop(self):
-        if self.running:
+        if self.connected and self.bg_running:
+            background.request_stop(self.data_dir)
+            self.status_msg.set("Stopping the background processing after the current file...")
+        elif self.running:
             self.engine.stop()
             self.status_msg.set("Stopping after the current file...")
 
     def process_now(self):
-        if self.running or self.busy:
+        if self.processing or self.busy or self.connected:
             return
         cfg = self._ready()
         if not cfg:
@@ -915,7 +1020,17 @@ class App(tk.Tk):
                 self.busy = False
         threading.Thread(target=job, daemon=True).start()
 
+    def destroy(self):
+        if self.lock:  # let the data folder go, for a background task or the next window
+            self.lock.close()
+            self.lock = None
+        super().destroy()
+
     def on_close(self):
+        if self.connected:  # the background process goes on by itself
+            self.closing.set()
+            self.destroy()
+            return
         if self.running and not messagebox.askokcancel(
                 APP_NAME, "Monitoring is running.\n\nClosing the window stops it; machine files will wait in the "
                           "folder until the program is started again.\n\nClose anyway?", parent=self):
@@ -1137,9 +1252,34 @@ class App(tk.Tk):
                     "rejected": engine.count_rejected(self.data_dir),
                     "history": self.ledger.recent(200),
                     "alerts": alerts.read_state(self.data_dir)}
+                if self.connected:
+                    self.bg_running = background.is_running(self.data_dir)
+                    self._read_background_log()
             except Exception as e:
                 log.debug("status refresh failed: %s", e)
             self.closing.wait(1.5)
+
+    _LOG_LINE = re.compile(r"^\d{4}-\d\d-\d\d (\d\d:\d\d:\d\d),\d+ (\w+)\s+(.*)$")
+
+    def _read_background_log(self):
+        """Show the background process's new log lines in the Log tab."""
+        path = self.data_dir / "logs" / "cncbridge.log"
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return
+        if self._log_pos is None or size < self._log_pos:  # first look, or the log was rotated
+            self._log_pos = size if self._log_pos is None else 0
+            if self._log_pos:
+                return
+        with open(path, "rb") as f:
+            f.seek(self._log_pos)
+            chunk = f.read()
+        self._log_pos += len(chunk)
+        for line in chunk.decode("utf-8", errors="replace").splitlines():
+            m = self._LOG_LINE.match(line)
+            if m:
+                self.log_q.put((m.group(2), f"{m.group(1)}  {m.group(2):<7}  [background] {m.group(3)}"))
 
     def _tick(self):
         while True:
@@ -1165,14 +1305,20 @@ class App(tk.Tk):
             if at_end:
                 self.log_text.see("end")
 
-        running = self.running
-        text, colour = ("Monitoring", SUCCESS) if running else ("Working...", WARNING) if self.busy else ("Stopped", IDLE)
-        self.state_label.configure(text=text)
+        running = self.processing
+        if self.connected:
+            text, colour = ("In background", SUCCESS) if running else ("Background off", IDLE)
+            if self.take_over_when_stopped and not running:
+                self._become_normal()
+        else:
+            text, colour = ("Monitoring", SUCCESS) if running else ("Working...", WARNING) if self.busy else (
+                "Stopped", IDLE)
+        self.state_label.configure(text=text, width=max(11, len(text)))
         self.state_label.configure(foreground=colour)
         self.state_dot.configure(fg=colour)
         idle = not running and not self.busy
         self.start_btn.configure(state="normal" if idle else "disabled")
-        self.once_btn.configure(state="normal" if idle else "disabled")
+        self.once_btn.configure(state="normal" if idle and not self.connected else "disabled")
         self.stop_btn.configure(state="normal" if running else "disabled")
         if not running and self.status_msg.get().startswith("Stopping"):
             self.status_msg.set("Monitoring stopped.")
@@ -1214,9 +1360,9 @@ class App(tk.Tk):
             self.alert_banner_shown = False
 
 
-def run(data_dir, notice=None):
+def run(data_dir, notice=None, lock=None):
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp text on high-DPI screens
     except (AttributeError, OSError):
         pass
-    App(data_dir, notice).mainloop()
+    App(data_dir, notice, lock, connected=lock is None).mainloop()

@@ -104,7 +104,10 @@ class WindowTest(unittest.TestCase):
         self._patch(messagebox, "askokcancel", lambda *a, **k: True)
         self.notified = []  # Windows notifications are recorded, not shown
         self._patch(alerts, "SENDERS", dict(alerts.SENDERS, notify=lambda *a, **k: self.notified.append(a)))
-        self.window = app.App(self.tmp / "data")
+        self.window = self.make_window()
+
+    def make_window(self):
+        return app.App(self.tmp / "data")
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -247,6 +250,63 @@ class AlertsInWindow(WindowTest):
             w.test_alert()
             yield lambda: self.dialogs
             self.assertEqual(self.dialogs[0][1][1], "Windows notification: sent")
+        self.run_steps(steps)
+
+
+class ConnectedToBackground(WindowTest):
+    """A real background process (CNCBridge --headless) and a window connected to it."""
+
+    def make_window(self):
+        import subprocess
+        from cncbridge import background, config
+        data = self.tmp / "data"
+        config.save_config({
+            "source_folder": str(self.machine), "backup_folder": str(self.backup), "shared_enabled": True,
+            "shared_folder": str(self.shared), "selections": [{"name": "Board serial", "range": "B6"}],
+            "manual_inputs": [{"name": "Operator", "value": "OP-17"}], "poll_seconds": 1, "stable_seconds": 0.3,
+            "alert_notify": False}, data / "config.json")
+        self.process = subprocess.Popen(
+            [sys.executable, str(ROOT / "CNCBridge.pyw"), "--headless", "--data", str(data)],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=0x08000000)
+        self.addCleanup(lambda: self.process.poll() is None and self.process.kill())
+        deadline = time.time() + 20
+        while background.holder(data) != "background" and time.time() < deadline:
+            time.sleep(0.2)
+        self.assertEqual(background.holder(data), "background")
+        return app.App(data, connected=True)
+
+    def operator_of(self, pattern):
+        files = self.files(self.shared, pattern)
+        return json.loads(files[0].read_text(encoding="utf-8"))["manual_inputs"]["Operator"] if files else None
+
+    def test_window_shows_and_controls_the_background(self):
+        w = self.window
+
+        def steps():
+            yield lambda: w.bg_running
+            yield lambda: w.state_label["text"] == "In background"
+            self.assertEqual(str(w.once_btn["state"]), "disabled")
+            self.drop("b1.csv", "S1")
+            yield lambda: self.operator_of("b1_*.json") == "OP-17"
+            yield lambda: len(w.history.get_children()) == 1
+            yield lambda: "[background]" in w.log_text.get("1.0", "end")
+
+            w.man_vars[0][1].set("OP-99")  # saved by the window, picked up by the background
+            self.assertTrue(w.save())
+            yield 1500
+            self.drop("b2.csv", "S2")
+            yield lambda: self.operator_of("b2_*.json") == "OP-99"
+
+            w.stop()
+            yield lambda: self.process.poll() is not None
+            yield lambda: not w.bg_running and w.state_label["text"] == "Background off"
+
+            w.start()  # no background task is set up, so this window takes over
+            yield lambda: w.running and not w.connected
+            self.drop("b3.csv", "S3")
+            yield lambda: self.operator_of("b3_*.json") == "OP-99"
+            w.stop()
+            yield lambda: not w.running
         self.run_steps(steps)
 
 

@@ -568,6 +568,117 @@ class Alerting(unittest.TestCase):
         self.assertNotIn("mail-secret", exported.read_text(encoding="utf-8"))
 
 
+class Background(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data = self.tmp / "data"
+        self.data.mkdir()
+        (self.tmp / "machine").mkdir()
+        self.cfg = {"source_folder": str(self.tmp / "machine"), "backup_folder": str(self.tmp / "backup"),
+                    "selections": [sel("A12:I*"), sel("B6")], "shared_enabled": True,
+                    "shared_folder": str(self.tmp / "shared"), "stable_seconds": 0, "poll_seconds": 0.5,
+                    "manual_inputs": [{"name": "Operator", "value": "OP-17"}]}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def drop(self, name, serial):
+        (self.tmp / "machine" / name).write_bytes(SAMPLE.read_bytes().replace(b"B240001", serial.encode()))
+
+    def test_stop_request_ends_the_run_and_an_old_one_is_ignored(self):
+        from cncbridge import background
+        background.request_stop(self.data)  # left over from earlier: must not stop the new run
+        eng = engine.Engine(self.cfg, self.data)
+        worker = threading.Thread(target=eng.run_forever, daemon=True)
+        worker.start()
+        time.sleep(1.5)
+        self.assertTrue(worker.is_alive())
+        background.request_stop(self.data)
+        worker.join(5)
+        self.assertFalse(worker.is_alive())
+        self.assertFalse((self.data / background.STOP_FILE).exists())
+
+    def test_saved_settings_are_picked_up_while_running(self):
+        path = self.data / "config.json"
+        config.save_config(self.cfg, path)
+        eng = engine.Engine(config.load_config(path), self.data, config_path=path)
+        self.assertFalse(eng.reload_settings())  # nothing changed yet
+        config.save_config(dict(self.cfg, manual_inputs=[{"name": "Operator", "value": "OP-99"}]), path)
+        later = time.time() + 5
+        os.utime(path, (later, later))  # some file systems keep times in whole seconds
+        self.assertTrue(eng.reload_settings())
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        doc = json.loads(next((self.tmp / "shared").glob("a_*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(doc["manual_inputs"], {"Operator": "OP-99"})
+
+    def test_who_holds_the_data_folder(self):
+        from cncbridge import background
+        self.assertIsNone(background.holder(self.data))
+        lock = background.acquire_lock(self.data)
+        try:
+            background.mark_holder(self.data, "background")
+            self.assertEqual(background.holder(self.data), "background")
+            self.assertTrue(background.is_running(self.data))
+            background.mark_holder(self.data, "window")
+            self.assertFalse(background.is_running(self.data))
+        finally:
+            lock.close()
+        self.assertIsNone(background.holder(self.data))
+
+    def test_window_mode(self):
+        from cncbridge import __main__ as entry, background
+        original = background.task_exists
+        self.addCleanup(setattr, background, "task_exists", original)
+        background.task_exists = lambda d: True
+        self.assertEqual(entry.window_mode(self.data), ("connected", None))
+        background.task_exists = lambda d: False
+        mode, lock = entry.window_mode(self.data)
+        self.assertEqual(mode, "normal")
+        background.mark_holder(self.data, "window")
+        self.assertEqual(entry.window_mode(self.data), ("busy", None))
+        background.mark_holder(self.data, "background")
+        self.assertEqual(entry.window_mode(self.data), ("connected", None))
+        lock.close()
+
+    def test_task_definition(self):
+        from cncbridge import background
+        self.assertNotEqual(background.task_name(self.data), "CNCBridge background")  # not the default folder
+        self.assertTrue(background.task_name(self.data).startswith("CNCBridge background "))
+        program, arguments, workdir = background.task_command(self.data)
+        self.assertTrue(program.lower().endswith(("pythonw.exe", "python.exe")))
+        self.assertIn("CNCBridge.pyw", arguments)
+        self.assertIn(f'--headless --data "{self.data.resolve()}"', arguments)
+        xml = background.task_xml(self.data, user="PLANT\\op & co")
+        self.assertIn("<UserId>PLANT\\op &amp; co</UserId>", xml)
+        self.assertIn("<LogonTrigger>", xml)
+        self.assertIn("--headless", xml)
+
+    def test_install_and_remove_use_schtasks(self):
+        import subprocess
+        from cncbridge import background
+        calls = []
+
+        def fake(*args):
+            calls.append(args)
+            if args[0] == "/Create":
+                calls.append(Path(args[args.index("/XML") + 1]).read_text(encoding="utf-16"))
+            return subprocess.CompletedProcess(args, 0, "SUCCESS", "")
+        original = background._schtasks
+        self.addCleanup(setattr, background, "_schtasks", original)
+        background._schtasks = fake
+        background.install_task(self.data)
+        self.assertEqual(calls[0][:2], ("/Create", "/TN"))
+        self.assertIn("<Command>", calls[1])
+        background.start_task(self.data)
+        self.assertEqual(calls[2][0], "/Run")
+        background.remove_task(self.data)
+        self.assertEqual(calls[3][0], "/Delete")
+        background._schtasks = lambda *a: subprocess.CompletedProcess(a, 1, "", "ERROR: Access is denied.")
+        with self.assertRaisesRegex(OSError, "could not be created: Access is denied"):
+            background.install_task(self.data)
+
+
 class DataFolder(unittest.TestCase):
     """Settings and history live outside the program folder, and an old 'data' folder is moved there once."""
 

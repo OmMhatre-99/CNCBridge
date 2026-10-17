@@ -167,15 +167,24 @@ Set them up under **Alerts** on the Delivery tab:
 While a problem is open, a red banner under the counters shows it. The email password is stored
 encrypted, like the API token, and is never exported.
 
-## Start automatically
+## Processing in the background
 
-- **With the window**: tick *Start monitoring when the program opens* (Delivery tab,
-  Options), then put a shortcut to `CNCBridge.exe` into the Startup folder (press Win+R,
-  type `shell:startup`).
-- **Without a window**: in Task Scheduler create a task "At startup" that runs
-  `C:\CNCBridge\CNCBridge.exe --headless`. Set everything up in the window first; the task
-  uses the same data folder. Close the window before the task runs, because only one copy
-  can use a data folder at a time.
+Tick *Process in the background* on the Delivery tab and press **Save settings**. Processing
+then moves to a Windows background task for your user. It goes on after the window is
+closed and starts by itself when you log on to Windows (no administrator rights needed).
+
+While the background runs, the window is *connected* to it: the header shows
+**In background**, the counters, history, alerts and the **Log** tab show the background's
+work, and **Start monitoring** and **Stop** start and stop it. Settings you save are picked up
+by the background within a few seconds, without a restart. **Process now** is not needed
+and is greyed out.
+
+Untick the option and press **Save settings** to go back: the background stops after the
+current file, the task is removed, and the window processes files again.
+
+Without the option, closing the window stops processing, as before. To start the window
+with Windows, tick *Start monitoring when the program opens* and put a shortcut to
+`CNCBridge.exe` into the Startup folder (press Win+R, type `shell:startup`).
 
 Command line: `--headless` (no window), `--headless --once` (process what is waiting and
 exit), `--data DIR` (use another data folder).
