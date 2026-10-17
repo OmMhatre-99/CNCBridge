@@ -87,6 +87,11 @@ These commands are on the toolbar at the top of the window, visible from every t
 (opens a machine file in the range picker) and **Open folder** (machine, back-up, shared or
 data folder in Explorer).
 
+**Settings** on the toolbar exports the settings to a file (without the API token, which only
+works on this PC), imports them on another PC, or restores one of the last 20 saved versions.
+Every **Save settings** keeps a copy in `backups` in the data folder. An imported or restored
+version only fills the form; press **Save settings** to keep it.
+
 ## Output files
 
 Named `<machine file name>_<date>_<time>.<json|csv|txt>`.

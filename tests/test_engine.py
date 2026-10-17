@@ -182,6 +182,44 @@ class Settings(unittest.TestCase):
             self.assertNotIn("s3cret-token", path.read_text(encoding="utf-8"))
             self.assertEqual(config.load_config(path)["api_token"], "s3cret-token")
 
+    def test_every_save_keeps_a_backup_copy(self):
+        with tempfile.TemporaryDirectory() as d:
+            backups = Path(d) / "backups"
+            backups.mkdir()
+            for i in range(25):  # older copies, oldest first by name
+                (backups / f"config-2020010{i // 10}-0000{i % 10:02d}.json").write_text("{}")
+            config.save_config({"station_name": "Line 7"}, Path(d) / "config.json")
+            kept = sorted(p.name for p in backups.glob("config-*.json"))
+            self.assertEqual(len(kept), config.BACKUPS_KEPT)
+            newest = backups / kept[-1]
+            self.assertEqual(config.load_config(newest)["station_name"], "Line 7")
+
+    def test_export_leaves_out_the_token_and_import_keeps_the_current_one(self):
+        with tempfile.TemporaryDirectory() as d:
+            exported = Path(d) / "export.json"
+            config.export_settings({"station_name": "Line 7", "api_token": "secret", "stable_seconds": 9,
+                                    "selections": [sel("L1:M8", "Summary")]}, exported)
+            self.assertNotIn("secret", exported.read_text(encoding="utf-8"))
+            cfg = config.import_settings(exported, {"api_token": "current-token"})
+            self.assertEqual((cfg["station_name"], cfg["api_token"], cfg["stable_seconds"]),
+                             ("Line 7", "current-token", 9))
+            self.assertEqual(cfg["selections"][0]["range"], "L1:M8")
+
+    def test_restoring_a_backup_brings_back_its_token(self):
+        with tempfile.TemporaryDirectory() as d:
+            config.save_config({"station_name": "Line 7", "api_token": "old-token"}, Path(d) / "config.json")
+            backup = next((Path(d) / "backups").glob("config-*.json"))
+            cfg = config.import_settings(backup, {"api_token": "current-token"})
+            self.assertEqual(cfg["api_token"], "old-token")
+
+    def test_import_refuses_other_files(self):
+        with tempfile.TemporaryDirectory() as d:
+            for name, text in (("other.json", '{"name": "not settings"}'), ("list.json", "[1, 2]"),
+                               ("broken.json", "{not json")):
+                (Path(d) / name).write_text(text)
+                with self.assertRaises(ValueError, msg=name):
+                    config.import_settings(Path(d) / name, {})
+
     def test_validate(self):
         with tempfile.TemporaryDirectory() as d:
             problems = engine.validate(config.normalize_config({}))

@@ -7,11 +7,13 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
 from . import engine
-from .config import APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, load_config, normalize_config, save_config
+from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
+                     load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
 from .tooltip import NotebookTabTooltip, Tooltip
 from .grid import MARK_COLOURS, Grid
@@ -287,6 +289,16 @@ class App(tk.Tk):
         self.once_btn = button("↻  Process now", self.process_now)
         divider()
         self.save_btn = button("✔  Save settings", self.save)
+        self.settings_btn = ttk.Menubutton(bar, text="Settings  ▾", style="Toolbutton")
+        settings_menu = tk.Menu(self.settings_btn, tearoff=False, background=SURFACE, foreground=TEXT,
+                                activebackground=ACCENT, activeforeground=WHITE, borderwidth=1,
+                                relief="solid", selectcolor=ACCENT)
+        settings_menu.add_command(label="Export settings...", command=self.export_settings)
+        settings_menu.add_command(label="Import settings...", command=self.import_settings)
+        settings_menu.add_command(label="Restore an earlier version...",
+                                  command=lambda: self.import_settings(self.data_dir / "backups"))
+        self.settings_btn["menu"] = settings_menu
+        self.settings_btn.pack(side="left", padx=(0, 6))
         divider()
         self.open_csv_btn = button("▦  Open CSV file...", self.open_csv)
         folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton")
@@ -680,6 +692,8 @@ class App(tk.Tk):
         Tooltip(self.stop_btn, "Stop monitoring and processing.")
         Tooltip(self.once_btn, "Process the current files once without continuous monitoring.")
         Tooltip(self.save_btn, "Save all current settings to configuration.")
+        Tooltip(self.settings_btn, "Export the settings to a file, import them on another PC, or restore one "
+                                   "of the last 20 saved versions.")
         Tooltip(self.open_csv_btn, "Open a machine CSV file in the range picker.")
         Tooltip(self.open_folders_btn, "Open a configured folder or CNCBridge's data folder.")
         Tooltip(self.simulation_btn, "Open the CNCBridge simulation controls in a separate window. It uses an isolated workspace and does not change this configuration.")
@@ -857,6 +871,41 @@ class App(tk.Tk):
         if not cfg["api_url"]:
             return messagebox.showerror("API link", "Enter the API link first.", parent=self)
         self._in_background("API link", lambda: f"A small test file was accepted (HTTP {engine.test_api(cfg)}).")
+
+    # ================================================================ settings files
+    def export_settings(self):
+        name = self.v["station_name"].get().strip() or APP_NAME
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Export settings", defaultextension=".json",
+            initialfile=f"{name} settings {datetime.now():%Y-%m-%d}.json",
+            filetypes=[("Settings files", "*.json"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            export_settings(self.collect(), path)
+        except OSError as e:
+            return messagebox.showerror(APP_NAME, f"The settings could not be exported:\n{e}", parent=self)
+        log.info("Settings exported to %s", path)
+        self.status_msg.set("Settings exported. The API token is not included; enter it again on the other PC.")
+
+    def import_settings(self, folder=None):
+        """Load settings from an exported file or a backup copy into the form. Save settings keeps them."""
+        start = folder if folder and Path(folder).is_dir() else None
+        path = filedialog.askopenfilename(
+            parent=self, title="Import settings" if not folder else "Restore earlier settings",
+            initialdir=start, filetypes=[("Settings files", "*.json"), ("All files", "*.*")])
+        if not path:
+            return
+        try:
+            cfg = import_settings(path, self.collect())
+        except (OSError, ValueError) as e:
+            return messagebox.showerror(APP_NAME, f"These settings could not be read:\n{e}", parent=self)
+        # settings without a field in the window would otherwise be lost on the next save
+        self.cfg = dict(self.cfg, **{k: cfg[k] for k in ("stable_seconds", "api_timeout")})
+        self.fill(cfg)
+        log.info("Settings loaded from %s (not saved yet)", path)
+        self.status_msg.set(f"Settings loaded from {Path(path).name}. Check them, then press Save settings "
+                            f"to keep them.")
 
     def _open_folder(self, folder):
         if folder and Path(folder).is_dir():

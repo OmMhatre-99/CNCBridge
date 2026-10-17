@@ -16,6 +16,7 @@ MAX_SELECTIONS = 10
 MAX_MANUAL = 2
 FORMATS = ("json", "csv", "txt")
 API_BODIES = ("raw", "multipart")
+BACKUPS_KEPT = 20  # copies of the settings file kept in <data folder>\backups
 
 DEFAULT_CONFIG = {
     "station_name": "",
@@ -140,6 +141,48 @@ def save_config(cfg, path):
     tmp = p.with_name(p.name + ".part")
     tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
+    _keep_backup(p)
+
+
+def _keep_backup(path):
+    """A copy of every saved settings file in backups\\, so a lost file or a bad change can be undone."""
+    folder = path.parent / "backups"
+    try:
+        folder.mkdir(exist_ok=True)
+        shutil.copy2(path, folder / f"config-{datetime.now():%Y%m%d-%H%M%S}.json")
+        for old in sorted(folder.glob("config-*.json"))[:-BACKUPS_KEPT]:
+            old.unlink()
+    except OSError as e:
+        log.warning("Could not keep a backup copy of the settings: %s", e)
+
+
+def export_settings(cfg, path):
+    """
+    Write the settings to a file, for another PC or for safekeeping. The API token is left out: it is
+    encrypted for this PC and would not work anywhere else.
+    """
+    out = normalize_config(cfg)
+    out["api_token"] = ""
+    doc = {"exported_by": f"{APP_NAME} {VERSION}", "exported_at": datetime.now().isoformat(timespec="seconds")}
+    doc.update(out)
+    Path(path).write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def import_settings(path, current):
+    """
+    Settings from an exported file or a backup copy. The current API token is kept when the file has
+    none, or has one that cannot be read on this PC.
+    """
+    raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    if not isinstance(raw, dict) or not set(raw) & set(DEFAULT_CONFIG):
+        raise ValueError("this is not a CNCBridge settings file")
+    cfg = normalize_config(raw)
+    try:
+        token = unprotect(cfg["api_token"])
+    except (OSError, ValueError):
+        token = ""
+    cfg["api_token"] = token or current.get("api_token", "")
+    return cfg
 
 
 def program_dir():
