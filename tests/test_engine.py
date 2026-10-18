@@ -121,6 +121,103 @@ class Extraction(unittest.TestCase):
         self.assertEqual(len(block["rows"]), 6)
 
 
+class HeadingRanges(unittest.TestCase):
+    """A block found by its heading (@[ERRORS], @Timestamp) instead of by fixed cells."""
+
+    def setUp(self):
+        self.rows = engine.read_rows(SAMPLE)
+
+    def extract(self, rng, rows=None, header=True):
+        return engine.extract(rows or self.rows, sel(rng, header=header))
+
+    def test_title_row_finds_the_table_below(self):
+        block, filled = self.extract("@[L1xM8]")
+        self.assertTrue(filled)
+        self.assertEqual(block["columns"][:3], ["Timestamp", "Ref", "Part_No"])
+        self.assertEqual((len(block["columns"]), len(block["rows"])), (9, 12))
+        self.assertEqual(block["cells"], "A12:I24")  # where it was found in this file
+        self.assertEqual(block["range"], "@[L1xM8]")
+
+    def test_width_follows_the_header_row(self):
+        feeders, _ = self.extract("@[FEEDER_STATUS]")
+        self.assertEqual(feeders["columns"], ["Feeder", "Part_No", "Remaining", "Picks", "Misses"])
+        self.assertEqual(len(feeders["rows"]), 12)
+        errors, _ = self.extract("@[ERRORS]")
+        self.assertEqual((errors["columns"], len(errors["rows"])), (["Timestamp", "Code", "Ref", "Description"], 1))
+
+    def test_heading_inside_a_header_row_starts_the_table_there(self):
+        block, _ = self.extract("@Part_No")
+        self.assertEqual(block["columns"], ["Part_No", "Feeder", "Nozzle", "X_mm", "Y_mm", "Rot_deg", "Result"])
+        self.assertEqual(block["rows"][0][0], "RC0402-10K")
+        self.assertEqual(block["cells"], "C12:I24")
+
+    def test_case_and_spaces_do_not_matter(self):
+        self.assertEqual(self.extract("@  [errors] ")[0]["columns"][1], "Code")
+        self.assertEqual(engine.normalize_range("@ [ERRORS]"), "@[ERRORS]")
+
+    def test_the_table_is_found_wherever_it_moves(self):
+        def board(lines_before, count):
+            lines = [f"info {i},x" for i in range(lines_before)]
+            lines += ["", "[DATA]", "Ref,Result"] + [f"R{i},OK" for i in range(count)]
+            lines += ["", "[ERRORS]", "Code", "E1"]
+            return engine.read_rows(chr(10).join(lines).encode())
+        for before, count in ((2, 3), (9, 40)):
+            block, _ = self.extract("@[DATA]", board(before, count))
+            self.assertEqual((block["columns"], len(block["rows"])), (["Ref", "Result"], count))
+            errors, _ = self.extract("@[ERRORS]", board(before, count))
+            self.assertEqual(errors["rows"], [["E1"]])
+
+    def test_without_header_row_the_header_is_data(self):
+        block, _ = self.extract("@[ERRORS]", header=False)
+        self.assertEqual(len(block["rows"]), 2)
+        self.assertNotIn("columns", block)
+
+    def test_heading_that_is_not_in_the_file(self):
+        block, filled = self.extract("@[NOT THERE]")
+        self.assertFalse(filled)
+        self.assertEqual((block["rows"], block["cells"]), ([], ""))
+        cfg = config.normalize_config({"selections": [sel("@[NOT THERE]"), sel("B6")]})
+        _, _, warnings = engine.build_output("x.csv", self.rows, cfg)
+        self.assertEqual(warnings, ["selection 1 (@[NOT THERE]) is empty in this file"])
+        with self.assertRaises(engine.FileError):
+            engine.build_output("x.csv", self.rows, config.normalize_config({"selections": [sel("@[NOT THERE]")]}))
+
+    def test_resolve_gives_the_cells_for_the_grid(self):
+        self.assertEqual(engine.resolve_range(self.rows, "@[ERRORS]"), (0, 48, 3, 49))
+        c1, r1, c2, r2 = engine.resolve_range(self.rows, "@[NOT THERE]")
+        self.assertLess(r2, r1)  # nothing to mark
+
+    def test_validation_and_fixed_ranges_are_unchanged(self):
+        engine.check_range("@[ERRORS]")
+        for bad in ("@", "@   "):
+            with self.assertRaises(ValueError, msg=bad):
+                engine.check_range(bad)
+        with self.assertRaises(ValueError):
+            engine.check_range("nonsense")
+        self.assertEqual(engine.normalize_range("l1 x m8"), "L1:M8")
+        self.assertTrue(engine.is_heading("@x") and not engine.is_heading("A1"))
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalize_config({"source_folder": d, "backup_folder": d + "/b", "shared_enabled": True,
+                                           "shared_folder": d + "/s", "selections": [sel("@[ERRORS]"), sel("@")]})
+            problems = engine.validate(cfg)
+            self.assertEqual(len(problems), 1)
+            self.assertIn("Selection 2: after @ put the heading", problems[0])
+
+    def test_pipeline_delivers_the_found_block(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "machine").mkdir()
+            shutil.copy(SAMPLE, d / "machine" / "board.csv")
+            eng = engine.Engine({"source_folder": str(d / "machine"), "backup_folder": str(d / "backup"),
+                                 "shared_enabled": True, "shared_folder": str(d / "shared"), "stable_seconds": 0,
+                                 "selections": [sel("@[FEEDER_STATUS]", "Feeders")]}, d / "data")
+            self.assertEqual(eng.scan_once(), 1)
+            doc = json.loads(next((d / "shared").glob("board_*.json")).read_text(encoding="utf-8"))
+            feeders = doc["selections"][0]
+            self.assertEqual((feeders["range"], feeders["cells"], len(feeders["rows"])), ("@[FEEDER_STATUS]", "A27:E39", 12))
+            self.assertEqual(feeders["rows"][0]["Feeder"], "F10")
+
+
 class Reading(unittest.TestCase):
     def test_decimal_commas_do_not_fool_the_delimiter(self):
         rows = engine.read_rows(b"Zone;Temp;Speed\r\nZ1;149,6;12,0\r\nZ2;181,2;12,0\r\n")

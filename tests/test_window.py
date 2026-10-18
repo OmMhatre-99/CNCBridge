@@ -162,6 +162,47 @@ class RangePicker(WindowTest):
         self.run_steps(steps)
 
 
+class HeadingPicker(WindowTest):
+    def test_find_by_heading_in_the_picker(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.open_sample(SAMPLE))
+            w.tabs.select(w.pick_tab)
+            w._update_slots()
+            yield 300
+            w.slot_box.current(0)
+            w._slot_chosen()
+            w.pick_heading.set(True)
+            drag(w, 0, 47, 0, 47)  # the [ERRORS] title cell
+            self.assertEqual(w.pick_range.get(), "@[ERRORS]")
+            self.assertIn("found again by this text", w.pick_hint.get())
+            w.pick_name.set("Errors")
+            w.assign()
+            self.assertEqual(w.sel_vars[0][1].get(), "@[ERRORS]")
+            self.assertEqual(w.pick_hint.get(), "")
+            yield 300
+            self.assertIn('"cells": "A49:D50"', w.preview.get("1.0", "end"))
+            self.assertIn('"Code"', w.preview.get("1.0", "end"))
+
+            w.slot_box.current(1)
+            w._slot_chosen()
+            drag(w, 0, 11, 0, 11)  # Timestamp occurs in two header rows
+            self.assertEqual(w.pick_range.get(), "@Timestamp")
+            self.assertIn("appears 2 times", w.pick_hint.get())
+            drag(w, 5, 30, 5, 30)  # an empty cell has no heading to find
+            self.assertIn("is empty", w.pick_hint.get())
+            w.pick_heading.set(False)
+            w._update_pick_range()
+            self.assertEqual(w.pick_range.get(), "F31")
+            self.assertEqual(w.pick_hint.get(), "")
+
+            cfg = w.collect()  # a heading range survives saving the settings
+            self.assertEqual(cfg["selections"][0]["range"], "@[ERRORS]")
+            self.assertTrue(w.save())
+        self.run_steps(steps)
+
+
 class Monitoring(WindowTest):
     def test_files_flow_and_faults_are_handled(self):
         w, api = self.window, Receiver()

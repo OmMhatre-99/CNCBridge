@@ -207,6 +207,8 @@ class App(tk.Tk):
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
+        self.pick_heading = tk.BooleanVar(self)
+        self.pick_hint = tk.StringVar(self)
         self.status_msg = tk.StringVar(self)
         # set up on this PC (a scheduled task), not part of the settings file
         self.background_on = tk.BooleanVar(self, background.task_exists(self.data_dir))
@@ -695,6 +697,13 @@ class App(tk.Tk):
         clear_button = ttk.Button(bar, text="Clear slot", command=self.clear_slot)
         clear_button.pack(side="left")
         self.field_widgets["clear_slot"] = clear_button
+        by_heading = ttk.Frame(left, padding=(10, 0, 10, 4))
+        by_heading.pack(fill="x")
+        pick_heading = ttk.Checkbutton(by_heading, text="Find by heading", variable=self.pick_heading,
+                                       command=self._update_pick_range)
+        pick_heading.pack(side="left")
+        self.field_widgets["pick_heading"] = pick_heading
+        ttk.Label(by_heading, textvariable=self.pick_hint, style="CardSmall.TLabel").pack(side="left", padx=(10, 0))
         panes.add(left, weight=3)
 
         right = ttk.LabelFrame(panes, text=" Output preview ", padding=(12, 10))
@@ -841,6 +850,8 @@ class App(tk.Tk):
                                  "for this user; this window shows it and Start/Stop control it.",
             "pick_range": "Shows the cell range selected in the grid.",
             "pick_open": "Extend the selected range down to the first empty row.",
+            "pick_heading": "Instead of fixed cells, find the block by the text in the top-left cell you marked. "
+                            "It then still works when the table moves down the file.",
             "pick_name": "Name shown for this data in the output file.",
             "assign": "Save the selected range into the chosen extraction slot.",
             "clear_slot": "Remove the range and name from the chosen slot.",
@@ -1214,9 +1225,22 @@ class App(tk.Tk):
         self._update_pick_range()
 
     def _update_pick_range(self):
-        if self.grid_view.sel:
-            c1, r1, c2, r2 = self.grid_view.sel
-            self.pick_range.set(engine.format_range(c1, r1, c2, None if self.pick_open.get() else r2))
+        self.pick_hint.set("")
+        if not self.grid_view.sel:
+            return
+        c1, r1, c2, r2 = self.grid_view.sel
+        if self.pick_heading.get():
+            row = self.sample_rows[r1] if r1 < len(self.sample_rows) else []
+            heading = row[c1] if c1 < len(row) else ""
+            if not heading:
+                self.pick_hint.set("The top-left cell is empty, so there is no heading to find. Mark a cell with text.")
+            else:
+                matches = sum(1 for cells in self.sample_rows for cell in cells if cell.lower() == heading.lower())
+                self.pick_range.set("@" + heading)
+                self.pick_hint.set("The block is found again by this text, wherever it moves in the file." if matches == 1
+                                   else f"This text appears {matches} times in the sample; the first one is used.")
+                return
+        self.pick_range.set(engine.format_range(c1, r1, c2, None if self.pick_open.get() else r2))
 
     def assign(self):
         if not self.pick_range.get():
@@ -1226,6 +1250,7 @@ class App(tk.Tk):
         name.set(self.pick_name.get().strip())
         self.grid_view.set_selection(None)
         self.pick_range.set("")
+        self.pick_hint.set("")
         self._update_slots()
         self.refresh_preview()
         self.status_msg.set(f"Slot {self._slot() + 1} set to {rng.get()}. Press Save settings to keep it.")

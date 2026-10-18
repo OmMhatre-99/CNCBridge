@@ -19,8 +19,11 @@ installed on the machine PC and it needs no internet connection.
    | `L1:M8` (also `L1 x M8`, `L1xM8`) | the block from cell L1 to cell M8 |
    | `B6` | one cell |
    | `A12:I*` | from A12 down to the first empty row, for tables whose length changes per board |
+   | `@[ERRORS]` | the table under the cell that says `[ERRORS]`, wherever it is in the file. It runs as far right as its header row and down to the first empty row, so it still works when the tables above it grow or shrink |
 
    Per range you choose a name and whether its first row is a header row.
+
+   In the picker, tick **Find by heading** before marking a cell: the range becomes `@` plus the text of that cell. A heading range also reports where it was found (`cells`, for example `A49:D50`) in the output. If the heading is missing from a file, that selection is empty and CNCBridge warns about it; a file where every selection is empty is set aside as failed.
 4. Adds the **2 manual inputs** (for example Operator and Work order) plus the source file
    name, time and station name.
 5. Writes one output file in the chosen format: **JSON, CSV or TXT**.

@@ -132,12 +132,62 @@ def format_range(c1, r1, c2, r2):
     return f"{start}:{col_letter(c2)}{r2 + 1}"
 
 
+def is_heading(text):
+    """'@[ERRORS]' or '@Timestamp': the block is found by its heading, wherever it is in the file."""
+    return str(text).strip().startswith("@")
+
+
+def check_range(text):
+    """Raise ValueError unless the text is a cell range or a heading to find."""
+    if is_heading(text):
+        if not str(text).strip()[1:].strip():
+            raise ValueError("after @ put the heading to find, for example @[ERRORS]")
+        return
+    parse_range(text)
+
+
 def normalize_range(text):
+    if is_heading(text):
+        return "@" + str(text).strip()[1:].strip()
     return format_range(*parse_range(text))
+
+
+def find_heading(rows, text):
+    """(col, row) of the first cell, row by row, whose text is `text` (ignoring case), or None."""
+    want = text.strip().lower()
+    for r, row in enumerate(rows):
+        for c, cell in enumerate(row):
+            if cell.lower() == want:
+                return c, r
+    return None
+
+
+def _resolve_heading(rows, text):
+    """
+    The block under a heading. A heading alone on its row (a title such as [ERRORS]) has its table on the
+    rows below; a heading inside a header row (such as Timestamp) starts the table itself. The block runs
+    as far right as its header row has cells, and down to the first empty row.
+    """
+    found = find_heading(rows, normalize_range(text)[1:])
+    if not found:
+        return 0, 0, 0, -1
+    c1, r1 = found
+    if sum(1 for cell in rows[r1] if cell) == 1 and r1 + 1 < len(rows):
+        r1 += 1
+    header = rows[r1]
+    c2 = c1
+    while c2 + 1 < len(header) and header[c2 + 1]:
+        c2 += 1
+    r2 = r1
+    while r2 + 1 < len(rows) and any(rows[r2 + 1][c1:c2 + 1]):
+        r2 += 1
+    return c1, r1, c2, r2
 
 
 def resolve_range(rows, text):
     """Where a range actually sits in this file. row2 < row1 means there is nothing there."""
+    if is_heading(text):
+        return _resolve_heading(rows, text)
     c1, r1, c2, r2 = parse_range(text)
     if r2 is None:
         r2 = r1 - 1
@@ -171,7 +221,9 @@ def extract(rows, sel):
     cells = [(rows[r][c1:c2 + 1] + [""] * width)[:width] for r in range(r1, last + 1)]
     rng = normalize_range(sel["range"])
     block = {"name": sel["name"].strip() or rng, "range": rng}
-    if ":" not in rng:
+    if is_heading(rng):  # also say where the heading was found in this file
+        block["cells"] = format_range(c1, r1, c2, last) if last >= r1 else ""
+    if ":" not in rng and not is_heading(rng):
         block["value"] = cells[0][0] if cells else ""
     elif sel["header"]:
         block["columns"] = _header(cells[0]) if cells else []
@@ -258,7 +310,7 @@ def build_output(src_name, rows, cfg, now=None):
         block, filled = extract(rows, sel)
         blocks.append(block)
         has_data = has_data or filled
-        last = parse_range(sel["range"])[3]
+        last = None if is_heading(sel["range"]) else parse_range(sel["range"])[3]
         if not filled:
             warnings.append(f"selection {i} ({block['range']}) is empty in this file")
         elif last is not None and last >= len(rows):
@@ -307,7 +359,8 @@ def validate(cfg):
     for i, sel in enumerate(cfg["selections"], 1):
         if sel["range"]:
             try:
-                ranges.append(parse_range(sel["range"]))
+                check_range(sel["range"])
+                ranges.append(sel["range"])
             except ValueError as e:
                 p.append(f"Selection {i}: {e}")
     if not ranges and not any(msg.startswith("Selection") for msg in p):
