@@ -25,7 +25,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
-from cncbridge import alerts, app, engine  # noqa: E402
+from cncbridge import alerts, app, engine, shifts  # noqa: E402
 from test_engine import Receiver  # noqa: E402
 
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
@@ -293,6 +293,110 @@ class SetupLock(WindowTest):
             self.assertTrue(saved["setup_password"].startswith("pbkdf2$"))  # saving kept the password
             w.stop()
             yield lambda: not w.running
+        self.run_steps(steps)
+
+
+class ShiftChange(WindowTest):
+    """At each shift start the operator is asked to confirm the typed values; processing never waits."""
+
+    def saved_values(self):
+        saved = app.load_config(self.tmp / "data" / "config.json")
+        return [m["value"] for m in saved["manual_inputs"]]
+
+    def fill_form(self, w):
+        w.man_vars[0][0].set("Operator"), w.man_vars[0][1].set("OP-17")
+        w.man_vars[1][0].set("Work order"), w.man_vars[1][1].set("WO-1")
+        w.v["shift_times"].set("06:00, 14:00, 22:00")
+
+    def test_ask_once_later_click_confirm_and_next_shift(self):
+        w = self.window
+        clock = [datetime(2026, 10, 19, 13, 0)]
+        w._now = lambda: clock[0]
+        data = self.tmp / "data"
+
+        def steps():
+            self.fill_form(w)
+            self.assertTrue(w.save())
+            w._check_shift()
+            self.assertEqual((w.shift_banner_shown, w.shift_dialog), (False, None))  # nothing is overdue yet
+
+            clock[0] = datetime(2026, 10, 19, 14, 5)
+            w._check_shift()
+            self.assertTrue(w.shift_banner_shown)
+            self.assertIn("14:00", w.shift_banner["text"])
+            self.assertEqual([v.get() for v in w.shift_dialog.entries], ["OP-17", "WO-1"])
+
+            w.shift_dialog.later()  # not now: the banner stays, and the operator is not asked again at once
+            yield 100
+            first_dialog = w.shift_dialog
+            w._check_shift()
+            self.assertTrue(w.shift_banner_shown)
+            self.assertIs(w.shift_dialog, first_dialog)
+            self.assertFalse(first_dialog.winfo_exists())
+
+            w.shift_banner.event_generate("<Button-1>")  # a click on the banner opens it again
+            w.update()
+            self.assertTrue(w.shift_dialog.winfo_exists())
+            w.shift_dialog.entries[0].set("OP-99")
+            w.shift_dialog.confirm()
+            yield 100
+            self.assertFalse(w.shift_banner_shown)
+            self.assertEqual(self.saved_values(), ["OP-99", "WO-1"])
+            self.assertEqual(shifts.read_confirmed(data), datetime(2026, 10, 19, 14, 5))
+            w._check_shift()
+            self.assertFalse(w.shift_banner_shown)
+
+            clock[0] = datetime(2026, 10, 19, 22, 0, 30)  # the next shift
+            w._check_shift()
+            self.assertTrue(w.shift_banner_shown and "22:00" in w.shift_banner["text"])
+            w.shift_dialog.confirm()  # unchanged values: nothing to save
+            yield 100
+            self.assertFalse(w.shift_banner_shown)
+            self.assertEqual(self.saved_values(), ["OP-99", "WO-1"])
+            self.assertEqual(shifts.read_confirmed(data), datetime(2026, 10, 19, 22, 0, 30))
+        self.run_steps(steps)
+
+    def test_an_unanswered_shift_is_remembered_across_a_restart(self):
+        w = self.window
+
+        def steps():
+            self.fill_form(w)
+            self.assertTrue(w.save())
+            yield 100
+        self.run_steps(steps)
+        shifts.write_confirmed(self.tmp / "data", datetime(2026, 10, 19, 13, 0))
+        second = app.App(self.tmp / "data")
+        try:
+            second._now = lambda: datetime(2026, 10, 19, 14, 30)
+            second._check_shift()
+            self.assertTrue(second.shift_banner_shown)
+            self.assertIn("14:00", second.shift_banner["text"])
+            second.shift_dialog.later()
+        finally:
+            second.destroy()
+
+    def test_bad_times_are_refused_and_changing_them_does_not_ask_for_the_past(self):
+        w = self.window
+        w._now = lambda: datetime(2026, 10, 19, 18, 0)
+
+        def steps():
+            self.fill_form(w)
+            w.v["shift_times"].set("06:00, 25:00")
+            self.assertFalse(w.save())
+            self.assertIn("'25:00' is not a time", self.dialogs[-1][1][1])
+            self.assertFalse((self.tmp / "data" / "config.json").exists())
+            w.v["source_folder"].set(str(self.machine))
+            self.assertIsNone(w._ready(quiet=True))  # starting is refused for the same reason
+            w.v["shift_times"].set("06:00, 14:00")
+            self.assertTrue(w.save())  # the 14:00 shift began before the times were set: nobody is asked
+            self.assertFalse(w.shift_banner_shown)
+            self.assertIsNone(w.shift_dialog)
+            w.v["shift_times"].set("")  # switched off: never asks
+            self.assertTrue(w.save())
+            w._now = lambda: datetime(2026, 10, 20, 7, 0)
+            w._check_shift()
+            self.assertFalse(w.shift_banner_shown)
+            yield 100
         self.run_steps(steps)
 
 

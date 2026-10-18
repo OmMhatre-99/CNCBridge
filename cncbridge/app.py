@@ -7,13 +7,14 @@ import re
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import alerts, background, config, engine
+from . import alerts, background, config, engine, shifts
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
@@ -21,7 +22,7 @@ from .tooltip import NotebookTabTooltip, Tooltip
 from .grid import MARK_COLOURS, Grid
 from .theme import (ACCENT, ACCENT_HOVER, ACCENT_TINT, ACTIVE_HEADER, BACKGROUND, BORDER,
                     DISABLED_ACCENT, DISABLED_SURFACE, DISABLED_TEXT, ERROR, ERROR_TINT, FOCUS, FOCUS_SURFACE,
-                    HOVER_SURFACE, IDLE, MUTED, SUCCESS, SURFACE, SURFACE_ALT, TEXT, WARNING,
+                    HOVER_SURFACE, IDLE, MUTED, SUCCESS, SURFACE, SURFACE_ALT, TEXT, WARNING, WARNING_TINT,
                     WHITE, apply_tk_palette, resolve_font_families)
 
 log = logging.getLogger("cncbridge")
@@ -39,6 +40,59 @@ class QueueHandler(logging.Handler):
 
     def emit(self, record):
         self.q.put((record.levelname, self.format(record)))
+
+
+class ShiftDialog(tk.Toplevel):
+    """
+    Asks the operator, at a shift change, to confirm or change the typed values. It does not block anything:
+    processing goes on, and closing it with Later leaves the banner up in the main window.
+    """
+
+    def __init__(self, app, boundary):
+        super().__init__(app)
+        self.app = app
+        self.title("Shift change")
+        self.transient(app)
+        self.configure(background=BACKGROUND)
+        frame = ttk.Frame(self, padding=18)
+        frame.pack(fill="both", expand=True)
+        frame.columnconfigure(1, weight=1)
+        ttk.Label(frame, text=f"A new shift started at {boundary:%H:%M}", font=(app._font_heading, 14, "bold")
+                  ).grid(row=0, column=0, columnspan=2, sticky="w")
+        ttk.Label(frame, wraplength=app.px(420), justify="left", text=(
+            "Are these values still right? Change them if the operator or the work order is different. "
+            "Files keep being processed meanwhile.")).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 12))
+        self.entries = []
+        for i, (name, value) in enumerate(app.man_vars):
+            ttk.Label(frame, text=name.get().strip() or f"Input {i + 1}", style="Card.TLabel").grid(
+                row=2 + i, column=0, sticky="w", pady=5)
+            var = tk.StringVar(self, value.get())
+            ttk.Entry(frame, textvariable=var, width=34).grid(row=2 + i, column=1, sticky="ew", padx=(10, 0), pady=5)
+            self.entries.append(var)
+        buttons = ttk.Frame(frame)
+        buttons.grid(row=2 + len(self.entries), column=0, columnspan=2, sticky="e", pady=(14, 0))
+        ttk.Button(buttons, text="Later", command=self.later).pack(side="right")
+        ttk.Button(buttons, text="Confirm", style="Go.TButton", command=self.confirm).pack(side="right", padx=8)
+        self.protocol("WM_DELETE_WINDOW", self.later)
+        self.update_idletasks()  # centred over the main window
+        x = app.winfo_rootx() + max((app.winfo_width() - self.winfo_reqwidth()) // 2, 0)
+        y = app.winfo_rooty() + max((app.winfo_height() - self.winfo_reqheight()) // 3, 0)
+        self.geometry(f"+{x}+{y}")
+        self._raise_job = self.after(50, self.lift)
+
+    def destroy(self):
+        try:
+            self.after_cancel(self._raise_job)  # no raise may run after the dialog is gone
+        except (AttributeError, tk.TclError):
+            pass
+        super().destroy()
+
+    def confirm(self):
+        if self.app.finish_shift([v.get() for v in self.entries]):
+            self.destroy()
+
+    def later(self):
+        self.destroy()
 
 
 class App(tk.Tk):
@@ -199,7 +253,7 @@ class App(tk.Tk):
         self.v = {k: tk.StringVar(self) for k in (
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
             "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
-            "complete_marker", "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
+            "complete_marker", "shift_times", "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
@@ -209,6 +263,12 @@ class App(tk.Tk):
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
+        self._now = datetime.now     # replaced in tests
+        self.shift_confirmed = shifts.read_confirmed(self.data_dir)
+        if self.shift_confirmed is None:  # first start: nothing is overdue yet
+            self.shift_confirmed = self._now()
+            shifts.write_confirmed(self.data_dir, self.shift_confirmed)
+        self.shift_dialog, self._shift_prompted, self._shift_checked = None, None, 0.0
         self.unlocked = False        # the setup password was entered in this session
         self.password_state = tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
@@ -372,6 +432,11 @@ class App(tk.Tk):
         self.alert_banner = tk.Label(self, text="", anchor="w", justify="left", bg=ERROR_TINT, fg=ERROR,
                                      font=(self._font_body, 11, "bold"), padx=18, pady=7)
         self.alert_banner_shown = False
+        # shown while a shift change is waiting for the operator's confirmation; a click opens the dialog
+        self.shift_banner = tk.Label(self, text="", anchor="w", justify="left", bg=WARNING_TINT, fg=WARNING,
+                                     font=(self._font_body, 11, "bold"), padx=18, pady=7, cursor="hand2")
+        self.shift_banner.bind("<Button-1>", lambda e: self.confirm_shift())
+        self.shift_banner_shown = False
 
     def _page_intro(self, parent, title, hint):
         intro = ttk.Frame(parent)
@@ -680,9 +745,16 @@ class App(tk.Tk):
         box = ttk.LabelFrame(parent, text=" Operators & access ", padding=(14, 10))
         box.pack(fill="x", pady=(14, 0))
         box.columnconfigure(1, weight=1)
-        ttk.Label(box, text="Setup password", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
+        ttk.Label(box, text="Confirm typed values at", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
         row = ttk.Frame(box)
         row.grid(row=0, column=1, sticky="w", padx=8)
+        shift = ttk.Entry(row, textvariable=self.v["shift_times"], width=24, font=(self._font_mono, 11))
+        shift.pack(side="left")
+        self.field_widgets["shift_times"] = shift
+        ttk.Label(row, text="  shift starts, e.g. 06:00, 14:00, 22:00", style="CardSmall.TLabel").pack(side="left")
+        ttk.Label(box, text="Setup password", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=5)
+        row = ttk.Frame(box)
+        row.grid(row=1, column=1, sticky="w", padx=8)
         ttk.Label(row, textvariable=self.password_state, style="Card.TLabel", width=14).pack(side="left")
         set_pw = ttk.Button(row, text="Set password...", command=self.set_password)
         set_pw.pack(side="left", padx=(6, 0))
@@ -694,7 +766,7 @@ class App(tk.Tk):
                          text="With a password, operators see only Start/Stop, the counters, History, the "
                               "Log and the typed values. It keeps settings from being changed by accident; it "
                               "does not protect against someone who can open this PC's files.")
-        note.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        note.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self._fit_wrap(note, self.px(420))
 
     def _build_operator(self):
@@ -788,6 +860,57 @@ class App(tk.Tk):
         self.unlocked = True  # whoever just set or removed it is in setup
         self._apply_lock()
         self.tabs.select(self.delivery_tab)
+
+    # ================================================================ shift changes
+    @staticmethod
+    def _shift_problem(cfg):
+        try:
+            shifts.parse_times(cfg["shift_times"], strict=True)
+        except ValueError as e:
+            return f"Shift times: {e}"
+        return None
+
+    def _check_shift(self):
+        """Ask for a confirmation when a shift has started that nobody has confirmed yet."""
+        due = shifts.pending(shifts.parse_times(self.cfg["shift_times"]), self.shift_confirmed, self._now())
+        self._show_shift(due)
+        if due and due != self._shift_prompted:
+            self._shift_prompted = due  # ask once per shift change; the banner stays for a later click
+            self.confirm_shift(due)
+
+    def _show_shift(self, due):
+        if due:
+            self.shift_banner.configure(text=f"⏱  Shift change at {due:%H:%M}: please confirm the typed values "
+                                             f"(click here)")
+            if not self.shift_banner_shown:
+                self.shift_banner.pack(fill="x", after=self.header_sep)
+                self.shift_banner_shown = True
+        elif self.shift_banner_shown:
+            self.shift_banner.pack_forget()
+            self.shift_banner_shown = False
+
+    def confirm_shift(self, due=None):
+        due = due or shifts.latest_boundary(shifts.parse_times(self.cfg["shift_times"]), self._now())
+        if due is None:
+            return
+        if self.shift_dialog is not None and self.shift_dialog.winfo_exists():
+            self.shift_dialog.deiconify()
+            self.shift_dialog.lift()
+            return
+        self.shift_dialog = ShiftDialog(self, due)
+
+    def finish_shift(self, values=None):
+        """The operator confirmed. New values, if they changed, are saved first. Returns False if that failed."""
+        if values is not None and values != [var.get() for _, var in self.man_vars]:
+            for (_, var), text in zip(self.man_vars, values):
+                var.set(text)
+            if not self.save():
+                return False
+        self.shift_confirmed = self._now()
+        shifts.write_confirmed(self.data_dir, self.shift_confirmed)
+        self._show_shift(None)
+        self.status_msg.set("Shift change confirmed.")
+        return True
 
     def apply_operator_values(self):
         """The Operator tab: the typed values are the only thing that can have changed, so Save is enough."""
@@ -1038,6 +1161,8 @@ class App(tk.Tk):
             4: "Technical event log for processing and delivery details.",
             5: "The typed values that go into every file.",
         })
+        Tooltip(self.field_widgets["shift_times"], "Optional. At each of these times the operator is asked to confirm "
+                                                   "or change the typed values. Files keep being processed meanwhile.")
         Tooltip(self.lock_btn, "Lock the setup tabs, or unlock them with the setup password.")
         Tooltip(self.field_widgets["set_password"], "Set or change the password that locks the setup tabs.")
         Tooltip(self.field_widgets["remove_password"], "Remove the password so everyone can change settings.")
@@ -1086,7 +1211,16 @@ class App(tk.Tk):
             messagebox.showerror(APP_NAME, "Monitoring is running, so the settings must stay complete.\n\n- "
                                  + "\n- ".join(problems), parent=self)
             return False
+        shift_problem = self._shift_problem(cfg)
+        if shift_problem:
+            messagebox.showerror(APP_NAME, shift_problem, parent=self)
+            return False
+        times_changed = cfg["shift_times"] != self.cfg["shift_times"]
         self._apply(cfg)
+        if times_changed and cfg["shift_times"]:  # do not ask for a shift that started before they were set
+            self.shift_confirmed = self._now()
+            shifts.write_confirmed(self.data_dir, self.shift_confirmed)
+        self._check_shift()
         if self.running:
             self.engine.cfg = cfg
         log.info("Settings saved")
@@ -1160,7 +1294,7 @@ class App(tk.Tk):
 
     def _ready(self, quiet=False):
         cfg = self.collect()
-        problems = engine.validate(cfg)
+        problems = engine.validate(cfg) + [p for p in [self._shift_problem(cfg)] if p]
         if problems:
             if quiet:
                 log.error("Monitoring was not started: %s", " ".join(problems))
@@ -1539,6 +1673,10 @@ class App(tk.Tk):
         self.stop_btn.configure(state="normal" if running else "disabled")
         if not running and self.status_msg.get().startswith("Stopping"):
             self.status_msg.set("Monitoring stopped.")
+
+        if time.monotonic() - self._shift_checked > 15:  # cheap, but once every few seconds is plenty
+            self._shift_checked = time.monotonic()
+            self._check_shift()
 
         snap = self.snapshot
         if snap:

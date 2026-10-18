@@ -1058,6 +1058,45 @@ class CompleteMarker(unittest.TestCase):
         self.assertFalse(engine.has_marker(self.tmp / "missing.csv", "End_Time"))
 
 
+class Shifts(unittest.TestCase):
+    def test_parse_times(self):
+        from datetime import time
+        from cncbridge import shifts
+        self.assertEqual(shifts.parse_times("06:00, 14:00 22:00;6:00"), [time(6), time(14), time(22)])
+        self.assertEqual(shifts.parse_times(""), [])
+        self.assertEqual(shifts.parse_times("06:00, nonsense, 25:00, 12:60"), [time(6)])  # lenient by default
+        for bad in ("24:00", "14.00", "7", "12:5", "6am"):
+            with self.assertRaises(ValueError, msg=bad):
+                shifts.parse_times(bad, strict=True)
+
+    def test_latest_boundary_and_pending(self):
+        from cncbridge import shifts
+        times = shifts.parse_times("06:00, 14:00, 22:00")
+        at = lambda day, h, m=0: datetime(2026, 10, day, h, m)
+        self.assertEqual(shifts.latest_boundary(times, at(19, 14, 0)), at(19, 14))
+        self.assertEqual(shifts.latest_boundary(times, at(19, 13, 59)), at(19, 6))
+        self.assertEqual(shifts.latest_boundary(times, at(19, 3)), at(18, 22))   # before today's first shift
+        self.assertIsNone(shifts.latest_boundary([], at(19, 3)))
+        self.assertEqual(shifts.pending(times, at(19, 5, 55), at(19, 6, 5)), at(19, 6))   # not yet confirmed
+        self.assertIsNone(shifts.pending(times, at(19, 6, 1), at(19, 13, 59)))            # confirmed this shift
+        self.assertEqual(shifts.pending(times, at(19, 6, 1), at(19, 14, 1)), at(19, 14))  # the next one is due
+        self.assertEqual(shifts.pending(times, at(18, 22, 30), at(19, 2)), None)          # night shift confirmed
+        self.assertEqual(shifts.pending(times, None, at(19, 2)), at(18, 22))              # never confirmed
+        self.assertIsNone(shifts.pending([], None, at(19, 2)))
+
+    def test_the_confirmation_is_remembered(self):
+        from cncbridge import shifts
+        with tempfile.TemporaryDirectory() as d:
+            self.assertIsNone(shifts.read_confirmed(d))
+            shifts.write_confirmed(d, datetime(2026, 10, 19, 14, 2, 30, 999))
+            self.assertEqual(shifts.read_confirmed(d), datetime(2026, 10, 19, 14, 2, 30))
+            (Path(d) / shifts.STATE_FILE).write_text("{broken")
+            self.assertIsNone(shifts.read_confirmed(d))
+            shifts.write_confirmed(Path(d) / "missing_folder_is_created", datetime(2026, 10, 19, 1, 0))
+            self.assertEqual(shifts.read_confirmed(Path(d) / "missing_folder_is_created"), datetime(2026, 10, 19, 1, 0))
+        self.assertEqual(config.normalize_config({"shift_times": " 06:00, 14:00 "})["shift_times"], "06:00, 14:00")
+
+
 class Background(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

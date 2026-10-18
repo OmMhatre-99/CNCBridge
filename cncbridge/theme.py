@@ -24,6 +24,7 @@ SUCCESS = "#176b45"
 WARNING = "#855600"
 ERROR = "#a92720"
 ERROR_TINT = "#fbe9e7"
+WARNING_TINT = "#fff1cf"
 IDLE = MUTED
 WHITE = "#ffffff"
 

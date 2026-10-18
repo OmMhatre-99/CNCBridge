@@ -266,6 +266,20 @@ and importing a file or restoring an earlier version never changes it. This keep
 changed by accident; it does not protect against someone who can open this PC's files and edit
 `config.json`, so use Windows' own file permissions on the data folder if you need that.
 
+## Shift-change confirmation
+
+Under *Operators & access* on the Delivery tab, enter the times at which shifts start, for example
+`06:00, 14:00, 22:00`. At each of them, a window asks the operator to confirm or change the typed
+values (Operator, Work order), so a value from the last shift is not written into the next shift's
+files. Files keep being processed while the question is open. **Later** closes it and leaves an
+amber banner under the counters; clicking the banner asks again. **Confirm** saves any changed
+values, and they apply from the next file.
+
+The last confirmation is remembered across restarts: a shift change that nobody answered is asked
+about again when the program is opened, and one that was answered is not. Setting the times for
+the first time does not ask about a shift that began earlier. Leave the field empty to switch it
+off (the default).
+
 ## Automatic clean-up
 
 Off by default, so nothing is ever deleted unless you choose it. Under *Monitoring & file
