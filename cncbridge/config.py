@@ -12,7 +12,7 @@ from datetime import datetime
 from pathlib import Path
 
 APP_NAME = "CNCBridge"
-VERSION = "1.1.0"
+VERSION = "1.2.0"
 
 MAX_SELECTIONS = 10
 MAX_MANUAL = 2
