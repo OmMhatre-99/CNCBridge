@@ -11,6 +11,10 @@ installed on the machine PC and it needs no internet connection.
 
 1. Watches the machine CSV folder. A file is picked up once the machine has finished with it:
    unchanged for 2 seconds and no longer held open.
+   For a machine that writes a file in bursts, set *File is complete when it contains* (Delivery tab,
+   options) to the text the machine writes last, for example `End_Time`: the file is then taken
+   only once it contains that text. A file that never gets it stays in the machine folder, and
+   CNCBridge raises an alert after the usual time, so it is not forgotten.
 2. Reads it (comma, semicolon, tab or `|` separated; UTF-8, UTF-16 or Windows code page).
 3. Cuts out up to **10 cell ranges**, written like in a spreadsheet:
 

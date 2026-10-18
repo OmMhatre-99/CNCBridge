@@ -197,7 +197,7 @@ class App(tk.Tk):
         self.v = {k: tk.StringVar(self) for k in (
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
             "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
-            "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
+            "complete_marker", "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
@@ -592,13 +592,18 @@ class App(tk.Tk):
                                  state="readonly", width=12)
         delimiter.grid(row=4, column=1, sticky="w", padx=8)
         self.field_widgets["delimiter"] = delimiter
+        ttk.Label(box, text="File is complete when it contains", style="Card.TLabel").grid(
+            row=5, column=0, sticky="w", pady=5)
+        marker = ttk.Entry(box, textvariable=self.v["complete_marker"], width=16, font=(self._font_mono, 11))
+        marker.grid(row=5, column=1, sticky="w", padx=8)
+        self.field_widgets["complete_marker"] = marker
         in_background = ttk.Checkbutton(box, text="Process in the background: keeps going after this window\n"
                                                   "closes, and starts when you log on to Windows",
                                         variable=self.background_on)
-        in_background.grid(row=5, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        in_background.grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 4))
         self.field_widgets["run_in_background"] = in_background
         for row_no, (key, label) in enumerate((("keep_backup_days", "Delete back-up files after"),
-                                                ("keep_history_days", "Delete history after")), start=6):
+                                                ("keep_history_days", "Delete history after")), start=7):
             ttk.Label(box, text=label, style="Card.TLabel").grid(row=row_no, column=0, sticky="w", pady=5)
             row = ttk.Frame(box)
             row.grid(row=row_no, column=1, sticky="w", padx=8)
@@ -878,6 +883,9 @@ class App(tk.Tk):
                          "Times copied from the machine file are not changed.",
             "rename_columns": "Change column names in every file, for example Ref=Reference. Applies to selections "
                               "that use a header row. Names are matched ignoring upper and lower case.",
+            "complete_marker": "Optional. Text the machine writes last, such as End_Time. A file is taken only once "
+                               "it contains this text (ignoring case), on top of the usual idle time. Leave empty "
+                               "for machines that write a file in one go.",
             "pick_open": "Extend the selected range down to the first empty row.",
             "pick_heading": "Instead of fixed cells, find the block by the text in the top-left cell you marked. "
                             "It then still works when the table moves down the file.",

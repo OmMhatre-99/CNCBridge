@@ -945,6 +945,93 @@ class CleanUp(unittest.TestCase):
         self.assertTrue((self.backup / "2026-08-02").exists())
 
 
+class CompleteMarker(unittest.TestCase):
+    """'File is complete when it contains ...': a file is taken only once the machine has written the marker."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.machine = self.tmp / "machine"
+        self.machine.mkdir()
+        self.cfg = {"source_folder": str(self.machine), "backup_folder": str(self.tmp / "backup"),
+                    "selections": [sel("A1:B3")], "shared_enabled": True, "shared_folder": str(self.tmp / "shared"),
+                    "stable_seconds": 0, "complete_marker": "End_Time", "alert_after_minutes": 0}
+        self.sent = []
+        original = alerts.SENDERS["notify"]
+        self.addCleanup(alerts.SENDERS.__setitem__, "notify", original)
+        alerts.SENDERS["notify"] = lambda *a, **k: self.sent.append(a)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def engine(self, **overrides):
+        return engine.Engine(dict(self.cfg, **overrides), self.tmp / "data")
+
+    def names(self, eng):
+        return [f.name for f in eng.pending_files()]
+
+    def test_a_burst_writer_is_not_read_half_written(self):
+        eng = self.engine()
+        part = self.machine / "board.csv"
+        part.write_text("Key,Value\nMachine,PNP\n")
+        self.assertEqual(self.names(eng), [])          # idle, not held open, but the marker is not there yet
+        self.assertEqual(eng.scan_once(), 0)
+        self.assertTrue(part.exists())
+        with open(part, "a") as f:                      # the machine finishes the file
+            f.write("End_Time,2026-10-19 10:00:11\n")
+        self.assertEqual(self.names(eng), ["board.csv"])
+        self.assertEqual(eng.scan_once(), 1)
+        self.assertFalse(part.exists())
+
+    def test_marker_ignores_case_and_works_in_other_encodings(self):
+        eng = self.engine(complete_marker="end_time")
+        (self.machine / "a.csv").write_text("Key,Value\nEND_TIME,x\n")
+        (self.machine / "b.csv").write_bytes("Key,Value\r\nEnd_Time,\xe9\r\n".encode("cp1252"))
+        (self.machine / "c.csv").write_bytes("Key,Value\r\nEnd_Time,x\r\n".encode("utf-16"))
+        self.assertEqual(sorted(self.names(eng)), ["a.csv", "b.csv", "c.csv"])
+
+    def test_without_the_setting_nothing_changes(self):
+        eng = self.engine(complete_marker="")
+        (self.machine / "a.csv").write_text("Key,Value\nMachine,PNP\n")
+        self.assertEqual(self.names(eng), ["a.csv"])
+
+    def test_a_file_that_never_gets_the_marker_is_alerted_not_forgotten(self):
+        eng = self.engine()
+        (self.machine / "alarms.csv").write_text("Door open\n")
+        eng.scan_once()
+        eng.alerts.flush()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("alarms.csv does not contain 'End_Time'", self.sent[0][1])
+        eng.scan_once()  # still waiting: not announced again
+        eng.alerts.flush()
+        self.assertEqual(len(self.sent), 1)
+        self.assertIn("marker:alarms.csv", alerts.read_state(self.tmp / "data"))
+        (self.machine / "alarms.csv").unlink()  # removed by hand: the problem ends
+        eng.scan_once()
+        eng.alerts.flush()
+        self.assertEqual(alerts.read_state(self.tmp / "data"), {})
+        self.assertIn("working again", self.sent[-1][0])
+
+    def test_switching_the_setting_off_clears_the_waiting_files(self):
+        eng = self.engine()
+        (self.machine / "alarms.csv").write_text("Door open\n")
+        eng.scan_once()
+        self.assertTrue(alerts.read_state(self.tmp / "data"))
+        eng.cfg = config.normalize_config(dict(self.cfg, complete_marker=""))
+        self.assertEqual(self.names(eng), ["alarms.csv"])
+        self.assertEqual(alerts.read_state(self.tmp / "data"), {})
+
+    def test_the_setting_is_kept(self):
+        with tempfile.TemporaryDirectory() as d:
+            config.save_config({"complete_marker": "  End_Time "}, Path(d) / "config.json")
+            self.assertEqual(config.load_config(Path(d) / "config.json")["complete_marker"], "End_Time")
+        self.assertEqual(config.normalize_config({})["complete_marker"], "")
+
+    def test_the_sample_machine_file_has_a_marker(self):
+        self.assertTrue(engine.has_marker(SAMPLE, "End_Time"))
+        self.assertFalse(engine.has_marker(SAMPLE, "Not_There"))
+        self.assertFalse(engine.has_marker(self.tmp / "missing.csv", "End_Time"))
+
+
 class Background(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())

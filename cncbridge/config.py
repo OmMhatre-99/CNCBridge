@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
     "delimiter": "auto",                  # auto | , | ; | tab | |
     "poll_seconds": 3,
     "stable_seconds": 2,                  # file must be untouched this long before it is picked up
+    "complete_marker": "",                # text the machine writes last (e.g. End_Time); empty = idle time only
     "autostart": False,                   # start monitoring when the program opens
     # output switches: all off, so the files stay exactly as in version 1.0
     "json_numbers": False,                # JSON: write 12 and 40.53 as numbers, not as text
@@ -88,7 +89,8 @@ def normalize_config(cfg):
                              for m in mans[:MAX_MANUAL]]
 
     for key in ("station_name", "source_folder", "file_pattern", "backup_folder", "shared_folder",
-                "api_url", "api_token", "encoding", "delimiter", "alert_webhook_url", "alert_email_server",
+                "api_url", "api_token", "encoding", "delimiter", "complete_marker", "alert_webhook_url",
+                "alert_email_server",
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")

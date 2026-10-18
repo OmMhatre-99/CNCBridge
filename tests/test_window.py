@@ -162,6 +162,37 @@ class RangePicker(WindowTest):
         self.run_steps(steps)
 
 
+class MarkerInWindow(WindowTest):
+    def test_file_waits_for_the_marker_and_the_banner_explains(self):
+        w = self.window
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.v["poll_seconds"].set("1")
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A1:B2")
+            w.v["complete_marker"].set("End_Time")
+            w.v["alert_after_minutes"].set("0")
+            w.cfg["stable_seconds"] = 0.3
+            self.assertTrue(w.save())
+            w.start()
+            yield lambda: w.running
+            board = self.machine / "board.csv"
+            board.write_text("Key,Value\nMachine,PNP-M8\n")
+            yield lambda: w.alert_banner_shown and "does not contain 'End_Time'" in w.alert_banner["text"]
+            self.assertTrue(board.exists())
+            self.assertEqual(self.files(self.shared), [])
+            with open(board, "a") as f:
+                f.write("End_Time,2026-10-19 10:00:11" + chr(10))
+            yield lambda: self.files(self.shared, "board_*.json") and not board.exists()
+            yield lambda: not w.alert_banner_shown
+            w.stop()
+            yield lambda: not w.running
+        self.run_steps(steps)
+
+
 class OutputOptions(WindowTest):
     def test_switches_are_saved_and_shown_in_the_preview(self):
         w = self.window

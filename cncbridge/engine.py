@@ -658,6 +658,15 @@ def is_ready(path, stable_seconds):
         return False
 
 
+def has_marker(path, marker, encoding="auto"):
+    """True when the file contains the text the machine writes last (ignoring case)."""
+    try:
+        text = decode(Path(path).read_bytes(), encoding)
+    except OSError:
+        return False
+    return marker.lower() in text.lower()
+
+
 def _visible(folder):
     return [f for f in Path(folder).glob("*") if f.is_file() and not f.name.startswith(".")]
 
@@ -801,6 +810,7 @@ class Engine:
         self.alerts = Alerts(self.data)
         self._stop = threading.Event()
         self._last_clean_up = 0.0
+        self._waiting_marker = set()  # files seen without the complete-marker, by name
         self._reported = {}  # last problem logged per subject, so a standing fault is logged once, not every cycle
         self._since = {}     # when each standing fault was first seen, for alert_after_minutes
 
@@ -937,7 +947,32 @@ class Engine:
         cfg = self.cfg
         files = [f for f in Path(cfg["source_folder"]).glob(cfg["file_pattern"])
                  if f.is_file() and not f.name.startswith(".") and is_ready(f, cfg["stable_seconds"])]
+        if cfg["complete_marker"]:
+            files = self._with_marker(files, cfg["complete_marker"])
+        elif self._waiting_marker:
+            self._with_marker([], "")  # the setting was switched off: nothing waits for a marker any more
         return sorted(files, key=lambda p: (p.stat().st_mtime, p.name))
+
+    def _with_marker(self, files, marker):
+        """
+        Only files that contain the marker are taken. A file without it is left alone and reported (and
+        alerted, when it lasts) so it is not forgotten: the machine may still be writing it, or the
+        marker setting may be wrong.
+        """
+        ready, waiting = [], set()
+        for f in files:
+            if has_marker(f, marker, self.cfg["encoding"]):
+                ready.append(f)
+                self._report(f"marker:{f.name}", None)
+            else:
+                waiting.add(f.name)
+                self._report(f"marker:{f.name}", f"{f.name} does not contain '{marker}' yet, so it is not "
+                                                  f"taken. Is the machine still writing it, or is the marker "
+                                                  f"setting wrong?")
+        for name in self._waiting_marker - waiting:  # taken in the meantime, or no longer in the folder
+            self._report(f"marker:{name}", None)
+        self._waiting_marker = waiting
+        return ready
 
     def scan_once(self):
         """One cycle: process every finished file in the source folder, then deliver what is queued."""
