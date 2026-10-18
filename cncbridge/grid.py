@@ -5,14 +5,9 @@ from tkinter import font as tkfont
 from tkinter import ttk
 
 from .engine import col_letter
-from .theme import (ACCENT, GRID_HEADER, GRID_HEADER_SELECTION, GRID_HEADER_TEXT, GRID_LINE,
-                    GRID_SELECTION, GRID_SELECTION_EDGE, MUTED, RANGE_COLOURS, SURFACE, TEXT,
-                    resolve_font_families)
+from . import theme
 
 MAX_CELL_CHARS = 28
-LINE, HEAD_BG, HEAD_FG = GRID_LINE, GRID_HEADER, GRID_HEADER_TEXT
-SEL_FILL, SEL_EDGE, HEAD_SEL = GRID_SELECTION, GRID_SELECTION_EDGE, GRID_HEADER_SELECTION
-MARK_COLOURS = list(RANGE_COLOURS)
 
 
 class Grid(ttk.Frame):
@@ -29,7 +24,7 @@ class Grid(ttk.Frame):
         self.marks = []  # (slot index, (col1, row1, col2, row2))
 
         root = self.winfo_toplevel()
-        fonts = getattr(root, "font_families", None) or resolve_font_families(root)
+        fonts = getattr(root, "font_families", None) or theme.resolve_font_families(root)
         self.font = tkfont.Font(root=root, family=fonts["mono"], size=11)
         self.heading_font = tkfont.Font(root=root, family=fonts["heading"], size=13, weight="bold")
         self.body_font = tkfont.Font(root=root, family=fonts["body"], size=11)
@@ -38,8 +33,8 @@ class Grid(ttk.Frame):
         self.rh = self.font.metrics("linespace") + 8
         self.rw = self.cw * 5 + 10
 
-        self.canvas = tk.Canvas(self, background=SURFACE, highlightthickness=2, highlightbackground=GRID_LINE,
-                                highlightcolor=ACCENT, takefocus=True,
+        self.canvas = tk.Canvas(self, background=theme.SURFACE, highlightthickness=2, highlightbackground=theme.GRID_LINE,
+                                highlightcolor=theme.ACCENT, takefocus=True,
                                 yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
         vs = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         hs = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
@@ -177,10 +172,10 @@ class Grid(ttk.Frame):
         width, height = c.winfo_width(), c.winfo_height()
         if not self.rows or not self.ncols:
             c.create_text(width / 2, height / 2 - 16, text="Start by opening a machine file",
-                          fill=TEXT, font=self.heading_font)
+                          fill=theme.TEXT, font=self.heading_font)
             c.create_text(width / 2, height / 2 + 12,
                           text="Use Open CSV file… above, or choose Newest machine file.",
-                          fill=MUTED, font=self.body_font)
+                          fill=theme.MUTED, font=self.body_font)
             return
         x0, y0, rh, rw = int(c.canvasx(0)), int(c.canvasy(0)), self.rh, self.rw
         r_first = max(0, y0 // rh)
@@ -190,14 +185,14 @@ class Grid(ttk.Frame):
 
         visible = [(slot, b) for slot, b in self.marks if b[3] >= b[1] and b[0] < self.ncols]
         for slot, bounds in visible:
-            c.create_rectangle(*self._box(bounds), fill=MARK_COLOURS[slot % 10][0], outline="")
+            c.create_rectangle(*self._box(bounds), fill=theme.RANGE_COLOURS[slot % 10][0], outline="")
         if self.sel:
-            c.create_rectangle(*self._box(self.sel), fill=SEL_FILL, outline="")
+            c.create_rectangle(*self._box(self.sel), fill=theme.GRID_SELECTION, outline="")
 
         for r in range(r_first, r_last + 2):
-            c.create_line(x0, rh * (r + 1), x0 + width, rh * (r + 1), fill=LINE)
+            c.create_line(x0, rh * (r + 1), x0 + width, rh * (r + 1), fill=theme.GRID_LINE)
         for col in range(c_first, c_last + 2):
-            c.create_line(rw + self.colx[col], y0, rw + self.colx[col], y0 + height, fill=LINE)
+            c.create_line(rw + self.colx[col], y0, rw + self.colx[col], y0 + height, fill=theme.GRID_LINE)
 
         for r in range(r_first, r_last + 1):
             row, y = self.rows[r], rh * (r + 1) + rh / 2
@@ -211,33 +206,33 @@ class Grid(ttk.Frame):
 
         for slot, bounds in visible:
             left, top, right, bottom = self._box(bounds)
-            c.create_rectangle(left, top, right, bottom, outline=MARK_COLOURS[slot % 10][1])
+            c.create_rectangle(left, top, right, bottom, outline=theme.RANGE_COLOURS[slot % 10][1])
         if self.sel:
-            c.create_rectangle(*self._box(self.sel), outline=SEL_EDGE, width=2)
+            c.create_rectangle(*self._box(self.sel), outline=theme.GRID_SELECTION_EDGE, width=2)
 
         # frozen headers, drawn last so that cells scroll underneath them
         sc1, sr1, sc2, sr2 = self.sel or (-1, -1, -1, -1)
-        c.create_rectangle(x0, y0, x0 + width, y0 + rh, fill=HEAD_BG, outline=LINE)
+        c.create_rectangle(x0, y0, x0 + width, y0 + rh, fill=theme.GRID_HEADER, outline=theme.GRID_LINE)
         for col in range(c_first, c_last + 1):
             left, right = rw + self.colx[col], rw + self.colx[col + 1]
             if sc1 <= col <= sc2:
-                c.create_rectangle(left, y0, right, y0 + rh, fill=HEAD_SEL, outline=LINE)
-            c.create_line(left, y0, left, y0 + rh, fill=LINE)
-            c.create_text((left + right) / 2, y0 + rh / 2, text=col_letter(col), fill=HEAD_FG, font=self.font)
-        c.create_rectangle(x0, y0, x0 + rw, y0 + height, fill=HEAD_BG, outline=LINE)
+                c.create_rectangle(left, y0, right, y0 + rh, fill=theme.GRID_HEADER_SELECTION, outline=theme.GRID_LINE)
+            c.create_line(left, y0, left, y0 + rh, fill=theme.GRID_LINE)
+            c.create_text((left + right) / 2, y0 + rh / 2, text=col_letter(col), fill=theme.GRID_HEADER_TEXT, font=self.font)
+        c.create_rectangle(x0, y0, x0 + rw, y0 + height, fill=theme.GRID_HEADER, outline=theme.GRID_LINE)
         for r in range(r_first, r_last + 1):
             top = rh * (r + 1)
             if top < y0 + rh:
                 continue
             if sr1 <= r <= sr2:
-                c.create_rectangle(x0, top, x0 + rw, top + rh, fill=HEAD_SEL, outline=LINE)
-            c.create_line(x0, top, x0 + rw, top, fill=LINE)
-            c.create_text(x0 + rw / 2, top + rh / 2, text=str(r + 1), fill=HEAD_FG, font=self.font)
-        c.create_rectangle(x0, y0, x0 + rw, y0 + rh, fill=HEAD_BG, outline=LINE)
+                c.create_rectangle(x0, top, x0 + rw, top + rh, fill=theme.GRID_HEADER_SELECTION, outline=theme.GRID_LINE)
+            c.create_line(x0, top, x0 + rw, top, fill=theme.GRID_LINE)
+            c.create_text(x0 + rw / 2, top + rh / 2, text=str(r + 1), fill=theme.GRID_HEADER_TEXT, font=self.font)
+        c.create_rectangle(x0, y0, x0 + rw, y0 + rh, fill=theme.GRID_HEADER, outline=theme.GRID_LINE)
 
         # slot number on the top-left corner of each assigned range, on top of the headers so column A shows it too
         for slot, bounds in visible:
             left, top = self._box(bounds)[:2]
             if left >= x0 + rw and top >= y0 + rh:
-                c.create_oval(left - 8, top - 8, left + 8, top + 8, fill=MARK_COLOURS[slot % 10][1], outline="white")
+                c.create_oval(left - 8, top - 8, left + 8, top + 8, fill=theme.RANGE_COLOURS[slot % 10][1], outline="white")
                 c.create_text(left, top, text=str(slot + 1), fill="white", font=self.badge_font)

@@ -57,7 +57,8 @@ Tk window, the app registers both fonts privately for its own process: GDI on Wi
 Core Text on macOS, and Fontconfig on Linux. This does not install fonts system-wide and
 does not require an internet connection. Linux systems need Fontconfig available for
 process-local registration. If registration is unavailable, CNCBridge falls back to
-matching fonts already installed on the computer.
+matching fonts already installed on the computer. The Legacy theme uses the Windows fonts
+(Segoe UI, Consolas) and does not register them.
 
 PyInstaller builds must include the `assets/fonts` directory as application data. The
 Windows `build_exe.bat` command does this automatically; the `.spec` files also include
@@ -280,6 +281,24 @@ about again when the program is opened, and one that was answered is not. Settin
 the first time does not ask about a shift that began earlier. Leave the field empty to switch it
 off (the default).
 
+## Appearance (themes)
+
+**Setup tab, box 5 "Appearance"** chooses the look of the window. Two themes come with the program:
+
+- **Modern** (default): flat controls, light industrial colours and the bundled Roboto fonts.
+- **Legacy**: the original look: native Windows controls, Segoe UI and Consolas, grey and blue.
+  It restores the earlier controls, fonts and colours, but keeps today's layout and all new features.
+
+Pick a theme, press **Save settings**, then **Restart now**. The window saves, closes and opens
+again by itself with the new look; if monitoring was running it starts again at once. A theme
+only changes how the window looks: processing, output files and delivery are the same in both.
+The choice is the `theme` setting in `config.json` (`modern` or `legacy`); an unknown name falls
+back to Modern. It is also part of Export/Import settings.
+
+Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every
+name in `COLOUR_NAMES`, ten range colours, candidate fonts and a function that styles the ttk
+widgets, then add it to `THEMES`. It appears in the Appearance box on its own; nothing else changes.
+
 ## Automatic clean-up
 
 Off by default, so nothing is ever deleted unless you choose it. Under *Monitoring & file
@@ -352,8 +371,10 @@ cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
 cncbridge/app.py         main window
 cncbridge/grid.py        spreadsheet view with drag selection
+cncbridge/theme.py       themes (Modern, Legacy): colours, fonts and widget styles
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
+tests/test_theme.py      every theme is complete; unknown names fall back
 tests/test_window.py     drives the real window: set CNCBRIDGE_WINDOW_TESTS=1 first
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)
 build_exe.bat            builds CNCBridge.exe, and CNCBridgeDemo.exe where demo\ exists (options: app, demo, clean)

@@ -43,6 +43,7 @@ DEFAULT_CONFIG = {
     "stable_seconds": 2,                  # file must be untouched this long before it is picked up
     "complete_marker": "",                # text the machine writes last (e.g. End_Time); empty = idle time only
     "autostart": False,                   # start monitoring when the program opens
+    "theme": "modern",                    # the look of the window: modern | legacy (more to come); applies on restart
     # output switches: all off, so the files stay exactly as in version 1.0
     "json_numbers": False,                # JSON: write 12 and 40.53 as numbers, not as text
     "csv_flat": False,                    # CSV: one plain table, one row per record
@@ -99,6 +100,7 @@ def normalize_config(cfg):
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")
+    base["theme"] = str(base["theme"] or "").strip().lower() or "modern"  # an unknown name falls back when used
     base["rename_columns"] = str(base["rename_columns"] or "")
     base["alert_email_password"] = str(base["alert_email_password"] or "")  # spaces may be part of it
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",

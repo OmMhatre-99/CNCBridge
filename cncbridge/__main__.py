@@ -4,6 +4,7 @@ CNCBridge entry point.
   CNCBridge                      open the window
   CNCBridge --headless           monitor with no window (the background task, a service wrapper)
   CNCBridge --headless --once    process what is in the folder now, then exit
+  CNCBridge --restarted          opened again by the window (new look); waits while the old window lets go
   CNCBridge --data DIR           keep settings, ledger, queue and logs in DIR instead of %ProgramData%\\CNCBridge
 """
 import argparse
@@ -80,6 +81,8 @@ def main(argv=None):
     ap.add_argument("--headless", action="store_true", help="monitor without opening the window")
     ap.add_argument("--once", action="store_true", help="with --headless: process the waiting files and exit")
     ap.add_argument("--data", help="folder for settings, ledger, queue and logs")
+    ap.add_argument("--restarted", action="store_true", help="the window restarted itself; wait for it to close")
+    ap.add_argument("--resume", action="store_true", help="with --restarted: start monitoring at once")
     args = ap.parse_args(argv)
 
     data_dir, notice = choose_data_dir(args.data)  # before anything opens files in the data folder
@@ -111,6 +114,11 @@ def main(argv=None):
         return 0
 
     mode, lock = window_mode(data_dir)
+    for _ in range(125 if args.restarted else 0):  # the window that restarted us is still closing
+        if mode != "busy":
+            break
+        time.sleep(0.2)
+        mode, lock = window_mode(data_dir)
     # a connected window writes its own log, so two programs never rotate the same file
     setup_logging(data_dir, console=False, filename="cncbridge.log" if mode == "normal" else "window.log")
     if notice:
@@ -126,7 +134,7 @@ def main(argv=None):
     if lock:
         background.mark_holder(data_dir, "window")
     from .app import run
-    run(data_dir, notice, lock)
+    run(data_dir, notice, lock, resume=args.resume)
     return 0
 
 

@@ -14,16 +14,12 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import alerts, background, config, engine, shifts
+from . import alerts, background, config, engine, shifts, theme
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
 from .tooltip import NotebookTabTooltip, Tooltip
-from .grid import MARK_COLOURS, Grid
-from .theme import (ACCENT, ACCENT_HOVER, ACCENT_TINT, ACTIVE_HEADER, BACKGROUND, BORDER,
-                    DISABLED_ACCENT, DISABLED_SURFACE, DISABLED_TEXT, ERROR, ERROR_TINT, FOCUS, FOCUS_SURFACE,
-                    HOVER_SURFACE, IDLE, MUTED, SUCCESS, SURFACE, SURFACE_ALT, TEXT, WARNING, WARNING_TINT,
-                    WHITE, apply_tk_palette, resolve_font_families)
+from .grid import Grid
 
 log = logging.getLogger("cncbridge")
 
@@ -53,7 +49,7 @@ class ShiftDialog(tk.Toplevel):
         self.app = app
         self.title("Shift change")
         self.transient(app)
-        self.configure(background=BACKGROUND)
+        self.configure(background=theme.BACKGROUND)
         frame = ttk.Frame(self, padding=18)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
@@ -96,20 +92,22 @@ class ShiftDialog(tk.Toplevel):
 
 
 class App(tk.Tk):
-    def __init__(self, data_dir, notice=None, lock=None, connected=False):
+    def __init__(self, data_dir, notice=None, lock=None, connected=False, resume=False):
         """
+        resume: start monitoring at once (the window was restarted while monitoring).
         lock: the data folder's single-copy lock, held while this window processes files itself.
         connected: background processing is set up or running; this window shows and controls it.
         """
-        self.bundled_fonts = register_bundled_fonts()
-        super().__init__()
         self.data_dir = Path(data_dir)
+        self.cfg_path = self.data_dir / "config.json"
+        self.cfg = load_config(self.cfg_path)
+        self.theme = theme.use(self.cfg["theme"])  # the look is chosen once, before any widget exists
+        self.bundled_fonts = register_bundled_fonts() if self.theme.bundled_fonts else {}
+        super().__init__()
         self.lock, self.connected = lock, connected
         self.bg_running = False          # connected: the background process is working (stats thread)
         self.take_over_when_stopped = False
         self._log_pos = None             # connected: how much of the background's log has been shown
-        self.cfg_path = self.data_dir / "config.json"
-        self.cfg = load_config(self.cfg_path)
         self.ledger = engine.Ledger(self.data_dir / "ledger.db")
         self.engine = self.thread = None
         self.simulation_process = None
@@ -132,94 +130,16 @@ class App(tk.Tk):
         height = min(self.px(790), self.winfo_screenheight() - self.px(100))
         self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}+{self.px(8)}")
         self.minsize(min(self.px(1020), width), min(self.px(660), height))
-        self.font_families = resolve_font_families(self)
-        body = self.font_families["body"]
-        heading = self.font_families["heading"]
-        mono = self.font_families["mono"]
-        apply_tk_palette(self, self.font_families)
-        self.configure(background=BACKGROUND)
+        self.font_families = theme.resolve_font_families(self, self.theme)
+        body, heading, mono = (self.font_families[k] for k in ("body", "heading", "mono"))
+        theme.apply_tk_palette(self, self.font_families, self.theme)
+        self.configure(background=theme.BACKGROUND)
         style = ttk.Style(self)
-        if "clam" in style.theme_names():
-            style.theme_use("clam")
-        style.configure(".", font=(body, 11), foreground=TEXT)
-        style.configure("TFrame", background=BACKGROUND)
-        style.configure("TLabel", background=BACKGROUND, foreground=TEXT)
-        style.configure("Small.TLabel", background=BACKGROUND, foreground=MUTED)
-        style.configure("PageTitle.TLabel", background=BACKGROUND, foreground=TEXT,
-                        font=(heading, 19, "bold"))
-        style.configure("PageHint.TLabel", background=BACKGROUND, foreground=MUTED, font=(body, 11))
-        style.configure("EmptyState.TLabel", background=SURFACE, foreground=MUTED,
-                        font=(body, 12), justify="center", padding=(20, 14))
-        style.configure("Card.TFrame", background=SURFACE)
-        style.configure("Card.TLabel", background=BACKGROUND, foreground=TEXT)
-        style.configure("CardSmall.TLabel", background=BACKGROUND, foreground=MUTED)
-        style.configure("MetricSmall.TLabel", background=SURFACE, foreground=MUTED)
-        style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT,
-                        font=(body, 16, "bold"))
-        style.configure("TLabelframe", background=BACKGROUND, bordercolor=BORDER, relief="solid", borderwidth=1)
-        style.configure("TLabelframe.Label", background=BACKGROUND, foreground=TEXT,
-                        font=(heading, 12, "bold"))
-        style.configure("Count.TLabel", background=BACKGROUND, foreground=TEXT, font=(body, 16, "bold"))
-        style.configure("Metric.TFrame", background=SURFACE, relief="solid", borderwidth=1)
-        style.configure("TButton", padding=(self.px(11), self.px(6)), background=SURFACE,
-                        bordercolor=BORDER, focuscolor=FOCUS)
-        style.map("TButton", background=[("active", HOVER_SURFACE), ("disabled", DISABLED_SURFACE)],
-                  foreground=[("disabled", DISABLED_TEXT)], bordercolor=[("focus", FOCUS), ("active", ACCENT)])
-        style.configure("Go.TButton", font=(body, 11, "bold"), background=ACCENT,
-                        foreground=WHITE, bordercolor=ACCENT)
-        style.map("Go.TButton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
-                  foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
-        style.configure("Toolbutton", padding=(self.px(10), self.px(6)), background=SURFACE,
-                        bordercolor=BORDER, focuscolor=FOCUS)
-        style.map("Toolbutton", background=[("active", HOVER_SURFACE)], bordercolor=[("focus", FOCUS),
-                                                                                   ("active", ACCENT)])
-        style.configure("Go.Toolbutton", font=(body, 11, "bold"), background=ACCENT,
-                        foreground=WHITE, bordercolor=ACCENT)
-        style.map("Go.Toolbutton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
-                  foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
-        style.configure("TEntry", padding=(self.px(7), self.px(5)), fieldbackground=SURFACE,
-                        bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, insertcolor=TEXT)
-        style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
-                  darkcolor=[("focus", ACCENT)], fieldbackground=[("disabled", DISABLED_SURFACE)],
-                  foreground=[("disabled", DISABLED_TEXT)])
-        style.configure("TCombobox", padding=(self.px(7), self.px(5)), fieldbackground=SURFACE,
-                        bordercolor=BORDER, arrowcolor=TEXT, focuscolor=FOCUS)
-        style.map("TCombobox", fieldbackground=[("readonly", SURFACE), ("disabled", SURFACE_ALT)],
-                  bordercolor=[("focus", ACCENT), ("active", ACCENT)],
-                  foreground=[("disabled", DISABLED_TEXT)], arrowcolor=[("disabled", MUTED)])
-        style.configure("TCheckbutton", background=BACKGROUND, foreground=TEXT, padding=(0, self.px(3)),
-                        focuscolor=FOCUS)
-        style.map("TCheckbutton", background=[("active", BACKGROUND), ("disabled", BACKGROUND)],
-                  foreground=[("disabled", MUTED)])
-        style.configure("TRadiobutton", background=BACKGROUND, foreground=TEXT, padding=(0, self.px(4)),
-                        focuscolor=FOCUS)
-        style.map("TRadiobutton", background=[("active", BACKGROUND), ("disabled", BACKGROUND)],
-                  foreground=[("disabled", MUTED)])
-        style.configure("TScrollbar", background=SURFACE_ALT, troughcolor=BACKGROUND,
-                        bordercolor=BORDER, arrowcolor=MUTED, lightcolor=SURFACE_ALT, darkcolor=BORDER)
-        style.map("TScrollbar", background=[("active", ACCENT_TINT), ("pressed", ACCENT_TINT)],
-                  arrowcolor=[("active", ACCENT)])
-        style.configure("TPanedwindow", background=BACKGROUND)
-        style.configure("Sash", background=BORDER, sashthickness=self.px(5))
-        style.configure("TNotebook", background=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
-        style.configure("TNotebook.Tab", background=BACKGROUND, foreground=MUTED,
-                        padding=(self.px(15), self.px(9)), font=(body, 11, "bold"))
-        style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", SURFACE_ALT)],
-                  foreground=[("selected", ACCENT), ("active", TEXT)], bordercolor=[("focus", FOCUS)])
-        style.configure("Treeview", rowheight=self.px(30), background=SURFACE, fieldbackground=SURFACE,
-                        foreground=TEXT, bordercolor=BORDER, font=(body, 11))
-        style.configure("History.Treeview", rowheight=self.px(30), background=SURFACE,
-                        fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, font=(mono, 11))
-        style.configure("Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
-                        font=(body, 10, "bold"), padding=(self.px(8), self.px(8)))
-        style.configure("History.Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
-                        font=(body, 10, "bold"), padding=(self.px(8), self.px(8)))
-        style.map("Treeview", background=[("selected", ACCENT_TINT), ("focus", FOCUS_SURFACE)],
-                  foreground=[("selected", TEXT)])
-        style.map("Treeview.Heading", background=[("active", ACTIVE_HEADER)],
-                  foreground=[("active", TEXT)])
-        style.configure("TScrollbar", arrowsize=self.px(15))
+        if self.theme.ttk_base and self.theme.ttk_base in style.theme_names():
+            style.theme_use(self.theme.ttk_base)
+        self.theme.configure_styles(style, self.px, self.font_families)
         self._font_body, self._font_heading, self._font_mono = body, heading, mono
+        log.info("Theme: %s", self.theme.key)
 
         self._make_vars()
         self._build_toolbar()
@@ -242,7 +162,7 @@ class App(tk.Tk):
         self._tick_job = self.after(200, self._tick)
         if notice:  # e.g. the one-time move of the data folder
             self.after(600, lambda: messagebox.showinfo(APP_NAME, notice, parent=self))
-        if self.cfg["autostart"]:
+        if self.cfg["autostart"] or resume:
             self.after(400, lambda: self.start(quiet=True))
 
     def px(self, n):
@@ -253,7 +173,7 @@ class App(tk.Tk):
         self.v = {k: tk.StringVar(self) for k in (
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
             "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
-            "complete_marker", "shift_times", "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
+            "complete_marker", "shift_times", "theme", "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
@@ -271,6 +191,7 @@ class App(tk.Tk):
         self.shift_dialog, self._shift_prompted, self._shift_checked = None, None, 0.0
         self.unlocked = False        # the setup password was entered in this session
         self.password_state = tk.StringVar(self)
+        self.theme_note = tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
         self.pick_heading = tk.BooleanVar(self)
         self.pick_hint = tk.StringVar(self)
@@ -296,6 +217,7 @@ class App(tk.Tk):
         self.headers_text.insert("1.0", cfg["api_headers"])
         self.rename_text.delete("1.0", "end")
         self.rename_text.insert("1.0", cfg["rename_columns"])
+        self._update_theme_note()
 
     def collect(self):
         """The settings as currently shown in the window (saved or not)."""
@@ -321,7 +243,7 @@ class App(tk.Tk):
         """Keep the tab content usable when the main window is shorter than its ideal height."""
         host = ttk.Frame(self)
         host.pack(fill="both", expand=True, padx=16, pady=(4, 0))
-        self.tabs_canvas = tk.Canvas(host, background=BACKGROUND, highlightthickness=0, borderwidth=0)
+        self.tabs_canvas = tk.Canvas(host, background=theme.BACKGROUND, highlightthickness=0, borderwidth=0)
         self.tabs_scrollbar = ttk.Scrollbar(host, orient="vertical", command=self.tabs_canvas.yview)
         self.tabs_canvas.configure(yscrollcommand=self.tabs_scrollbar.set)
         self.tabs_canvas.pack(side="left", fill="both", expand=True)
@@ -379,9 +301,9 @@ class App(tk.Tk):
         divider()
         self.save_btn = button("✔  Save settings", self.save)
         self.settings_btn = ttk.Menubutton(bar, text="Settings  ▾", style="Toolbutton")
-        settings_menu = tk.Menu(self.settings_btn, tearoff=False, background=SURFACE, foreground=TEXT,
-                                activebackground=ACCENT, activeforeground=WHITE, borderwidth=1,
-                                relief="solid", selectcolor=ACCENT)
+        settings_menu = tk.Menu(self.settings_btn, tearoff=False, background=theme.SURFACE, foreground=theme.TEXT,
+                                activebackground=theme.ACCENT, activeforeground=theme.WHITE, borderwidth=1,
+                                relief="solid", selectcolor=theme.ACCENT)
         settings_menu.add_command(label="Export settings...", command=self.export_settings)
         settings_menu.add_command(label="Import settings...", command=self.import_settings)
         settings_menu.add_command(label="Restore an earlier version...",
@@ -392,9 +314,9 @@ class App(tk.Tk):
         self.open_csv_btn = button("▦  Open CSV file...", self.open_csv)
         folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton")
         self.open_folders_btn = folders
-        menu = tk.Menu(folders, tearoff=False, background=SURFACE, foreground=TEXT,
-                       activebackground=ACCENT, activeforeground=WHITE, borderwidth=1,
-                       relief="solid", selectcolor=ACCENT)
+        menu = tk.Menu(folders, tearoff=False, background=theme.SURFACE, foreground=theme.TEXT,
+                       activebackground=theme.ACCENT, activeforeground=theme.WHITE, borderwidth=1,
+                       relief="solid", selectcolor=theme.ACCENT)
         for label, key in (("Machine CSV folder", "source_folder"), ("Back-up folder", "backup_folder"),
                            ("Shared folder", "shared_folder")):
             menu.add_command(label=label, command=lambda key=key: self._open_folder(self.v[key].get()))
@@ -411,7 +333,7 @@ class App(tk.Tk):
     def _build_header(self):
         bar = ttk.Frame(self, padding=(18, 10, 18, 10))
         bar.pack(fill="x")
-        self.state_dot = tk.Label(bar, text="●", fg=IDLE, bg=BACKGROUND,
+        self.state_dot = tk.Label(bar, text="●", fg=theme.IDLE, bg=theme.BACKGROUND,
                                   font=(self._font_body, 15, "bold"))
         self.state_dot.pack(side="left")
         self.state_label = ttk.Label(bar, text="Stopped", font=(self._font_body, 12, "bold"), width=11)
@@ -429,11 +351,11 @@ class App(tk.Tk):
         self.header_sep = ttk.Separator(self)
         self.header_sep.pack(fill="x")
         # shown only while an alert is open (see _tick)
-        self.alert_banner = tk.Label(self, text="", anchor="w", justify="left", bg=ERROR_TINT, fg=ERROR,
+        self.alert_banner = tk.Label(self, text="", anchor="w", justify="left", bg=theme.ERROR_TINT, fg=theme.ERROR,
                                      font=(self._font_body, 11, "bold"), padx=18, pady=7)
         self.alert_banner_shown = False
         # shown while a shift change is waiting for the operator's confirmation; a click opens the dialog
-        self.shift_banner = tk.Label(self, text="", anchor="w", justify="left", bg=WARNING_TINT, fg=WARNING,
+        self.shift_banner = tk.Label(self, text="", anchor="w", justify="left", bg=theme.WARNING_TINT, fg=theme.WARNING,
                                      font=(self._font_body, 11, "bold"), padx=18, pady=7, cursor="hand2")
         self.shift_banner.bind("<Button-1>", lambda e: self.confirm_shift())
         self.shift_banner_shown = False
@@ -524,8 +446,8 @@ class App(tk.Tk):
         ttk.Label(box, text="Rename columns, one per line as  Old name=New name", style="CardSmall.TLabel"
                   ).pack(anchor="w", pady=(8, 3))
         self.rename_text = tk.Text(box, height=3, width=30, font=(self._font_mono, 11), relief="solid",
-                                   borderwidth=1, background=SURFACE, foreground=TEXT, insertbackground=TEXT,
-                                   highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT,
+                                   borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT, insertbackground=theme.TEXT,
+                                   highlightthickness=1, highlightbackground=theme.BORDER, highlightcolor=theme.ACCENT,
                                    padx=7, pady=5, wrap="none", undo=True)
         self.rename_text.pack(fill="x")
         self.field_widgets["rename_columns"] = self.rename_text
@@ -545,6 +467,7 @@ class App(tk.Tk):
                                       "it applies from the next file, without stopping.")
         manual_help.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 2))
         self._fit_wrap(manual_help, self.px(470))
+        self._build_appearance(left)
 
         box = ttk.LabelFrame(right, text=" 3  Choose data to include (up to 10 ranges) ", padding=(14, 10))
         box.pack(fill="both", expand=True)
@@ -553,7 +476,7 @@ class App(tk.Tk):
         for col, text in ((1, "Name in the output"), (2, "Cell range"), (3, "First row is header")):
             ttk.Label(box, text=text, style="CardSmall.TLabel").grid(row=0, column=col, sticky="w", padx=6, pady=(0, 6))
         for i, (name, rng, header) in enumerate(self.sel_vars):
-            tk.Label(box, text=f" {i + 1} ", bg=MARK_COLOURS[i][1], fg="white",
+            tk.Label(box, text=f" {i + 1} ", bg=theme.RANGE_COLOURS[i][1], fg="white",
                      font=(self._font_body, 9, "bold")).grid(row=i + 1, column=0, pady=3)
             name_entry = ttk.Entry(box, textvariable=name)
             name_entry.grid(row=i + 1, column=1, sticky="ew", padx=6, pady=4)
@@ -623,8 +546,8 @@ class App(tk.Tk):
         self.field_widgets["api_body"] = api_body
         ttk.Label(box, text="Extra headers", style="Card.TLabel").grid(row=4, column=0, sticky="nw", pady=5)
         self.headers_text = tk.Text(box, height=4, width=30, font=(self._font_mono, 11), relief="solid", borderwidth=1,
-                                    background=SURFACE, foreground=TEXT, insertbackground=TEXT,
-                                    highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT,
+                                    background=theme.SURFACE, foreground=theme.TEXT, insertbackground=theme.TEXT,
+                                    highlightthickness=1, highlightbackground=theme.BORDER, highlightcolor=theme.ACCENT,
                                     padx=7, pady=5, wrap="word", undo=True)
         self.headers_text.grid(row=4, column=1, sticky="ew", padx=(8, 0), pady=5)
         self.field_widgets["api_headers"] = self.headers_text
@@ -740,6 +663,71 @@ class App(tk.Tk):
         test = ttk.Button(box, text="Send test alert", command=self.test_alert)
         test.grid(row=11, column=0, columnspan=4, sticky="w", pady=(8, 2))
         self.field_widgets["test_alert"] = test
+
+    def _build_appearance(self, parent):
+        """The look of the window. One radio button per theme in theme.THEMES, so a new theme appears by itself."""
+        box = ttk.LabelFrame(parent, text=" 5  Appearance ", padding=(14, 10))
+        box.pack(fill="x", pady=(14, 0))
+        for key, option in theme.THEMES.items():
+            choice = ttk.Radiobutton(box, text=option.label, value=key, variable=self.v["theme"],
+                                     command=self._update_theme_note)
+            choice.pack(anchor="w")
+            self.field_widgets[f"theme_{key}"] = choice
+            about = ttk.Label(box, text=option.description, style="CardSmall.TLabel", wraplength=self.px(440),
+                              justify="left")
+            about.pack(fill="x", padx=(24, 0), pady=(0, 6))
+            self._fit_wrap(about, self.px(440))
+        row = ttk.Frame(box)
+        row.pack(fill="x", pady=(2, 0))
+        ttk.Label(row, textvariable=self.theme_note, style="CardSmall.TLabel", wraplength=self.px(300),
+                  justify="left").pack(side="left", fill="x", expand=True)
+        self.restart_btn = ttk.Button(row, text="Restart now", command=self.restart)
+        self.restart_btn.pack(side="right")
+        self.field_widgets["restart_now"] = self.restart_btn
+
+    def _update_theme_note(self):
+        """Say what the chosen theme needs: saving, a restart, or nothing."""
+        if not hasattr(self, "restart_btn"):
+            return
+        chosen = self.v["theme"].get()
+        if chosen == self.theme.key:
+            note, state = "This is the look in use.", "disabled"
+        elif chosen == self.cfg["theme"]:
+            note, state = "Saved. It takes effect when CNCBridge restarts.", "normal"
+        else:
+            note, state = "Press Save settings to keep this choice, then restart to see it.", "normal"
+        self.theme_note.set(note)
+        self.restart_btn.configure(state=state)
+
+    def _restart_command(self, resume=False):
+        """The command that starts this program again on the same data folder."""
+        base = config.program_dir()
+        if getattr(sys, "frozen", False):
+            command = [sys.executable]
+        else:
+            python = Path(sys.executable)
+            pythonw = python.with_name("pythonw.exe")
+            command = [str(pythonw if pythonw.exists() else python), str(base / "CNCBridge.pyw")]
+        command += ["--data", str(self.data_dir), "--restarted"]
+        return command + ["--resume"] if resume else command
+
+    def restart(self):
+        """Save, then replace this window with a new one, so that a newly chosen theme is applied."""
+        if self.busy:
+            return messagebox.showinfo(APP_NAME, "Process now is running. Restart when it has finished.", parent=self)
+        if not self.save():
+            return
+        resume = self.running
+        try:  # the new program waits for this window to let go of the data folder
+            env = dict(os.environ, PYINSTALLER_RESET_ENVIRONMENT="1")  # a one-file exe must unpack afresh
+            subprocess.Popen(self._restart_command(resume), cwd=str(config.program_dir()), env=env)
+        except OSError as e:
+            return messagebox.showerror(APP_NAME, f"CNCBridge could not be restarted:\n{e}", parent=self)
+        if self.running:
+            self.engine.stop()
+            self.thread.join(20)
+        self.closing.set()
+        self.destroy()
 
     def _build_access(self, parent):
         box = ttk.LabelFrame(parent, text=" Operators & access ", padding=(14, 10))
@@ -981,13 +969,13 @@ class App(tk.Tk):
         panes.add(left, weight=3)
 
         right = ttk.LabelFrame(panes, text=" Output preview ", padding=(12, 10))
-        self.preview_note = ttk.Label(right, text="", foreground=WARNING, wraplength=self.px(360),
-                                      justify="left", background=BACKGROUND)
+        self.preview_note = ttk.Label(right, text="", foreground=theme.WARNING, wraplength=self.px(360),
+                                      justify="left", background=theme.BACKGROUND)
         self.preview_note.pack(fill="x", pady=(0, 8))
         self.preview = tk.Text(right, wrap="none", font=(self._font_mono, 11), width=44, state="normal",
-                               relief="solid", borderwidth=1, background=SURFACE, foreground=TEXT,
-                               insertbackground=TEXT, highlightthickness=1, highlightbackground=BORDER,
-                               highlightcolor=ACCENT, padx=8, pady=8, takefocus=True)
+                               relief="solid", borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT,
+                               insertbackground=theme.TEXT, highlightthickness=1, highlightbackground=theme.BORDER,
+                               highlightcolor=theme.ACCENT, padx=8, pady=8, takefocus=True)
         ys = ttk.Scrollbar(right, orient="vertical", command=self.preview.yview)
         xs = ttk.Scrollbar(right, orient="horizontal", command=self.preview.xview)
         self.preview.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
@@ -1026,9 +1014,9 @@ class App(tk.Tk):
         for key, title, width in cols:
             self.history.heading(key, text=title, anchor="w")
             self.history.column(key, width=self.px(width), anchor="w", stretch=key == "message")
-        self.history.tag_configure("failed", foreground=ERROR)
-        self.history.tag_configure("duplicate", foreground=MUTED)
-        self.history.tag_configure("pending", foreground=WARNING)
+        self.history.tag_configure("failed", foreground=theme.ERROR)
+        self.history.tag_configure("duplicate", foreground=theme.MUTED)
+        self.history.tag_configure("pending", foreground=theme.WARNING)
         ys = ttk.Scrollbar(history_area, orient="vertical", command=self.history.yview)
         xs = ttk.Scrollbar(history_area, orient="horizontal", command=self.history.xview)
         self.history.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
@@ -1046,10 +1034,10 @@ class App(tk.Tk):
         log_area = ttk.Frame(tab, style="Card.TFrame", padding=1)
         log_area.pack(fill="both", expand=True)
         self.log_text = tk.Text(log_area, wrap="none", font=(self._font_mono, 11), state="disabled",
-                                relief="flat", borderwidth=0, background=SURFACE, foreground=TEXT,
-                                insertbackground=TEXT, highlightthickness=0, padx=9, pady=9, takefocus=True)
-        self.log_text.tag_configure("WARNING", foreground=WARNING)
-        self.log_text.tag_configure("ERROR", foreground=ERROR)
+                                relief="flat", borderwidth=0, background=theme.SURFACE, foreground=theme.TEXT,
+                                insertbackground=theme.TEXT, highlightthickness=0, padx=9, pady=9, takefocus=True)
+        self.log_text.tag_configure("WARNING", foreground=theme.WARNING)
+        self.log_text.tag_configure("ERROR", foreground=theme.ERROR)
         ys = ttk.Scrollbar(log_area, orient="vertical", command=self.log_text.yview)
         xs = ttk.Scrollbar(log_area, orient="horizontal", command=self.log_text.xview)
         self.log_text.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
@@ -1163,6 +1151,8 @@ class App(tk.Tk):
         })
         Tooltip(self.field_widgets["shift_times"], "Optional. At each of these times the operator is asked to confirm "
                                                    "or change the typed values. Files keep being processed meanwhile.")
+        Tooltip(self.field_widgets["restart_now"], "Save, then close this window and open it again with the "
+                                                   "chosen look. Monitoring resumes by itself.")
         Tooltip(self.lock_btn, "Lock the setup tabs, or unlock them with the setup password.")
         Tooltip(self.field_widgets["set_password"], "Set or change the password that locks the setup tabs.")
         Tooltip(self.field_widgets["remove_password"], "Remove the password so everyone can change settings.")
@@ -1361,7 +1351,10 @@ class App(tk.Tk):
             self.after_cancel(self._tick_job)  # no refresh may run after the window is gone
         except (AttributeError, tk.TclError):
             pass
-        super().destroy()
+        try:
+            super().destroy()
+        except tk.TclError:  # already destroyed: a restart closes the window, then a close may follow
+            pass
 
     def on_close(self):
         if self.connected:  # the background process goes on by itself
@@ -1658,12 +1651,12 @@ class App(tk.Tk):
 
         running = self.processing
         if self.connected:
-            text, colour = ("In background", SUCCESS) if running else ("Background off", IDLE)
+            text, colour = ("In background", theme.SUCCESS) if running else ("Background off", theme.IDLE)
             if self.take_over_when_stopped and not running:
                 self._become_normal()
         else:
-            text, colour = ("Monitoring", SUCCESS) if running else ("Working...", WARNING) if self.busy else (
-                "Stopped", IDLE)
+            text, colour = ("Monitoring", theme.SUCCESS) if running else ("Working...", theme.WARNING) if self.busy else (
+                "Stopped", theme.IDLE)
         self.state_label.configure(text=text, width=max(11, len(text)))
         self.state_label.configure(foreground=colour)
         self.state_dot.configure(fg=colour)
@@ -1682,9 +1675,9 @@ class App(tk.Tk):
         if snap:
             self._show_alerts(snap.get("alerts") or {})
             for key, label in self.counts.items():
-                colour = (ERROR if snap[key] else TEXT) if key in ("failed", "rejected") else (
-                    WARNING if snap[key] else TEXT) if key == "queued" else (
-                    SUCCESS if snap[key] else TEXT) if key == "ok" else ACCENT if snap[key] else TEXT
+                colour = (theme.ERROR if snap[key] else theme.TEXT) if key in ("failed", "rejected") else (
+                    theme.WARNING if snap[key] else theme.TEXT) if key == "queued" else (
+                    theme.SUCCESS if snap[key] else theme.TEXT) if key == "ok" else theme.ACCENT if snap[key] else theme.TEXT
                 label.configure(text=str(snap[key]), foreground=colour)
             if snap["history"] != self.shown_history:
                 self.shown_history = snap["history"]
@@ -1757,9 +1750,9 @@ class App(tk.Tk):
             self.alert_banner_shown = False
 
 
-def run(data_dir, notice=None, lock=None):
+def run(data_dir, notice=None, lock=None, resume=False):
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)  # crisp text on high-DPI screens
     except (AttributeError, OSError):
         pass
-    App(data_dir, notice, lock, connected=lock is None).mainloop()
+    App(data_dir, notice, lock, connected=lock is None, resume=resume).mainloop()

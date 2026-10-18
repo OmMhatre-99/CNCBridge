@@ -1,7 +1,7 @@
 import tkinter as tk
 from tkinter import ttk
 
-from .theme import BORDER, SURFACE, TEXT, resolve_font_families
+from . import theme
 
 
 def _tooltip_window(widget, text, x, y):
@@ -14,9 +14,9 @@ def _tooltip_window(widget, text, x, y):
     window.transient(root)
     window.attributes("-topmost", True)
     window.lift()
-    fonts = getattr(root, "font_families", None) or resolve_font_families(root)
-    label = tk.Label(window, text=text, background=SURFACE, foreground=TEXT,
-                     relief="solid", borderwidth=1, highlightthickness=1, highlightbackground=BORDER,
+    fonts = getattr(root, "font_families", None) or theme.resolve_font_families(root)
+    label = tk.Label(window, text=text, background=theme.SURFACE, foreground=theme.TEXT,
+                     relief="solid", borderwidth=1, highlightthickness=1, highlightbackground=theme.BORDER,
                      font=(fonts["body"], 11), padx=8, pady=5, wraplength=340, justify="left")
     label.pack()
     window.update_idletasks()

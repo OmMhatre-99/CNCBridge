@@ -5,6 +5,7 @@ when asked:
     set CNCBRIDGE_WINDOW_TESTS=1
     python -m unittest tests.test_window -v
 """
+import gc
 import json
 import logging
 import os
@@ -26,6 +27,11 @@ if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
 from cncbridge import alerts, app, engine, shifts  # noqa: E402
+
+# Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
+# a closed window could be freed on a background thread and crash the process (Tcl_AsyncDelete). The tests
+# therefore switch it off and collect on the main thread, after each test.
+gc.disable()
 from test_engine import Receiver  # noqa: E402
 
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
@@ -65,7 +71,9 @@ def drive(window, steps):
             if done:
                 window.after(10, advance)
             elif time.time() > deadline:
-                stop(f"timed out waiting for: {getattr(item, '__doc__', None) or item}")
+                code = getattr(item, "__code__", None)
+                where = f"line {code.co_firstlineno} of {Path(code.co_filename).name}" if code else repr(item)
+                stop(f"timed out waiting for the condition at {where}")
             else:
                 window.after(200, poll)
         poll()
@@ -111,6 +119,8 @@ class WindowTest(unittest.TestCase):
 
     def tearDown(self):
         shutil.rmtree(self.tmp, ignore_errors=True)
+        self.window = None
+        gc.collect()
 
     def _patch(self, owner, name, value):
         original = getattr(owner, name)
@@ -727,6 +737,127 @@ class SettingsFiles(WindowTest):
         self.run_steps(steps)
 
 
+class Appearance(WindowTest):
+    def catch_restarts(self, launched, fail=None):
+        """Record the command that restarts the program instead of starting it; other programs run as usual."""
+        real = app.subprocess.Popen
+
+        def popen(command, *a, **k):
+            if "--restarted" not in command:
+                return real(command, *a, **k)
+            if fail:
+                raise fail
+            launched.append((command, k))
+        self._patch(app.subprocess, "Popen", popen)
+
+    def test_choose_a_theme_save_and_restart(self):
+        w = self.window
+        launched = []
+        self.catch_restarts(launched)
+
+        def steps():
+            self.assertEqual(w.theme.key, "modern")
+            for key in app.theme.THEMES:  # one radio button per theme, found by the registry
+                self.assertIn(f"theme_{key}", w.field_widgets)
+            self.assertEqual(str(w.restart_btn.cget("state")), "disabled")
+            self.assertIn("in use", w.theme_note.get())
+
+            w.v["theme"].set("legacy")
+            w._update_theme_note()
+            self.assertEqual(str(w.restart_btn.cget("state")), "normal")
+            self.assertIn("Save settings", w.theme_note.get())
+
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A12:I14")
+            w.restart()  # saves first, then starts the program again and closes this window
+            yield 100
+        self.run_steps(steps)
+        saved = app.load_config(self.tmp / "data" / "config.json")
+        self.assertEqual(saved["theme"], "legacy")
+        self.assertEqual(len(launched), 1)
+        command = launched[0][0]
+        self.assertIn("--restarted", command)
+        self.assertNotIn("--resume", command)  # it was not monitoring
+        self.assertEqual(command[command.index("--data") + 1], str(self.tmp / "data"))
+        self.assertEqual(launched[0][1]["env"]["PYINSTALLER_RESET_ENVIRONMENT"], "1")
+
+    def test_a_restart_while_monitoring_resumes_monitoring(self):
+        w = self.window
+        launched = []
+        self.catch_restarts(launched)
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A12:I14")
+            w.start()
+            yield lambda: w.running
+            w.restart()
+            self.assertFalse(w.running)  # the engine stopped before the new window takes over
+            yield 100
+        self.run_steps(steps)
+        self.assertIn("--resume", launched[0][0])
+
+    def test_a_failed_restart_keeps_the_window_open(self):
+        w = self.window
+
+        self.catch_restarts([], fail=OSError("no such program"))
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A12:I14")
+            w.restart()
+            self.assertTrue(w.winfo_exists())
+            self.assertEqual(self.dialogs[-1][0], "showerror")
+            yield 100
+        self.run_steps(steps)
+
+
+class LegacyWindow(WindowTest):
+    def make_window(self):
+        data = self.tmp / "data"
+        data.mkdir()
+        (data / "config.json").write_text(json.dumps({"theme": "legacy"}), encoding="utf-8")
+        return app.App(data)
+
+    def test_the_window_opens_with_the_legacy_look(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.theme.key, "legacy")
+            self.assertEqual(w.v["theme"].get(), "legacy")
+            self.assertEqual(app.theme.BACKGROUND, app.theme.LEGACY.colours["BACKGROUND"])
+            self.assertNotEqual(app.ttk.Style(w).theme_use(), "clam")
+            self.assertEqual(str(w.restart_btn.cget("state")), "disabled")  # already in use
+            for tab in (w.tabs.tabs()):  # every tab builds and shows in this theme
+                w.tabs.select(tab)
+                w.update()
+            yield 100
+        self.run_steps(steps)
+
+
+class UnknownTheme(WindowTest):
+    def make_window(self):
+        data = self.tmp / "data"
+        data.mkdir()
+        (data / "config.json").write_text(json.dumps({"theme": "from-the-future"}), encoding="utf-8")
+        return app.App(data)
+
+    def test_falls_back_to_the_default_theme(self):
+        def steps():
+            self.assertEqual(self.window.theme.key, "modern")
+            yield 100
+        self.run_steps(steps)
+
+
 class Notice(unittest.TestCase):
     def test_one_time_message_is_shown(self):
         shown = []
@@ -736,9 +867,11 @@ class Notice(unittest.TestCase):
         try:
             window = app.App(tmp / "data", notice="Your settings were moved.")
             errors = drive(window, lambda: iter([1000]))
+            window = None
         finally:
             messagebox.showinfo = original
             shutil.rmtree(tmp, ignore_errors=True)
+            gc.collect()
         self.assertEqual(errors, [])
         self.assertEqual(shown, ["Your settings were moved."])
 
