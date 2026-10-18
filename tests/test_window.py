@@ -162,6 +162,46 @@ class RangePicker(WindowTest):
         self.run_steps(steps)
 
 
+class OutputOptions(WindowTest):
+    def test_switches_are_saved_and_shown_in_the_preview(self):
+        w = self.window
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A12:I14")
+            self.assertTrue(w.open_sample(SAMPLE))
+            w.tabs.select(w.pick_tab)
+            yield 300
+            self.assertIn('"X_mm": "40.53"', w.preview.get("1.0", "end"))  # text, as before
+
+            w.b["json_numbers"].set(True)
+            w.rename_text.insert("1.0", "Ref=Reference")
+            w.refresh_preview()
+            preview = w.preview.get("1.0", "end")
+            self.assertIn('"X_mm": 40.53', preview)
+            self.assertIn('"Reference"', preview)
+
+            w.b["time_zone"].set(True)
+            w.v["output_format"].set("csv")
+            w.b["csv_flat"].set(True)
+            w.refresh_preview()
+            lines = w.preview.get("1.0", "end").splitlines()
+            self.assertEqual(lines[0].split(",")[:3], ["source_file", "processed_at", "station"])
+            self.assertRegex(lines[1], r"[+-]\d\d:\d\d,")
+
+            self.assertTrue(w.save())
+            saved = app.load_config(self.tmp / "data" / "config.json")
+            self.assertEqual([saved[k] for k in ("json_numbers", "csv_flat", "time_zone", "rename_columns")],
+                             [True, True, True, "Ref=Reference"])
+            w.rename_text.insert("end", chr(10) + "no equals sign here")
+            self.assertEqual(engine.validate(w.collect())[-1].split(":")[0], "Rename columns")
+            yield 100
+        self.run_steps(steps)
+
+
 class HeadingPicker(WindowTest):
     def test_find_by_heading_in_the_picker(self):
         w = self.window

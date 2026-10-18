@@ -218,6 +218,148 @@ class HeadingRanges(unittest.TestCase):
             self.assertEqual(feeders["rows"][0]["Feeder"], "F10")
 
 
+class OutputSwitches(unittest.TestCase):
+    """Numbers as numbers, plain CSV, time zone and renamed columns. All off means files stay as they were."""
+
+    def setUp(self):
+        self.rows = engine.read_rows(SAMPLE)
+        self.now = datetime(2026, 10, 19, 9, 30, 0)
+        self.base = {"station_name": "Line 7", "manual_inputs": [{"name": "Operator", "value": "OP-17"}],
+                     "selections": [sel("A12:I14", "Placements"), sel("B6", "Serial"),
+                                    sel("A3:B4", "Raw", header=False)]}
+
+    def out(self, fmt, rows=None, **switches):
+        cfg = config.normalize_config(dict(self.base, output_format=fmt, **switches))
+        return engine.build_output("board.csv", rows or self.rows, cfg, self.now)[0]
+
+    def test_defaults_keep_text_and_sections(self):
+        first = json.loads(self.out("json"))["selections"][0]["rows"][0]
+        self.assertEqual((first["X_mm"], first["Rot_deg"]), ("40.53", "0"))
+        text = self.out("csv")
+        self.assertIn("[Placements],A12:I14", text)
+        self.assertIn("[INFO]", text)
+        self.assertIn("processed_at,2026-10-19T09:30:00", text.replace("\r", ""))
+
+    def test_as_number(self):
+        for text, want in (("12", 12), ("-3", -3), ("0", 0), ("40.53", 40.53), ("0.5", 0.5),
+                           ("123456789012345", 123456789012345)):
+            self.assertEqual(engine.as_number(text), want, text)
+            self.assertIs(type(engine.as_number(text)), type(want), text)
+        for text in ("00123", "B240001", "1,5", "", "1e5", "+5", "1.", ".5", "-", "1234567890123456",
+                     "2026-10-09 10:00:00.581"):
+            self.assertEqual(engine.as_number(text), text, text)
+
+    def test_json_numbers(self):
+        doc = json.loads(self.out("json", json_numbers=True))
+        placements, serial, raw = doc["selections"]
+        first = placements["rows"][0]
+        self.assertEqual((first["X_mm"], first["Rot_deg"]), (40.53, 0))
+        self.assertEqual((first["Ref"], first["Timestamp"]), ("R101", "2026-10-09 10:00:00.581"))
+        self.assertEqual(serial["value"], "B240001")                      # not a number
+        self.assertEqual(raw["rows"], [["Machine", "PNP-M8"], ["Line", "L1"]])
+        self.base["selections"] = [sel("B9", "Cycle")]
+        self.assertEqual(json.loads(self.out("json", json_numbers=True))["selections"][0]["value"], 11.9)
+        header_off = {"selections": [sel("F13:G14", header=False)]}
+        self.base.update(header_off)
+        self.assertEqual(json.loads(self.out("json", json_numbers=True))["selections"][0]["rows"],
+                         [[40.53, 8.38], [8.37, 35.36]])
+
+    def test_numbers_only_change_json(self):
+        for fmt in ("csv", "txt"):
+            self.assertEqual(self.out(fmt, json_numbers=True), self.out(fmt))
+
+    def test_flat_csv(self):
+        table = list(csv.reader(io.StringIO(self.out("csv", csv_flat=True), newline="")))
+        self.assertEqual(table[0], ["source_file", "processed_at", "station", "Operator", "selection", "Timestamp",
+                                    "Ref", "Part_No", "Feeder", "Nozzle", "X_mm", "Y_mm", "Rot_deg", "Result",
+                                    "value", "col1", "col2"])
+        self.assertEqual(len(table), 1 + 2 + 1 + 2)  # two placements, the serial, two raw rows
+        self.assertEqual(table[1][:7], ["board.csv", "2026-10-19T09:30:00", "Line 7", "OP-17", "Placements",
+                                        "2026-10-09 10:00:00.581", "R101"])
+        serial = table[3]
+        self.assertEqual((serial[4], serial[14], serial[5]), ("Serial", "B240001", ""))
+        self.assertEqual(table[4][4:] [-3:], ["", "Machine", "PNP-M8"])
+        self.assertTrue(all(len(r) == len(table[0]) for r in table))
+
+    def test_flat_csv_never_hides_its_own_columns(self):
+        rows = engine.read_rows(b"station,selection,x\nA,B,C\n")
+        table = list(csv.reader(io.StringIO(self.out("csv", rows, csv_flat=True,
+                                                     selections=[sel("A1:C2", "T")]), newline="")))
+        self.assertEqual(table[0][-3:], ["data_station", "data_selection", "x"])
+        self.assertEqual(table[1][-3:], ["A", "B", "C"])
+        self.assertEqual(table[1][2], "Line 7")
+
+    def test_flat_only_changes_csv(self):
+        for fmt in ("json", "txt"):
+            self.assertEqual(self.out(fmt, csv_flat=True), self.out(fmt))
+
+    def test_time_zone(self):
+        self.assertEqual(json.loads(self.out("json"))["processed_at"], "2026-10-19T09:30:00")
+        zoned = json.loads(self.out("json", time_zone=True))["processed_at"]
+        self.assertRegex(zoned, r"^2026-10-19T09:30:00[+-]\d\d:\d\d$")
+        self.assertRegex(self.out("txt", time_zone=True), r"PROCESSED AT  : 2026-10-19T09:30:00[+-]\d\d:\d\d")
+        self.assertRegex(self.out("csv", time_zone=True), r"processed_at,2026-10-19T09:30:00[+-]\d\d:\d\d")
+
+    def test_rename_columns(self):
+        names = "Ref=Reference\n  x_mm = X \n# a comment\n\nTimestamp=Time\nnot a rename line\n"
+        for fmt, find in (("json", '"Reference"'), ("csv", "Time,Reference,Part_No"), ("txt", "Time ")):
+            self.assertIn(find, self.out(fmt, rename_columns=names), fmt)
+        first = json.loads(self.out("json", rename_columns=names))["selections"][0]
+        self.assertEqual(first["columns"][:3], ["Time", "Reference", "Part_No"])
+        self.assertIn("X", first["columns"])
+        self.assertEqual(first["rows"][0]["Reference"], "R101")
+        raw = json.loads(self.out("json", rename_columns="Machine=Maker"))["selections"][2]
+        self.assertEqual(raw["rows"][0], ["Machine", "PNP-M8"])           # no header row, nothing to rename
+
+    def test_renaming_to_an_existing_name_keeps_both(self):
+        columns = json.loads(self.out("json", rename_columns="Ref=Part_No"))["selections"][0]["columns"]
+        self.assertEqual(columns[1:3], ["Part_No", "Part_No_2"])
+
+    def test_rename_also_works_on_a_block_found_by_heading(self):
+        self.base["selections"] = [sel("@[FEEDER_STATUS]", "Feeders")]
+        columns = json.loads(self.out("json", rename_columns="feeder=Unit"))["selections"][0]["columns"]
+        self.assertEqual(columns[:2], ["Unit", "Part_No"])
+
+    def test_bad_rename_line_is_reported_by_validate_and_ignored_by_the_output(self):
+        with tempfile.TemporaryDirectory() as d:
+            cfg = config.normalize_config(dict(self.base, source_folder=d, backup_folder=d + "/b",
+                                               shared_enabled=True, shared_folder=d + "/s",
+                                               rename_columns="Ref=Reference\nnonsense"))
+            self.assertEqual(engine.validate(cfg),
+                             ["Rename columns: 'nonsense' must look like  Old name=New name"])
+        self.assertIn('"Reference"', self.out("json", rename_columns="Ref=Reference\nnonsense"))
+        for bad in ("=New", "Old=", "  = "):
+            with self.assertRaises(ValueError, msg=bad):
+                engine.parse_renames(bad, strict=True)
+
+    def test_settings_keep_the_switches(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, exported = Path(d) / "config.json", Path(d) / "export.json"
+            config.save_config(dict(json_numbers=True, csv_flat=True, time_zone=True, rename_columns="A=B"), path)
+            loaded = config.load_config(path)
+            self.assertEqual([loaded[k] for k in ("json_numbers", "csv_flat", "time_zone", "rename_columns")],
+                             [True, True, True, "A=B"])
+            config.export_settings(loaded, exported)
+            self.assertEqual(config.import_settings(exported, {})["rename_columns"], "A=B")
+        defaults = config.normalize_config({})
+        self.assertEqual([defaults[k] for k in ("json_numbers", "csv_flat", "time_zone", "rename_columns")],
+                         [False, False, False, ""])
+
+    def test_pipeline_with_everything_on(self):
+        with tempfile.TemporaryDirectory() as d:
+            d = Path(d)
+            (d / "machine").mkdir()
+            shutil.copy(SAMPLE, d / "machine" / "board.csv")
+            cfg = dict(self.base, source_folder=str(d / "machine"), backup_folder=str(d / "backup"),
+                       shared_enabled=True, shared_folder=str(d / "shared"), stable_seconds=0, json_numbers=True,
+                       time_zone=True, rename_columns="Ref=Reference")
+            self.assertEqual(engine.Engine(cfg, d / "data").scan_once(), 1)
+            doc = json.loads(next((d / "shared").glob("board_*.json")).read_text(encoding="utf-8"))
+            self.assertRegex(doc["processed_at"], r"[+-]\d\d:\d\d$")
+            self.assertEqual(doc["selections"][0]["rows"][0]["X_mm"], 40.53)
+            self.assertIn("Reference", doc["selections"][0]["columns"])
+
+
 class Reading(unittest.TestCase):
     def test_decimal_commas_do_not_fool_the_delimiter(self):
         rows = engine.read_rows(b"Zone;Temp;Speed\r\nZ1;149,6;12,0\r\nZ2;181,2;12,0\r\n")

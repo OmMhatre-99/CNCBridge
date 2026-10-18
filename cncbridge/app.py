@@ -201,6 +201,7 @@ class App(tk.Tk):
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
+                                                    "json_numbers", "csv_flat", "time_zone",
                                                     "alert_notify", "alert_webhook_enabled", "alert_email_enabled",
                                                     "alert_email_starttls")}
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
@@ -229,6 +230,8 @@ class App(tk.Tk):
             name.set(m["name"]), value.set(m["value"])
         self.headers_text.delete("1.0", "end")
         self.headers_text.insert("1.0", cfg["api_headers"])
+        self.rename_text.delete("1.0", "end")
+        self.rename_text.insert("1.0", cfg["rename_columns"])
 
     def collect(self):
         """The settings as currently shown in the window (saved or not)."""
@@ -237,6 +240,7 @@ class App(tk.Tk):
         cfg.update({k: var.get() for k, var in self.b.items()})
         cfg["api_body"] = next((k for k, label in BODY_LABELS.items() if label == self.v["api_body"].get()), "raw")
         cfg["api_headers"] = self.headers_text.get("1.0", "end").strip()
+        cfg["rename_columns"] = self.rename_text.get("1.0", "end").strip()
         cfg["selections"] = []
         for name, rng, header in self.sel_vars:
             text = rng.get().strip()
@@ -433,10 +437,27 @@ class App(tk.Tk):
 
         box = ttk.LabelFrame(left, text=" 2  Output format ", padding=(14, 9))
         box.pack(fill="x", pady=(14, 0))
+        formats = ttk.Frame(box)
+        formats.pack(fill="x")
         for fmt in FORMATS:
-            choice = ttk.Radiobutton(box, text=fmt.upper(), value=fmt, variable=self.v["output_format"])
+            choice = ttk.Radiobutton(formats, text=fmt.upper(), value=fmt, variable=self.v["output_format"])
             choice.pack(side="left", padx=(0, 28), pady=2)
             self.field_widgets[f"output_format_{fmt}"] = choice
+        ttk.Separator(box).pack(fill="x", pady=(8, 6))
+        for key, text in (("json_numbers", "JSON: write numbers as numbers, not as text"),
+                          ("csv_flat", "CSV: one plain table, a row per record"),
+                          ("time_zone", "Add the time zone to the processing time (+05:30)")):
+            check = ttk.Checkbutton(box, text=text, variable=self.b[key])
+            check.pack(anchor="w")
+            self.field_widgets[key] = check
+        ttk.Label(box, text="Rename columns, one per line as  Old name=New name", style="CardSmall.TLabel"
+                  ).pack(anchor="w", pady=(8, 3))
+        self.rename_text = tk.Text(box, height=3, width=30, font=(self._font_mono, 11), relief="solid",
+                                   borderwidth=1, background=SURFACE, foreground=TEXT, insertbackground=TEXT,
+                                   highlightthickness=1, highlightbackground=BORDER, highlightcolor=ACCENT,
+                                   padx=7, pady=5, wrap="none", undo=True)
+        self.rename_text.pack(fill="x")
+        self.field_widgets["rename_columns"] = self.rename_text
 
         box = ttk.LabelFrame(left, text=" 4  Details added to every file ", padding=(14, 10))
         box.pack(fill="x", pady=(14, 0))
@@ -849,6 +870,14 @@ class App(tk.Tk):
             "run_in_background": "Applied with Save settings. Processing then runs as a Windows background task "
                                  "for this user; this window shows it and Start/Stop control it.",
             "pick_range": "Shows the cell range selected in the grid.",
+            "json_numbers": "In JSON files, cells such as 12 or 40.53 become numbers. IDs with leading zeros, text and "
+                            "numbers with a decimal comma stay text. Other formats are not affected.",
+            "csv_flat": "CSV files become one plain table: a row per record, with the file, time, station, your "
+                        "inputs and the selection name in front. Other formats are not affected.",
+            "time_zone": "The processing time written in each file ends with this PC's time zone, such as +05:30. "
+                         "Times copied from the machine file are not changed.",
+            "rename_columns": "Change column names in every file, for example Ref=Reference. Applies to selections "
+                              "that use a header row. Names are matched ignoring upper and lower case.",
             "pick_open": "Extend the selected range down to the first empty row.",
             "pick_heading": "Instead of fixed cells, find the block by the text in the top-left cell you marked. "
                             "It then still works when the table moves down the file.",

@@ -211,10 +211,29 @@ def _header(cells):
     return out
 
 
-def extract(rows, sel):
+def parse_renames(text, strict=False):
+    """
+    'Old=New' lines -> {old name in lower case: new name}. Blank lines and lines starting with # are skipped.
+    A line that is not Old=New is an error when strict, otherwise it is ignored.
+    """
+    renames = {}
+    for line in str(text).splitlines():
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        old, sep, new = line.partition("=")
+        if not sep or not old.strip() or not new.strip():
+            if strict:
+                raise ValueError(f"'{line.strip()}' must look like  Old name=New name")
+            continue
+        renames[old.strip().lower()] = new.strip()
+    return renames
+
+
+def extract(rows, sel, renames=None):
     """
     Cut one selection out of the file. Returns (block, has_data).
     block is {name, range} plus 'value' (single cell), or 'columns' + 'rows' (header on), or 'rows' (header off).
+    renames: {column name in lower case: new name}, applied to the column names of a header row.
     """
     c1, r1, c2, last = resolve_range(rows, sel["range"])
     width = c2 - c1 + 1
@@ -226,7 +245,8 @@ def extract(rows, sel):
     if ":" not in rng and not is_heading(rng):
         block["value"] = cells[0][0] if cells else ""
     elif sel["header"]:
-        block["columns"] = _header(cells[0]) if cells else []
+        names = [(renames or {}).get(h.lower(), h) if h else h for h in cells[0]] if cells else []
+        block["columns"] = _header(names)
         block["rows"] = cells[1:]
     else:
         block["rows"] = cells
@@ -247,19 +267,68 @@ def _aligned(table):
     return [" | ".join(c.ljust(w) for c, w in zip(r, widths)).rstrip() for r in table], widths
 
 
-def render(fmt, meta, blocks):
-    """Return the output document as text."""
+NUMBER = re.compile(r"^-?(0|[1-9][0-9]*)(\.[0-9]+)?$")
+
+
+def as_number(text):
+    """
+    '12' -> 12 and '40.53' -> 40.53. Anything that could lose meaning stays text: IDs with leading zeros
+    ('00123'), letters ('B240001'), decimal commas ('12,5'), and numbers longer than 15 digits.
+    """
+    if isinstance(text, str) and NUMBER.match(text) and len(text.replace("-", "").replace(".", "")) <= 15:
+        return float(text) if "." in text else int(text)
+    return text
+
+
+def _flat_csv(info, manual, blocks):
+    """One plain table: a row per record, with the file, time, station, inputs and selection in front."""
+    fixed = ["source_file", "processed_at", "station"] + list(manual) + ["selection"]
+    safe = lambda name: f"data_{name}" if name in fixed else name  # a data column never hides a fixed one
+    records = []
+    for b in blocks:
+        if "value" in b:
+            records.append((b["name"], {"value": b["value"]}))
+        elif "columns" in b:
+            records += [(b["name"], dict(zip(map(safe, b["columns"]), r))) for r in b["rows"]]
+        else:
+            records += [(b["name"], {f"col{i}": v for i, v in enumerate(r, 1)}) for r in b["rows"]]
+    columns = []
+    for _, rec in records:
+        columns += [c for c in rec if c not in columns]
+    buf = io.StringIO()
+    w = csv.writer(buf)
+    w.writerow(fixed + columns)
+    front = [info["source_file"], info["processed_at"], info["station"]] + list(manual.values())
+    for name, rec in records:
+        w.writerow(front + [name] + [rec.get(c, "") for c in columns])
+    return buf.getvalue()
+
+
+def render(fmt, meta, blocks, numbers=False, flat=False):
+    """
+    Return the output document as text.
+    numbers: JSON only, write cells that are numbers as numbers.
+    flat: CSV only, one plain table with a row per record instead of one block per selection.
+    """
     manual = meta["manual_inputs"]
     info = {k: meta[k] for k in ("source_file", "processed_at", "station")}
 
     if fmt == "json":
         doc = dict(info, manual_inputs=manual, selections=[])
+        conv = as_number if numbers else (lambda cell: cell)
         for b in blocks:
             item = dict(b)
+            if "value" in b:
+                item["value"] = conv(b["value"])
             if "columns" in b:
-                item["rows"] = [dict(zip(b["columns"], r)) for r in b["rows"]]
+                item["rows"] = [dict(zip(b["columns"], [conv(c) for c in r])) for r in b["rows"]]
+            elif numbers and "rows" in b:
+                item["rows"] = [[conv(c) for c in r] for r in b["rows"]]
             doc["selections"].append(item)
         return json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
+
+    if fmt == "csv" and flat:
+        return _flat_csv(info, manual, blocks)
 
     if fmt == "csv":
         buf = io.StringIO()
@@ -303,11 +372,12 @@ def render(fmt, meta, blocks):
 def build_output(src_name, rows, cfg, now=None):
     """Select + render. Returns (text, blocks, warnings). Used by the engine and by the preview."""
     now = now or datetime.now()
+    renames = parse_renames(cfg["rename_columns"])
     blocks, warnings, has_data = [], [], False
     for i, sel in enumerate(cfg["selections"], 1):
         if not sel["range"]:
             continue
-        block, filled = extract(rows, sel)
+        block, filled = extract(rows, sel, renames)
         blocks.append(block)
         has_data = has_data or filled
         last = None if is_heading(sel["range"]) else parse_range(sel["range"])[3]
@@ -319,9 +389,11 @@ def build_output(src_name, rows, cfg, now=None):
         raise ValueError("no cell range is configured")
     if not has_data:
         raise FileError("none of the selected cell ranges contain data in this file")
-    meta = {"source_file": src_name, "processed_at": now.isoformat(timespec="seconds"),
+    stamp = now.astimezone() if cfg["time_zone"] else now  # +05:30 and the like, when switched on
+    meta = {"source_file": src_name, "processed_at": stamp.isoformat(timespec="seconds"),
             "station": cfg["station_name"], "manual_inputs": manual_dict(cfg)}
-    return render(cfg["output_format"], meta, blocks), blocks, warnings
+    text = render(cfg["output_format"], meta, blocks, numbers=cfg["json_numbers"], flat=cfg["csv_flat"])
+    return text, blocks, warnings
 
 
 # =============================================================== settings check
@@ -365,6 +437,11 @@ def validate(cfg):
                 p.append(f"Selection {i}: {e}")
     if not ranges and not any(msg.startswith("Selection") for msg in p):
         p.append("Enter at least one cell range to extract (for example L1:M8).")
+
+    try:
+        parse_renames(cfg["rename_columns"], strict=True)
+    except ValueError as e:
+        p.append(f"Rename columns: {e}")
 
     if not cfg["shared_enabled"] and not cfg["api_enabled"]:
         p.append("Turn on at least one delivery: shared folder or API link.")

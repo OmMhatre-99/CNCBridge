@@ -40,6 +40,11 @@ DEFAULT_CONFIG = {
     "poll_seconds": 3,
     "stable_seconds": 2,                  # file must be untouched this long before it is picked up
     "autostart": False,                   # start monitoring when the program opens
+    # output switches: all off, so the files stay exactly as in version 1.0
+    "json_numbers": False,                # JSON: write 12 and 40.53 as numbers, not as text
+    "csv_flat": False,                    # CSV: one plain table, one row per record
+    "time_zone": False,                   # processed_at carries the PC's time zone, e.g. +05:30
+    "rename_columns": "",                 # one "Old=New" per line, applied to the column names of every block
     "keep_backup_days": 0,                # delete back-up files older than this; 0 = keep them all
     "keep_history_days": 0,               # delete history rows older than this; 0 = keep them all
     # alerts: a problem that lasts alert_after_minutes, or a file set aside, is announced
@@ -87,8 +92,10 @@ def normalize_config(cfg):
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")
+    base["rename_columns"] = str(base["rename_columns"] or "")
     base["alert_email_password"] = str(base["alert_email_password"] or "")  # spaces may be part of it
-    for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "alert_notify",
+    for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",
+                "time_zone", "alert_notify",
                 "alert_webhook_enabled", "alert_email_enabled", "alert_email_starttls"):
         base[key] = bool(base[key])
     base["file_pattern"] = base["file_pattern"] or "*.csv"

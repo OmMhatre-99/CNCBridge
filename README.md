@@ -128,6 +128,20 @@ TXT: the same content as an aligned, readable report.
 All output is UTF-8. While a file is being copied into the shared folder it has a temporary
 name starting with `.` and ending in `.part`; it gets its real name only when complete.
 
+### Output switches
+
+Four optional settings under *Output format* on the Setup tab change how files are written. All
+are off, and with all of them off the files are byte for byte what version 1.0 wrote, so a
+system that already reads them keeps working. Turn one on only when the receiving system asks
+for it. The Pick tab's preview shows the effect.
+
+| Setting | Effect |
+|---|---|
+| JSON: write numbers as numbers | `"X_mm": "40.53"` becomes `"X_mm": 40.53`. Text, IDs with leading zeros (`00123`), numbers with a decimal comma (`12,5`) and numbers longer than 15 digits stay text |
+| CSV: one plain table | one header row, then a row per record. In front of each row: `source_file`, `processed_at`, `station`, your inputs and `selection` (the name of the range). A single cell becomes a row with a `value` column; a range without a header row gets `col1`, `col2`... Data columns with the same name as a front column are called `data_<name>` |
+| Add the time zone | `processed_at` becomes `2026-10-19T09:30:00+05:30`. Times copied from the machine file are not changed, because CNCBridge does not know their zone |
+| Rename columns | one `Old name=New name` per line, matched ignoring upper and lower case, for example `Ref=Reference`. Applies to every selection with a header row, however it is chosen. If two columns end up with the same name, the second gets `_2` |
+
 ## What the API receives
 
 `POST <your link>` with the file as body (`Content-Type` `application/json`, `text/csv` or
