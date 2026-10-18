@@ -1170,6 +1170,18 @@ class Background(unittest.TestCase):
         self.assertEqual(entry.window_mode(self.data), ("connected", None))
         lock.close()
 
+    def test_the_task_name_never_creates_folders(self):
+        from cncbridge import background
+        saved = {k: os.environ.get(k) for k in ("PROGRAMDATA", "LOCALAPPDATA")}
+        self.addCleanup(lambda: [os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
+                                 for k, v in saved.items()])
+        os.environ["PROGRAMDATA"], os.environ["LOCALAPPDATA"] = str(self.tmp / "PD"), str(self.tmp / "LA")
+        self.assertEqual(background.task_name(self.tmp / "PD" / "CNCBridge"), "CNCBridge background")  # the default
+        self.assertEqual(background.task_name(self.tmp / "LA" / "CNCBridge"), "CNCBridge background")
+        self.assertNotEqual(background.task_name(self.data), "CNCBridge background")
+        self.assertFalse((self.tmp / "PD").exists() or (self.tmp / "LA").exists())
+        self.assertEqual(background.task_name(self.data), background.task_name(self.data))  # stable per folder
+
     def test_task_definition(self):
         from cncbridge import background
         self.assertNotEqual(background.task_name(self.data), "CNCBridge background")  # not the default folder

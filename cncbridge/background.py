@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 from xml.sax.saxutils import escape
 
-from .config import APP_NAME, default_data_dir, program_dir
+from .config import APP_NAME, program_dir
 
 STOP_FILE = "stop.request"
 INSTANCE_FILE = "instance.json"
@@ -126,7 +126,10 @@ def task_name(data_dir):
     """'CNCBridge background', plus a short code when the data folder is not the default one."""
     name = f"{APP_NAME} background"
     folder = str(Path(data_dir).resolve()).lower()
-    if folder != str(Path(default_data_dir()).resolve()).lower():
+    # compare with where the default folder would be; asking default_data_dir() would create it
+    defaults = {str((Path(root) / APP_NAME).resolve()).lower()
+                for root in (os.environ.get("PROGRAMDATA"), os.environ.get("LOCALAPPDATA")) if root}
+    if folder not in defaults:
         name += " " + hashlib.sha1(folder.encode("utf-8")).hexdigest()[:8]
     return name
 
