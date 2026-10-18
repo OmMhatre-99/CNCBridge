@@ -303,6 +303,33 @@ history; files waiting to be sent and refused files are never touched.
 - The rarely changed settings `stable_seconds` (default 2) and `api_timeout` (default 20)
   are only in `config.json` in the data folder.
 
+## Signing the programs and Windows versions
+
+**Signing.** An unsigned program can make Windows (SmartScreen) or antivirus software warn about it.
+`build_exe.bat` signs both programs when it finds a code-signing certificate. Buy one from a certificate
+authority (a certificate that is not self-signed, ideally with extended validation, is what removes the
+warnings), save it as a `.pfx` file, and set before building:
+
+```
+set CNCBRIDGE_SIGN_CERT=C:\keys\company.pfx
+set CNCBRIDGE_SIGN_PASSWORD=the-password-of-the-pfx
+build_exe.bat
+```
+
+`CNCBRIDGE_SIGN_TIMESTAMP` is the timestamp server (default `http://timestamp.digicert.com`; `none` signs
+without one). A timestamp keeps the signature valid after the certificate itself expires, so leave it on.
+Without `CNCBRIDGE_SIGN_CERT` the programs are built unsigned and the script says so. The build checks that
+the program is still complete after signing. The password sits in an environment variable, so do this on
+the PC that builds the programs, not on the machine PCs.
+
+Tested with a self-signed certificate: the signed program starts as a window and in the background, and
+signing it again replaces the signature. A real certificate has not been tried.
+
+**Windows versions.** The programs are built with Python 3.11, which supports Windows 8.1 and later, in the
+64-bit edition. Windows 10 and 11 are the safe choice; Windows 7 is not supported. They have only been run
+on Windows 11. Before relying on an older Windows, copy the two exe files to such a PC and run the
+demo (`CNCBridgeDemo.exe`) there.
+
 ## Making a release
 
 `release.bat` builds both programs and writes `release\CNCBridge-<version>.zip` (the two exe
@@ -314,16 +341,22 @@ kept in git; publish the zip instead, for example on GitHub Releases with the co
 
 ## For developers
 
-Python 3.9 or newer, standard library only.
+Python 3.11 (the version it is built and tested with), standard library only.
 
 ```
 CNCBridge.pyw            double-click to run from source
-cncbridge/engine.py      read, cell ranges, render, queue, deliver, back up, ledger
-cncbridge/config.py      settings, data folder, token encryption
+cncbridge/engine.py      read, cell ranges, render, queue, deliver, back up, clean up, ledger
+cncbridge/config.py      settings, data folder, token encryption, setup password
+cncbridge/alerts.py      Windows notification, webhook and email alerts
+cncbridge/background.py  background task, single-copy lock, connected window
+cncbridge/shifts.py      shift-change times and the last confirmation
 cncbridge/app.py         main window
 cncbridge/grid.py        spreadsheet view with drag selection
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
+tests/test_window.py     drives the real window: set CNCBRIDGE_WINDOW_TESTS=1 first
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)
 build_exe.bat            builds CNCBridge.exe, and CNCBridgeDemo.exe where demo\ exists (options: app, demo, clean)
+sign_exe.ps1             signs the programs (used by build_exe.bat)
+release.bat, release.py  build, then pack a release zip with checksums
 ```

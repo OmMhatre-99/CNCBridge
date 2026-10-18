@@ -87,9 +87,15 @@ rem Check that the code really is inside each exe.
 if "%WANT_APP%"=="1" call :verify CNCBridge cncbridge.app || exit /b 1
 if "%WANT_DEMO%"=="1" call :verify CNCBridgeDemo demo.control || exit /b 1
 
+rem Signing is optional: set CNCBRIDGE_SIGN_CERT (see README, "Signing the programs").
+call :sign || exit /b 1
+if defined CNCBRIDGE_SIGN_CERT if "%WANT_APP%"=="1" call :verify CNCBridge cncbridge.app || exit /b 1
+if defined CNCBRIDGE_SIGN_CERT if "%WANT_DEMO%"=="1" call :verify CNCBridgeDemo demo.control || exit /b 1
+
 echo.
 if "%WANT_APP%"=="1" echo Built dist\CNCBridge.exe
 if "%WANT_DEMO%"=="1" echo Built dist\CNCBridgeDemo.exe
+if not defined CNCBRIDGE_SIGN_CERT echo Not signed. To sign the programs, set CNCBRIDGE_SIGN_CERT to a code-signing certificate ^(see README^).
 exit /b 0
 
 :build_one
@@ -127,3 +133,16 @@ if not exist "dist\%~1.exe" exit /b 0
 ( type nul >> "dist\%~1.exe" ) 2>nul && exit /b 0
 echo ERROR: dist\%~1.exe is in use. Close it first, because Windows will not replace a running program.
 exit /b 1
+
+:sign
+if not defined CNCBRIDGE_SIGN_CERT exit /b 0
+set SIGN_FILES=
+if "%WANT_APP%"=="1" set SIGN_FILES="dist\CNCBridge.exe"
+if "%WANT_DEMO%"=="1" set SIGN_FILES=%SIGN_FILES% "dist\CNCBridgeDemo.exe"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0sign_exe.ps1" %SIGN_FILES%
+if errorlevel 1 (
+  echo ERROR: signing failed. The programs in dist were built but are not signed.
+  exit /b 1
+)
+exit /b 0
+
