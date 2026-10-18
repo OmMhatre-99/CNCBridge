@@ -247,6 +247,25 @@ The fixed test files and the test script are also in `demo	est_files` and
 `demo\TEST_SCRIPT.md`. `tests	est_demo.py` checks that every test file ends up where the
 script says.
 
+## Setup password and the operator view
+
+On the Delivery tab, under *Operators & access*, **Set password...** protects the setup. Once it
+is set, press **Lock setup** (toolbar, right). Locked, the window shows only:
+
+- **Start monitoring**, **Stop** and **Process now**, and the counters;
+- **History** and **Log**;
+- an **Operator** tab with the typed values (for example Operator and Work order) and **Apply**,
+  which saves them. They are used from the next file, without stopping.
+
+Setup, Delivery and Pick ranges are hidden, and Save settings, Settings, Open CSV file and
+Simulation are greyed out. **Unlock setup...** asks for the password. A restart starts locked.
+**Remove** (while unlocked) takes the password away again.
+
+The password is kept as a salted hash, never as text. It is not part of an exported settings file,
+and importing a file or restoring an earlier version never changes it. This keeps settings from being
+changed by accident; it does not protect against someone who can open this PC's files and edit
+`config.json`, so use Windows' own file permissions on the data folder if you need that.
+
 ## Automatic clean-up
 
 Off by default, so nothing is ever deleted unless you choose it. Under *Monitoring & file

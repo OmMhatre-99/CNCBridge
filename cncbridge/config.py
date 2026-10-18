@@ -1,6 +1,8 @@
 """CNCBridge settings: defaults, load/save, the data folder, and API token protection (Windows DPAPI)."""
 import base64
 import ctypes
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -46,6 +48,8 @@ DEFAULT_CONFIG = {
     "csv_flat": False,                    # CSV: one plain table, one row per record
     "time_zone": False,                   # processed_at carries the PC's time zone, e.g. +05:30
     "rename_columns": "",                 # one "Old=New" per line, applied to the column names of every block
+    "setup_password": "",                 # hash of the password that locks the setup tabs; empty = no password
+    "shift_times": "",                    # e.g. "06:00, 14:00, 22:00": ask the operator to confirm the typed values
     "keep_backup_days": 0,                # delete back-up files older than this; 0 = keep them all
     "keep_history_days": 0,               # delete history rows older than this; 0 = keep them all
     # alerts: a problem that lasts alert_after_minutes, or a file set aside, is announced
@@ -89,7 +93,8 @@ def normalize_config(cfg):
                              for m in mans[:MAX_MANUAL]]
 
     for key in ("station_name", "source_folder", "file_pattern", "backup_folder", "shared_folder",
-                "api_url", "api_token", "encoding", "delimiter", "complete_marker", "alert_webhook_url",
+                "api_url", "api_token", "encoding", "delimiter", "complete_marker", "setup_password", "shift_times",
+                "alert_webhook_url",
                 "alert_email_server",
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
@@ -198,6 +203,7 @@ def export_settings(cfg, path):
     out = normalize_config(cfg)
     for key in SECRET_KEYS:
         out[key] = ""
+    out["setup_password"] = ""  # a settings file never carries or changes a password
     doc = {"exported_by": f"{APP_NAME} {VERSION}", "exported_at": datetime.now().isoformat(timespec="seconds")}
     doc.update(out)
     Path(path).write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -218,7 +224,32 @@ def import_settings(path, current):
         except (OSError, ValueError):
             secret = ""
         cfg[key] = secret or current.get(key, "")
+    cfg["setup_password"] = current.get("setup_password", "")  # importing or restoring never changes the password
     return cfg
+
+
+# ---------------------------------------------------------------- setup password
+PASSWORD_ROUNDS = 200_000
+MIN_PASSWORD = 4
+
+
+def hash_password(password, salt=None, rounds=PASSWORD_ROUNDS):
+    """'pbkdf2$<rounds>$<salt>$<hash>': the password itself is never stored."""
+    salt = salt or os.urandom(16)
+    digest = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, rounds)
+    return f"pbkdf2${rounds}${salt.hex()}${digest.hex()}"
+
+
+def check_password(password, stored):
+    """True when the password matches a stored hash (and is not empty)."""
+    try:
+        scheme, rounds, salt, digest = stored.split("$")
+        if scheme != "pbkdf2" or not password:
+            return False
+        again = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), int(rounds))
+    except (ValueError, AttributeError):
+        return False
+    return hmac.compare_digest(again.hex(), digest)
 
 
 def program_dir():

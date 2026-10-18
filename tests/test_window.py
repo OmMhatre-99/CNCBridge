@@ -162,6 +162,140 @@ class RangePicker(WindowTest):
         self.run_steps(steps)
 
 
+class SetupLock(WindowTest):
+    """A setup password hides the setup tabs; operators keep Start/Stop, History, Log and the typed values."""
+
+    def state(self, tab):
+        return str(self.window.tabs.tab(tab, "state"))
+
+    def visible(self):
+        w = self.window
+        return [self.state(t) for t in (w.setup_tab, w.delivery_tab, w.pick_tab, w.operator_tab)]
+
+    def answers(self, *typed):
+        queue = list(typed)
+        self._patch(app.simpledialog, "askstring", lambda *a, **k: queue.pop(0))
+
+    def test_set_lock_unlock_and_remove(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])  # no password: as before
+            self.assertNotIn(w.lock_btn.winfo_manager(), ("pack", "grid"))
+
+            self.answers("abc")  # too short
+            w.set_password()
+            self.answers("secret1", "different")  # not the same twice
+            w.set_password()
+            self.assertFalse(w.protected)
+            self.assertEqual(len(self.dialogs), 2)
+
+            self.answers("secret1", "secret1")
+            w.set_password()
+            self.assertTrue(w.protected and w.unlocked)
+            self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])  # the setter stays in setup
+            text = (self.tmp / "data" / "config.json").read_text(encoding="utf-8")
+            self.assertIn("pbkdf2$", text)
+            self.assertNotIn("secret1", text)
+
+            w.toggle_lock()  # lock
+            self.assertEqual(self.visible(), ["hidden", "hidden", "hidden", "normal"])
+            self.assertEqual(w.tabs.select(), str(w.operator_tab))
+            self.assertEqual([str(b["state"]) for b in (w.save_btn, w.open_csv_btn, w.settings_btn)], ["disabled"] * 3)
+            self.assertEqual(w.lock_btn["text"], "Unlock setup...")
+            w.update()  # the run controls stay usable: monitoring is stopped, so Start and Process now are on
+            self.assertEqual([str(b["state"]) for b in (w.start_btn, w.once_btn, w.stop_btn)],
+                             ["normal", "normal", "disabled"])
+            self.assertEqual(w.password_state.get(), "Password is set")
+
+            self.dialogs.clear()
+            self.answers("wrong")
+            w.toggle_lock()
+            self.assertEqual((self.dialogs[0][0], self.visible()), ("showerror", ["hidden", "hidden", "hidden", "normal"]))
+            self.answers(None)  # cancelled
+            w.toggle_lock()
+            self.assertEqual(self.visible(), ["hidden", "hidden", "hidden", "normal"])
+            self.answers("secret1")
+            w.toggle_lock()
+            self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])
+            self.assertEqual(w.lock_btn["text"], "Lock setup")
+            self.assertEqual(str(w.save_btn["state"]), "normal")
+
+            self.dialogs.clear()
+            self.answers("wrong")
+            w.remove_password()
+            self.assertTrue(w.protected)
+            self.answers("secret1")
+            w.remove_password()
+            self.assertFalse(w.protected)
+            self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])
+            self.assertEqual(w.lock_btn.winfo_manager(), "")
+            self.assertEqual(app.load_config(self.tmp / "data" / "config.json")["setup_password"], "")
+            yield 100
+        self.run_steps(steps)
+
+    def test_a_restart_starts_locked(self):
+        w = self.window
+
+        def steps():
+            w.v["station_name"].set("Line 7")
+            self.assertTrue(w.save())
+            self.answers("secret1", "secret1")
+            w.set_password()
+            yield 100
+        self.run_steps(steps)
+        second = app.App(self.tmp / "data")
+        try:
+            self.assertTrue(second.protected and not second.unlocked)
+            self.assertEqual([str(second.tabs.tab(t, "state")) for t in (second.setup_tab, second.operator_tab)],
+                             ["hidden", "normal"])
+            self.assertEqual(second.tabs.select(), str(second.operator_tab))
+            self.assertEqual(second.cfg["station_name"], "Line 7")  # the password did not cost the other settings
+        finally:
+            second.destroy()
+
+    def test_operator_changes_the_typed_values_while_locked_and_running(self):
+        w = self.window
+
+        def operator_of(pattern):
+            files = self.files(self.shared, pattern)
+            return json.loads(files[0].read_text(encoding="utf-8"))["manual_inputs"] if files else None
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.v["poll_seconds"].set("1")
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("B6")
+            w.man_vars[0][0].set("Operator"), w.man_vars[0][1].set("OP-17")
+            w.man_vars[1][0].set("Work order"), w.man_vars[1][1].set("WO-1")
+            w.cfg["stable_seconds"] = 0.3
+            self.assertTrue(w.save())
+            self.answers("secret1", "secret1")
+            w.set_password()
+            w.toggle_lock()
+            self.assertEqual([lbl["text"] for lbl in w.operator_labels], ["Operator", "Work order"])
+            w.start()
+            yield lambda: w.running
+            self.drop("b1.csv", "S1")
+            yield lambda: operator_of("b1_*.json") == {"Operator": "OP-17", "Work order": "WO-1"}
+
+            w.man_vars[0][1].set("OP-99")  # typed on the Operator tab
+            w.man_vars[1][1].set("WO-2")
+            w.apply_operator_values()
+            self.assertIn("Typed values applied", w.status_msg.get())
+            self.assertEqual(str(w.tabs.tab(w.setup_tab, "state")), "hidden")  # still locked after applying
+            self.drop("b2.csv", "S2")
+            yield lambda: operator_of("b2_*.json") == {"Operator": "OP-99", "Work order": "WO-2"}
+            saved = app.load_config(self.tmp / "data" / "config.json")
+            self.assertEqual([m["value"] for m in saved["manual_inputs"]], ["OP-99", "WO-2"])
+            self.assertTrue(saved["setup_password"].startswith("pbkdf2$"))  # saving kept the password
+            w.stop()
+            yield lambda: not w.running
+        self.run_steps(steps)
+
+
 class MarkerInWindow(WindowTest):
     def test_file_waits_for_the_marker_and_the_banner_explains(self):
         w = self.window

@@ -11,9 +11,9 @@ import tkinter as tk
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
-from tkinter import filedialog, messagebox, ttk
+from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import alerts, background, engine
+from . import alerts, background, config, engine
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
@@ -176,9 +176,11 @@ class App(tk.Tk):
         self._build_pick()
         self._build_history()
         self._build_log()
+        self._build_operator()
         self._build_footer()
         self.fill(self.cfg)
         self._add_tooltips()
+        self._apply_lock()
         self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
@@ -207,6 +209,8 @@ class App(tk.Tk):
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
+        self.unlocked = False        # the setup password was entered in this session
+        self.password_state = tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
         self.pick_heading = tk.BooleanVar(self)
         self.pick_hint = tk.StringVar(self)
@@ -340,6 +344,8 @@ class App(tk.Tk):
         folders["menu"] = menu
         folders.pack(side="left", padx=1)
         self.simulation_btn = button("Simulation", self.open_simulation)
+        self.lock_btn = ttk.Button(bar, text="Unlock setup...", style="Toolbutton", command=self.toggle_lock)
+        self.lock_bar = bar  # the lock button is shown (on the right) only while a password is set
         ttk.Separator(self).pack(fill="x")
 
     def _build_header(self):
@@ -403,7 +409,7 @@ class App(tk.Tk):
             var.set(os.path.normpath(folder))
 
     def _build_setup(self):
-        tab = ttk.Frame(self.tabs, padding=(20, 18))
+        tab = self.setup_tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.tabs.add(tab, text="  Setup  ")
         self._page_intro(tab, "Set up your machine", "Choose where machine files arrive, what to include, and how outputs should look.")
         content = ttk.Frame(tab)
@@ -505,7 +511,7 @@ class App(tk.Tk):
         self._fit_wrap(range_help, self.px(650))
 
     def _build_delivery(self):
-        tab = ttk.Frame(self.tabs, padding=(20, 18))
+        tab = self.delivery_tab = ttk.Frame(self.tabs, padding=(20, 18))
         self.tabs.add(tab, text="  Delivery  ")
         self._page_intro(tab, "Choose where files are delivered",
                          "Enable one or both destinations. If a destination is unavailable, files wait safely and retry automatically.")
@@ -613,6 +619,7 @@ class App(tk.Tk):
             ttk.Label(row, text=" days  (0 = keep everything)", style="Card.TLabel").pack(side="left")
 
         self._build_alerts(right)
+        self._build_access(right)
 
         box = ttk.LabelFrame(right, text=" What happens to your files ", padding=(14, 10))
         box.pack(fill="both", expand=True, pady=(14, 0))
@@ -668,6 +675,124 @@ class App(tk.Tk):
         test = ttk.Button(box, text="Send test alert", command=self.test_alert)
         test.grid(row=11, column=0, columnspan=4, sticky="w", pady=(8, 2))
         self.field_widgets["test_alert"] = test
+
+    def _build_access(self, parent):
+        box = ttk.LabelFrame(parent, text=" Operators & access ", padding=(14, 10))
+        box.pack(fill="x", pady=(14, 0))
+        box.columnconfigure(1, weight=1)
+        ttk.Label(box, text="Setup password", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=5)
+        row = ttk.Frame(box)
+        row.grid(row=0, column=1, sticky="w", padx=8)
+        ttk.Label(row, textvariable=self.password_state, style="Card.TLabel", width=14).pack(side="left")
+        set_pw = ttk.Button(row, text="Set password...", command=self.set_password)
+        set_pw.pack(side="left", padx=(6, 0))
+        self.remove_pw_btn = ttk.Button(row, text="Remove", command=self.remove_password)
+        self.remove_pw_btn.pack(side="left", padx=6)
+        self.field_widgets["set_password"] = set_pw
+        self.field_widgets["remove_password"] = self.remove_pw_btn
+        note = ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(420), justify="left",
+                         text="With a password, operators see only Start/Stop, the counters, History, the "
+                              "Log and the typed values. It keeps settings from being changed by accident; it "
+                              "does not protect against someone who can open this PC's files.")
+        note.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        self._fit_wrap(note, self.px(420))
+
+    def _build_operator(self):
+        """What an operator sees while the setup is locked: the typed values and nothing else to change."""
+        tab = self.operator_tab = ttk.Frame(self.tabs, padding=(20, 18))
+        self.tabs.add(tab, text="  Operator  ")
+        self._page_intro(tab, "Typed values",
+                         "These values are written into every file. Change them when the operator or the "
+                         "work order changes; they apply from the next file, without stopping.")
+        box = ttk.LabelFrame(tab, text=" Details added to every file ", padding=(14, 10))
+        box.pack(fill="x")
+        box.columnconfigure(1, weight=1)
+        self.operator_labels = []
+        for i, (_, value) in enumerate(self.man_vars):
+            label = ttk.Label(box, text=f"Input {i + 1}", style="Card.TLabel", width=22)
+            label.grid(row=i, column=0, sticky="w", pady=6)
+            ttk.Entry(box, textvariable=value).grid(row=i, column=1, sticky="ew", padx=8, pady=6)
+            self.operator_labels.append(label)
+        apply = ttk.Button(box, text="Apply", style="Go.TButton", command=self.apply_operator_values)
+        apply.grid(row=len(self.man_vars), column=1, sticky="w", padx=8, pady=(8, 2))
+        self.field_widgets["operator_apply"] = apply
+
+    # ================================================================ setup password
+    @property
+    def protected(self):
+        return bool(self.cfg["setup_password"])
+
+    def _apply_lock(self):
+        """Show the setup tabs, or only the operator's, depending on the password and whether it was entered."""
+        locked = self.protected and not self.unlocked
+        for tab in (self.setup_tab, self.delivery_tab, self.pick_tab):
+            self.tabs.tab(tab, state="hidden" if locked else "normal")
+        self.tabs.tab(self.operator_tab, state="normal" if locked else "hidden")
+        for button in (self.save_btn, self.open_csv_btn, self.simulation_btn):
+            button.configure(state="disabled" if locked else "normal")
+        self.settings_btn.configure(state="disabled" if locked else "normal")
+        if self.protected:
+            self.lock_btn.configure(text="Unlock setup..." if locked else "Lock setup")
+            if not self.lock_btn.winfo_ismapped():
+                self.lock_btn.pack(in_=self.lock_bar, side="right", padx=(0, 6))
+        else:
+            self.lock_btn.pack_forget()
+        for label, (name, _) in zip(self.operator_labels, self.man_vars):
+            label.configure(text=name.get().strip() or label.cget("text"))
+        self.password_state.set("Password is set" if self.protected else "No password")
+        self.remove_pw_btn.configure(state="normal" if self.protected else "disabled")
+        self.tabs.select(self.operator_tab if locked else self.setup_tab)
+
+    def _ask_password(self, title, prompt):
+        return simpledialog.askstring(title, prompt, show="●", parent=self)
+
+    def toggle_lock(self):
+        if self.protected and not self.unlocked:
+            typed = self._ask_password("Unlock setup", "Setup password:")
+            if typed is None:
+                return
+            if not config.check_password(typed, self.cfg["setup_password"]):
+                return messagebox.showerror(APP_NAME, "That password is not right.", parent=self)
+            self.unlocked = True
+        else:
+            self.unlocked = False
+        self._apply_lock()
+
+    def set_password(self):
+        first = self._ask_password("Setup password", f"New password (at least {config.MIN_PASSWORD} characters):")
+        if first is None:
+            return
+        if len(first) < config.MIN_PASSWORD:
+            return messagebox.showerror(APP_NAME, f"Use at least {config.MIN_PASSWORD} characters.", parent=self)
+        if self._ask_password("Setup password", "Type it again:") != first:
+            return messagebox.showerror(APP_NAME, "The two passwords are not the same. Nothing was changed.",
+                                        parent=self)
+        self._store_password(config.hash_password(first))
+        self.status_msg.set("Password set. Press Lock setup when you are done; operators then see only the "
+                            "Operator tab.")
+
+    def remove_password(self):
+        typed = self._ask_password("Remove password", "Current setup password:")
+        if typed is None:
+            return
+        if not config.check_password(typed, self.cfg["setup_password"]):
+            return messagebox.showerror(APP_NAME, "That password is not right.", parent=self)
+        self._store_password("")
+        self.status_msg.set("Password removed. Everyone can change the settings.")
+
+    def _store_password(self, stored):
+        """Save only the password; unsaved edits in the form stay unsaved."""
+        cfg = dict(self.cfg, setup_password=stored)
+        save_config(cfg, self.cfg_path)
+        self.cfg = normalize_config(cfg)
+        self.unlocked = True  # whoever just set or removed it is in setup
+        self._apply_lock()
+        self.tabs.select(self.delivery_tab)
+
+    def apply_operator_values(self):
+        """The Operator tab: the typed values are the only thing that can have changed, so Save is enough."""
+        if self.save():
+            self.status_msg.set("Typed values applied. They are used from the next file.")
 
     def test_alert(self):
         cfg = self.collect()
@@ -911,7 +1036,12 @@ class App(tk.Tk):
             2: "Select cells from a sample file and preview the resulting output.",
             3: "Review recent machine files and their delivery results.",
             4: "Technical event log for processing and delivery details.",
+            5: "The typed values that go into every file.",
         })
+        Tooltip(self.lock_btn, "Lock the setup tabs, or unlock them with the setup password.")
+        Tooltip(self.field_widgets["set_password"], "Set or change the password that locks the setup tabs.")
+        Tooltip(self.field_widgets["remove_password"], "Remove the password so everyone can change settings.")
+        Tooltip(self.field_widgets["operator_apply"], "Save the typed values; they apply from the next file.")
         Tooltip(self.slot_box, "Select which slot (range) you are editing.")
 
     def open_simulation(self):

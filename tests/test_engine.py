@@ -453,6 +453,32 @@ class Settings(unittest.TestCase):
             cfg = config.import_settings(backup, {"api_token": "current-token"})
             self.assertEqual(cfg["api_token"], "old-token")
 
+    def test_password_hash(self):
+        stored = config.hash_password("secret1")
+        self.assertTrue(stored.startswith("pbkdf2$"))
+        self.assertNotIn("secret1", stored)
+        self.assertTrue(config.check_password("secret1", stored))
+        for wrong in ("secret2", "Secret1", "", " secret1"):
+            self.assertFalse(config.check_password(wrong, stored), wrong)
+        self.assertNotEqual(stored, config.hash_password("secret1"))  # a fresh salt every time
+        for bad in ("", "plain", "pbkdf2$x$y", "md5$1$00$00", None):
+            self.assertFalse(config.check_password("secret1", bad), repr(bad))
+
+    def test_password_is_kept_in_the_file_but_never_exported_or_imported(self):
+        with tempfile.TemporaryDirectory() as d:
+            path, exported = Path(d) / "config.json", Path(d) / "export.json"
+            stored = config.hash_password("secret1")
+            config.save_config({"station_name": "Line 7", "setup_password": stored}, path)
+            self.assertEqual(config.load_config(path)["setup_password"], stored)
+            config.export_settings(config.load_config(path), exported)
+            self.assertNotIn(stored, exported.read_text(encoding="utf-8"))
+            current = {"setup_password": config.hash_password("other")}
+            self.assertEqual(config.import_settings(exported, current)["setup_password"], current["setup_password"])
+            backup = next((Path(d) / "backups").glob("config-*.json"))  # an older copy has the old password
+            self.assertEqual(config.import_settings(backup, current)["setup_password"], current["setup_password"])
+            self.assertEqual(config.import_settings(exported, {})["setup_password"], "")
+        self.assertEqual(config.normalize_config({})["setup_password"], "")
+
     def test_import_refuses_other_files(self):
         with tempfile.TemporaryDirectory() as d:
             for name, text in (("other.json", '{"name": "not settings"}'), ("list.json", "[1, 2]"),
