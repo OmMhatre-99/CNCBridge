@@ -201,6 +201,20 @@ fixed), or **Process again** to put machine files that were set aside back in th
 so CNCBridge asks first. The activity log (**View > Activity log**) and
 `logs\cncbridge.log` in the data folder hold the details.
 
+## Several machines (Stations)
+
+One copy of CNCBridge looks after one machine folder, with its own settings, history and send queue. For two
+lines on one PC, start a second copy with its own data folder, for example a shortcut to
+`CNCBridge.exe --data C:\CNCBridge\line2`. **View > Stations...** shows all the copies on the PC side by side:
+station name, whether it is open in a window, running in the background or stopped, the counters (processed,
+failed, waiting, queued, refused), the last file, the back-up drive's free space and any open problem. Each
+copy adds its data folder to `stations.json` beside the default data folder when it starts. The window only
+reads the other copies (their history is opened read-only, and their lock is never touched), so it cannot disturb
+them. **Open** starts CNCBridge on a copy's data folder, **Open data folder** shows it in Explorer, **Add...**
+lists a folder by hand and **Remove from list** takes one off (nothing is deleted). A full multi-machine
+window, with one set of settings per machine inside one program, is deliberately not built: separate copies keep
+each line's settings, history and failures apart.
+
 ## The health line
 
 Under the counters, one line shows the facts an operator checks first: **Last file** (time and how long
@@ -426,6 +440,7 @@ cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
+cncbridge/stations.py       the list of copies on this PC and a read-only look at each
 cncbridge/app.py         the main window: puts the pieces below together, and run()
 cncbridge/ui/            the pieces of the window, one mixin each: layout (frame, toolbar, header), menus
                          (menu bar, shortcuts), setup_tab (Setup, Delivery), pick_tab, history_tab, options

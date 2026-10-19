@@ -141,6 +141,16 @@ password. The password is stored as a hash and cannot be recovered; if it is los
 config.json in the data folder.
 """),
 
+    ("stations", "Several machines: Stations", """One copy of CNCBridge looks after one machine folder, with its own settings, history and queue. To run two lines on one PC, start a second copy with its own data folder (a shortcut to CNCBridge.exe --data C:\CNCBridge\line2).
+
+View > Stations... shows every copy on this PC side by side: its name, whether it is open in a window, running in the background or stopped, the counters, the last file, the back-up drive's free space and any open problem. It only reads the other copies; it never changes them or takes over their work.
+
+- Open starts CNCBridge on the selected copy's data folder (a copy that is already open in a window cannot be opened twice).
+- Open data folder shows its files in Explorer.
+- Add... lists a data folder that is not listed yet (the folder that contains config.json).
+- Remove from list only takes it off the list; nothing is deleted, and it is listed again when it starts.
+"""),
+
     ("themes", "Appearance: theme, colours, font and size", """\
 Settings > Appearance... controls how the window looks. Everything here is applied when the window restarts: choose, \
 press Save settings, then Restart now. The window saves, closes and opens again with the new look; if monitoring was \

@@ -40,6 +40,7 @@ from .ui.history_tab import HistoryTabMixin
 from .ui.windows import WindowsMixin
 from .ui.tooltips import TooltipsMixin
 from .ui.control import ControlMixin
+from .ui.stations_window import StationsMixin
 from .ui.status import StatusMixin
 
 
@@ -55,6 +56,7 @@ class App(LayoutMixin,
           TooltipsMixin,
           ControlMixin,
           StatusMixin,
+          StationsMixin,
           tk.Tk):
     def __init__(self, data_dir, notice=None, lock=None, connected=False, resume=False):
         """

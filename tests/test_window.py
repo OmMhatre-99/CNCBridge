@@ -26,13 +26,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
-from cncbridge import alerts, app, engine, shifts  # noqa: E402
+from cncbridge import alerts, app, engine, shifts, stations  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
 # a closed window could be freed on a background thread and crash the process (Tcl_AsyncDelete). The tests
 # therefore switch it off and collect on the main thread, after each test.
 gc.disable()
 from test_engine import Receiver  # noqa: E402
+from test_stations import make_copy  # noqa: E402
 
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
 
@@ -1422,6 +1423,78 @@ class HealthLine(WindowTest):
             yield lambda: (w.snapshot or {}).get("health") is not None
             self.assertTrue(w.snapshot["health"]["source_reachable"] in (True, None))
             yield lambda: "Last file" in w.health_labels["last"].cget("text") or "No files" in w.health_labels["last"].cget("text")
+        self.run_steps(steps)
+
+
+class StationsWindow(WindowTest):
+    def test_lists_every_copy_and_opens_or_removes_one(self):
+        w = self.window
+        registry = self.tmp / "stations.json"
+        self._patch(stations, "registry_path", lambda: registry)  # never the real list of this PC
+        launched = []
+        real = app.subprocess.Popen
+        self._patch(app.subprocess, "Popen", lambda command, *a, **k: launched.append(command)
+                    if "--data" in command else real(command, *a, **k))
+        a = make_copy(self.tmp, "LineA", station="Line A", processed=4, failed=1, problem="API cannot be reached")
+        b = make_copy(self.tmp, "LineB", station="Line B", mode="background")
+        gone = self.tmp / "LineGone"
+        for folder in (a, b, gone):
+            stations.register(folder, registry)
+
+        def steps():
+            self.assertEqual((self.menu_label("stations"), self.menu_state("stations")), ("Stations...", "normal"))
+            w.open_stations()
+            w.update()
+            self.assertEqual(w.stations_win.state(), "normal")
+            yield lambda: len(w.stations_tree.get_children()) == 4
+            tree = w.stations_tree
+            values = {Path(iid).name: tree.item(iid, "values") for iid in tree.get_children()}
+            self.assertIn("this window", values["data"][0])
+            self.assertEqual((values["LineA"][0], values["LineA"][2], values["LineA"][3], values["LineA"][4]),
+                             ("Line A", "Stopped", "4", "1"))
+            self.assertEqual(values["LineA"][-1], "API cannot be reached")
+            self.assertEqual(values["LineB"][2], "In background")
+            self.assertEqual(values["LineGone"][2], "Missing")
+            self.assertTrue(values["LineA"][-2].endswith("GB"))  # back-up drive free space
+
+            tree.selection_set(str(a))
+            w.update()
+            self.assertEqual(str(w.station_buttons["open"]["state"]), "normal")
+            w.open_station()
+            self.assertEqual(launched[-1][-2:], ["--data", str(a)])
+            tree.selection_set(str(w.data_dir))  # this window cannot be opened again
+            w.update()
+            self.assertEqual(str(w.station_buttons["open"]["state"]), "disabled")
+            tree.selection_set(str(gone))
+            w.update()
+            self.assertEqual((str(w.station_buttons["open"]["state"]), str(w.station_buttons["data"]["state"]),
+                              str(w.station_buttons["remove"]["state"])), ("disabled", "disabled", "normal"))
+            w.remove_station()
+            yield lambda: len(w.stations_tree.get_children()) == 3
+            self.assertEqual(len(stations.load(registry)), 2)
+            w.close_stations()
+            self.assertEqual(w.stations_win.state(), "withdrawn")
+        self.run_steps(steps)
+
+    def test_adding_a_folder_without_data_is_refused(self):
+        w = self.window
+        registry = self.tmp / "stations.json"
+        self._patch(stations, "registry_path", lambda: registry)
+        empty = self.tmp / "empty"
+        empty.mkdir()
+        answers = [str(empty), str(make_copy(self.tmp, "LineC", station="C"))]
+        self._patch(app.filedialog if hasattr(app, "filedialog") else filedialog, "askdirectory",
+                    lambda **k: answers.pop(0))
+
+        def steps():
+            w.open_stations()
+            w.add_station()
+            self.assertEqual(self.dialogs[-1][0], "showinfo")
+            self.assertEqual(stations.load(registry), [])
+            w.add_station()
+            self.assertEqual([Path(e["folder"]).name for e in stations.load(registry)], ["LineC"])
+            w.close_stations()
+            yield 100
         self.run_steps(steps)
 
 

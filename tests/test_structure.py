@@ -14,7 +14,7 @@ def mixins():
 
 class Structure(unittest.TestCase):
     def test_every_piece_is_part_of_the_window(self):
-        self.assertEqual(len(mixins()), 12)
+        self.assertEqual(len(mixins()), 13)
         chain = list(app.App.__mro__)
         self.assertLess(chain.index(mixins()[-1]), chain.index(app.tk.Tk))  # Tk comes after every piece
 

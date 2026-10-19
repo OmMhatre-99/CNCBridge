@@ -14,7 +14,7 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from . import background, engine
+from . import background, engine, stations
 from .background import acquire_lock  # noqa: F401  (also used by the demo and the tests)
 from .config import APP_NAME, default_data_dir, has_data, legacy_data_dir, load_config, move_data
 
@@ -76,6 +76,14 @@ def setup_logging(data_dir, console, filename="cncbridge.log"):
         log.addHandler(h)
 
 
+def remember_station(data_dir):
+    """Add this copy to the list the Stations window shows. Never a reason not to start."""
+    try:
+        stations.register(data_dir)
+    except OSError as e:
+        log.warning("Could not add this copy to the stations list: %s", e)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(prog=APP_NAME, description="Machine CSV -> MES-ready JSON / CSV / TXT")
     ap.add_argument("--headless", action="store_true", help="monitor without opening the window")
@@ -101,6 +109,8 @@ def main(argv=None):
             log.error("%s is already running with this data folder: %s", APP_NAME, data_dir)
             return 1
         background.mark_holder(data_dir, "background")
+        if not args.once:
+            remember_station(data_dir)
         config_path = data_dir / "config.json"
         eng = engine.Engine(load_config(config_path), data_dir, config_path=config_path)
         if args.once:
@@ -133,6 +143,7 @@ def main(argv=None):
         return 1
     if lock:
         background.mark_holder(data_dir, "window")
+    remember_station(data_dir)
     from .app import run
     run(data_dir, notice, lock, resume=args.resume)
     return 0
