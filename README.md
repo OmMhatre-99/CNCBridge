@@ -11,8 +11,7 @@ installed on the machine PC and it needs no internet connection.
 
 1. Watches the machine CSV folder. A file is picked up once the machine has finished with it:
    unchanged for 2 seconds and no longer held open.
-   For a machine that writes a file in bursts, set *File is complete when it contains* (Delivery tab,
-   options) to the text the machine writes last, for example `End_Time`: the file is then taken
+   For a machine that writes a file in bursts, set *File is complete when it contains* (**Settings > Processing...**) to the text the machine writes last, for example `End_Time`: the file is then taken
    only once it contains that text. A file that never gets it stays in the machine folder, and
    CNCBridge raises an alert after the usual time, so it is not forgotten.
 2. Reads it (comma, semicolon, tab or `|` separated; UTF-8, UTF-16 or Windows code page).
@@ -40,7 +39,7 @@ Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for exampl
 `C:\CNCBridge\`, and start it. Settings, history, send queue and log are kept in the data
 folder `%ProgramData%\CNCBridge` (or `%LOCALAPPDATA%\CNCBridge` if that cannot be written),
 outside the program folder, so replacing or rebuilding the program never removes them.
-**Open folder > Data folder** opens it.
+**File > Open folder > Data folder** opens it.
 
 Upgrading from version 1.0, which kept these in `data` beside the program: the first start
 moves that folder to the new place and renames the old one to `data.moved-<date>`.
@@ -90,15 +89,43 @@ separator, as in `build_exe.bat`).
 Press **Save settings**, then **Start monitoring**. **Process now** handles the files that
 are waiting once, without continuing to watch.
 
-These commands are on the toolbar at the top of the window, visible from every tab:
-**Start monitoring**, **Stop**, **Process now**, **Save settings**, **Open CSV file...**
-(opens a machine file in the range picker) and **Open folder** (machine, back-up, shared or
-data folder in Explorer).
+**File > Export settings...** writes the settings to a file (without the API token, which only
+works on this PC), **Import settings...** reads them on another PC, and **Restore an earlier
+version...** brings back one of the last 20 saved versions. Every **Save settings** keeps a copy
+in `backups` in the data folder. An imported or restored version only fills the form; press
+**Save settings** to keep it.
 
-**Settings** on the toolbar exports the settings to a file (without the API token, which only
-works on this PC), imports them on another PC, or restores one of the last 20 saved versions.
-Every **Save settings** keeps a copy in `backups` in the data folder. An imported or restored
-version only fills the form; press **Save settings** to keep it.
+## The window
+
+The **four tabs** hold the daily work: **Setup**, **Delivery**, **Pick ranges & preview** and
+**History**. Under the menu bar, the toolbar has **Start monitoring**, **Stop**, **Process now** and
+**Save settings**. Everything else is in the menus:
+
+| Menu | What it holds |
+|---|---|
+| **File** | Open CSV file, open the newest machine file, Save settings, Export / Import / Restore settings, Open folder (machine, back-up, shared, data), Exit |
+| **Monitoring** | Start monitoring, Stop, Process now |
+| **Settings** | **Options...** and a direct entry for each page of it: Processing, Output, Alerts, Operators & access, Appearance. Lock / Unlock setup |
+| **Tools** | Test shared folder, Test API connection, Send test alert, Simulation |
+| **View** | Activity log (its own window), and the four tabs |
+| **Help** | Getting started and a topic for each part of the program, Keyboard shortcuts, About |
+
+The **Options** window has one page per group of settings that are set once and rarely changed:
+*Processing* (check interval, file encoding and separator, file-complete marker, duplicates,
+background processing, clean-up), *Output* (the output switches), *Alerts*, *Operators & access*
+(shift changes and the setup password) and *Appearance*. It has its own **Save settings** button.
+
+**Help** explains how to use the program, in plain language, without leaving it. Menu entries
+show their keyboard shortcut:
+
+| Keys | Does |
+|---|---|
+| Ctrl+O / Ctrl+S | Open a CSV file / Save settings |
+| F5 / Shift+F5 / F6 | Start monitoring / Stop / Process now |
+| Ctrl+, | Options |
+| Ctrl+L | Activity log |
+| Ctrl+1 ... Ctrl+4 | Setup, Delivery, Pick ranges & preview, History |
+| F1 | Help |
 
 ## Output files
 
@@ -135,7 +162,7 @@ name starting with `.` and ending in `.part`; it gets its real name only when co
 
 ### Output switches
 
-Four optional settings under *Output format* on the Setup tab change how files are written. All
+Four optional settings under **Settings > Output...** change how files are written. All
 are off, and with all of them off the files are byte for byte what version 1.0 wrote, so a
 system that already reads them keeps working. Turn one on only when the receiving system asks
 for it. The Pick tab's preview shows the effect.
@@ -161,7 +188,7 @@ for it. The Pick tab's preview shows the effect.
 | The API refuses one file (HTTP 400, 409, 413, 415, 422) | That file is moved to `rejected` in the data folder, shown in red in the header and in History, and the next files continue. |
 | Wrong token or wrong link (401, 403, 404...) or a redirect | Treated as a problem with the link, not the file: everything waits in the queue until the settings are corrected. |
 | A machine file has no data in any chosen range, or is not a readable CSV | Moved to `back-up\_failed`, listed as failed. |
-| The same file content arrives again | Moved to `back-up\_duplicates` and not sent. Can be switched off under Options. |
+| The same file content arrives again | Moved to `back-up\_duplicates` and not sent. Can be switched off in **Settings > Processing...**. |
 | Back-up drive not available | The machine file is left where it is and nothing is sent for it until the drive is back. |
 | PC restarted | Settings, history and the send queue are on disk; start the program and it continues. |
 
@@ -169,7 +196,7 @@ The **History** tab lists every file with its result per destination. Select row
 **Send again** to put files the receiving site refused back in the send queue (once its problem is
 fixed), or **Process again** to put machine files that were set aside back in the machine folder
 (for example after correcting a cell range). A duplicate processed again is delivered a second time,
-so CNCBridge asks first. The **Log** tab and
+so CNCBridge asks first. The activity log (**View > Activity log**) and
 `logs\cncbridge.log` in the data folder hold the details.
 
 ## Alerts
@@ -181,7 +208,7 @@ CNCBridge tells someone when it needs attention, instead of only writing it to t
   it clears, a "working again" message follows;
 - a file set aside: a machine file moved to `back-up\_failed`, or a file the API refused.
 
-Set them up under **Alerts** on the Delivery tab:
+Set them up under **Settings > Alerts...**:
 
 | Channel | Default | Needs |
 |---|---|---|
@@ -195,12 +222,12 @@ encrypted, like the API token, and is never exported.
 
 ## Processing in the background
 
-Tick *Process in the background* on the Delivery tab and press **Save settings**. Processing
+Tick *Process in the background* in **Settings > Processing...** and press **Save settings**. Processing
 then moves to a Windows background task for your user. It goes on after the window is
 closed and starts by itself when you log on to Windows (no administrator rights needed).
 
 While the background runs, the window is *connected* to it: the header shows
-**In background**, the counters, history, alerts and the **Log** tab show the background's
+**In background**, the counters, history, alerts and the activity log show the background's
 work, and **Start monitoring** and **Stop** start and stop it. Settings you save are picked up
 by the background within a few seconds, without a restart. **Process now** is not needed
 and is greyed out.
@@ -245,21 +272,21 @@ program, `B6` board serial), a summary block at `L1:M8`, and a parts table from 
 whose length changes per board, so the demo uses all three kinds of range.
 
 The fixed test files and the test script are also in `demo	est_files` and
-`demo\TEST_SCRIPT.md`. `tests	est_demo.py` checks that every test file ends up where the
+`demo\TEST_SCRIPT.md`. `tests\test_demo.py` checks that every test file ends up where the
 script says.
 
 ## Setup password and the operator view
 
-On the Delivery tab, under *Operators & access*, **Set password...** protects the setup. Once it
-is set, press **Lock setup** (toolbar, right). Locked, the window shows only:
+In **Settings > Operators & access...**, **Set password...** protects the setup. Once it is set,
+choose **Settings > Lock setup**. Locked, the window shows only:
 
 - **Start monitoring**, **Stop** and **Process now**, and the counters;
-- **History** and **Log**;
+- **History**, and the activity log under the View menu;
 - an **Operator** tab with the typed values (for example Operator and Work order) and **Apply**,
   which saves them. They are used from the next file, without stopping.
 
-Setup, Delivery and Pick ranges are hidden, and Save settings, Settings, Open CSV file and
-Simulation are greyed out. **Unlock setup...** asks for the password. A restart starts locked.
+Setup, Delivery and Pick ranges are hidden, and Save settings, Options, Open CSV file and
+Simulation (and the other setup entries in the menus and their shortcuts) are disabled. **Unlock setup...** asks for the password. A restart starts locked.
 **Remove** (while unlocked) takes the password away again.
 
 The password is kept as a salted hash, never as text. It is not part of an exported settings file,
@@ -269,7 +296,7 @@ changed by accident; it does not protect against someone who can open this PC's 
 
 ## Shift-change confirmation
 
-Under *Operators & access* on the Delivery tab, enter the times at which shifts start, for example
+In **Settings > Operators & access...**, enter the times at which shifts start, for example
 `06:00, 14:00, 22:00`. At each of them, a window asks the operator to confirm or change the typed
 values (Operator, Work order), so a value from the last shift is not written into the next shift's
 files. Files keep being processed while the question is open. **Later** closes it and leaves an
@@ -283,7 +310,7 @@ off (the default).
 
 ## Appearance (themes)
 
-**Setup tab, box 5 "Appearance"** chooses the look of the window. Two themes come with the program:
+**Settings > Appearance...** chooses the look of the window. Two themes come with the program:
 
 - **Modern** (default): flat controls, light industrial colours and the bundled Roboto fonts. Titles, counters
   and buttons use a real semibold font, large counters, clear tick boxes and radio buttons, a one-line page
@@ -305,7 +332,7 @@ spacing) and a function that styles the ttk widgets, then add it to `THEMES`. It
 ## Automatic clean-up
 
 Off by default, so nothing is ever deleted unless you choose it. Under *Monitoring & file
-options* on the Delivery tab:
+options* in **Settings > Processing...**:
 
 - **Delete back-up files after N days** removes back-up day folders (judged by the date in the
   folder name) and files in `back-up\_failed` and `_duplicates` older than N days.
@@ -372,7 +399,8 @@ cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
-cncbridge/app.py         main window
+cncbridge/app.py         main window, menu bar, Options, activity log and help windows
+cncbridge/help.py        the text of the Help window
 cncbridge/grid.py        spreadsheet view with drag selection
 cncbridge/theme.py       themes (Modern, Legacy): colours, fonts and widget styles
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses

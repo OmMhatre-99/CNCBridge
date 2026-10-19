@@ -1,0 +1,173 @@
+"""
+The text of the Help window, one entry per topic: (key, title, text).
+
+A small markup keeps the text easy to edit: a line starting with "## " is a sub-heading, "- " is a bullet,
+four spaces start a line of code, a blank line separates paragraphs. A backslash at the end of a line in this
+file only joins source lines.
+"""
+
+SHORTCUTS = (
+    ("Ctrl+O", "Open a machine CSV file in the range picker"),
+    ("Ctrl+S", "Save settings"),
+    ("F5", "Start monitoring"),
+    ("Shift+F5", "Stop monitoring"),
+    ("F6", "Process the waiting files once"),
+    ("Ctrl+,", "Options"),
+    ("Ctrl+L", "Activity log"),
+    ("Ctrl+1 ... Ctrl+4", "Go to Setup, Delivery, Pick ranges & preview, History"),
+    ("F1", "Help"),
+)
+
+TOPICS = (
+    ("start", "Getting started", """\
+CNCBridge takes the CSV file your machine writes for each board, cuts out the cell ranges you choose, adds the \
+details you type, and delivers the result to a shared folder and/or a web link. The machine file is then moved \
+to a back-up folder.
+
+## First set-up, in five steps
+- Setup tab, box 1: choose the machine CSV folder and a back-up folder. They must be different folders.
+- Setup tab, box 2: choose JSON, CSV or TXT.
+- Setup tab, box 3: say what to extract. Type a range such as L1:M8, or press Pick... and drag over a real file.
+- Delivery tab: turn on the shared folder, the API link, or both, and press the Test buttons.
+- Press Save settings (Ctrl+S), then Start monitoring (F5).
+
+## Day to day
+Start monitoring and leave the window open. The counters at the top show what has been processed, what is waiting \
+and what needs attention. History lists every file and where it went.
+
+Everything that is set once and rarely changed (output switches, alerts, the setup password, the look of the \
+window) is under Settings > Options, so the tabs only hold what you work with.
+"""),
+
+    ("works", "How CNCBridge works", """\
+For every file the machine writes, CNCBridge does these steps in order:
+
+- Waits until the machine has finished with the file: unchanged for 2 seconds and no longer held open. If your \
+machine writes in bursts, set "File is complete when it contains" (Options > Processing) to the text the machine \
+writes last.
+- Reads it (comma, semicolon, tab or | separated; UTF-8, UTF-16 or a Windows code page).
+- Cuts out the ranges you chose and adds the typed details, the file name, the time and the station name.
+- Writes one output file in the chosen format and puts it in a send queue on this PC.
+- Moves the machine file to the back-up folder, in a sub-folder for the day.
+- Delivers the output to every destination that is turned on. If a destination cannot be reached, the file waits \
+in the queue and is sent in order when it is back.
+
+Nothing is lost if the PC restarts: settings, history and the queue are kept on disk in the data folder \
+(File > Open folder > Data folder).
+"""),
+
+    ("ranges", "Choosing cell ranges", """\
+Up to 10 ranges can be extracted. Each has a name for the output, a cell range, and a tick for "first row is header".
+
+## Writing a range
+    L1:M8      a block: from cell L1 to cell M8
+    B6         one cell
+    A12:I*     from A12 down to the first empty row
+    @[ERRORS]  the table under the cell that says [ERRORS]
+
+L1 x M8 means the same as L1:M8. A12:I* is for tables whose length changes from board to board. @[ERRORS] finds \
+the table wherever it is in the file, so it still works when the tables above it grow or shrink.
+
+## Using Pick...
+Open a real machine file (Ctrl+O, or "Newest machine file"). The file appears as a grid with column letters and \
+row numbers. Drag over the cells you want, choose a slot, give it a name and press Assign. The panel on the right \
+shows exactly the file that will be produced.
+
+- Tick "down to first empty row" to turn the block into one that grows with the table.
+- Tick "Find by heading" before marking a cell to follow a table that moves: the range becomes @ plus the text of \
+that cell.
+
+If a range finds nothing, that selection is empty and CNCBridge warns about it. A file where every selection is \
+empty is set aside as failed.
+"""),
+
+    ("delivery", "Delivery, queue and retries", """\
+## Destinations
+- Shared folder: a local or network path such as \\\\MES-SERVER\\inbox. Test folder checks that it can be written to.
+- API link: the address the files are POSTed to, with an optional token (sent as Authorization: Bearer ...), extra \
+headers and a choice between the file as the request body or as a form upload. Test connection sends a small test \
+file.
+
+## When something is not reachable
+- Files wait in the queue and are sent in order once it is back. Machine files are still processed and backed up.
+- If the API refuses one particular file (for example HTTP 400 or 422), that file is set aside in "rejected" in the \
+data folder and the others continue. Fix the cause, then use Send again in History.
+- A wrong token or link (401, 403, 404 or a redirect) is treated as a problem with the link: everything waits until \
+the settings are corrected.
+- A machine file with no data in any range, or that is not a readable CSV, goes to back-up\\_failed. The same \
+content arriving again goes to back-up\\_duplicates and is not sent (switchable in Options > Processing).
+
+## History
+Select rows and use Send again (re-queue files the site refused) or Process again (put set-aside machine files back \
+in the machine folder, for example after correcting a range).
+"""),
+
+    ("alerts", "Alerts and background processing", """\
+## Alerts (Settings > Alerts)
+CNCBridge can tell someone when it needs attention instead of only writing to the log: a problem that lasts longer \
+than the set time (default 10 minutes), and a file that was set aside. When a problem clears, a "working again" \
+message follows.
+
+- Windows notification on this PC: on by default, needs nothing.
+- Webhook: a JSON POST. Teams and Slack incoming webhooks accept it.
+- Email: mail server, port and the address to send to, plus a login if the server asks for one.
+
+Use "Send test alert" (also Tools > Send test alert) to try every channel that is switched on. While a problem is \
+open, a red banner under the counters shows it.
+
+## Background processing (Options > Processing)
+Tick "Process in the background" and Save settings. Processing then runs as a Windows background task for your \
+user: it goes on after this window is closed and starts by itself when you log on. The window then opens in a \
+connected mode, showing the counters and history and saving settings for the task to pick up. Start and Stop \
+control the task.
+"""),
+
+    ("operators", "Operators, shifts and the setup password", """\
+## Details added to every file
+Setup tab, box 4: two name/value pairs, for example Operator and Work order. A changed value applies from the next \
+file after Save settings; monitoring does not have to be stopped.
+
+## Shift change (Settings > Operators & access)
+Enter shift start times such as 06:00, 14:00, 22:00. At each, the operator is asked to confirm or change the typed \
+values. Processing never pauses for it; a banner stays until it is confirmed.
+
+## Setup password (Settings > Operators & access)
+With a password set, Lock setup (Settings menu) hides Setup, Delivery, Pick ranges & preview and the Options \
+window. Operators then see only Start/Stop, the counters, History and the typed values. Unlock setup asks for the \
+password. The password is stored as a hash and cannot be recovered; if it is lost, remove "setup_password" from \
+config.json in the data folder.
+"""),
+
+    ("themes", "Themes", """\
+Settings > Appearance chooses the look of the window:
+
+- Modern (default): flat controls, light industrial colours, semibold emphasis, large counters.
+- Legacy: the look of version 1.0: native Windows controls, Segoe UI and Consolas, compact spacing.
+
+Choose one, press Save settings, then Restart now. The window saves, closes and opens again with the new look; if \
+monitoring was running it starts again by itself. A theme only changes how the window looks: processing and output \
+are the same.
+"""),
+
+    ("trouble", "Troubleshooting", """\
+## The counters
+- Processed: machine files handled. Waiting in folder: files in the machine folder not yet taken.
+- Queued to send: outputs waiting for a destination. Failed files: machine files set aside (back-up\\_failed).
+- Refused by API: outputs the receiving site rejected.
+
+## Common situations
+- Nothing happens after Start: check Setup (folders, at least one range) and Delivery (a destination turned on). \
+Save settings reports what is missing.
+- "Queued to send" keeps growing: the destination is unreachable or the token is wrong. Use the Test buttons on \
+the Delivery tab, and check the Activity log (View menu).
+- A file stays in the machine folder: the machine may still be writing it, or "File is complete when it contains" \
+never appears in it.
+- Settings were lost or changed: File > Restore an earlier version... brings back one of the last 20 saves.
+
+## Where things are
+- File > Open folder > Data folder: settings, history, send queue, rejected files and logs.
+- View > Activity log: the technical messages. The same text is in logs\\cncbridge.log in the data folder.
+"""),
+
+    ("keys", "Keyboard shortcuts", ""),
+)

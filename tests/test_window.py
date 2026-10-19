@@ -131,6 +131,15 @@ class WindowTest(unittest.TestCase):
         errors = drive(self.window, steps)
         self.assertEqual(errors, [], "\n".join(errors))
 
+    def menu_state(self, key):
+        """'normal' or 'disabled': the state of a menu entry, found by the key the window knows it by."""
+        menu, index = self.window.menu_items[key]
+        return str(menu.entrycget(index, "state"))
+
+    def menu_label(self, key):
+        menu, index = self.window.menu_items[key]
+        return menu.entrycget(index, "label")
+
     def drop(self, name, serial):
         (self.machine / name).write_bytes(SAMPLE.read_bytes().replace(b"B240001", serial.encode()))
 
@@ -191,7 +200,7 @@ class SetupLock(WindowTest):
 
         def steps():
             self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])  # no password: as before
-            self.assertNotIn(w.lock_btn.winfo_manager(), ("pack", "grid"))
+            self.assertEqual(self.menu_state("lock"), "disabled")  # nothing to lock without a password
 
             self.answers("abc")  # too short
             w.set_password()
@@ -211,8 +220,15 @@ class SetupLock(WindowTest):
             w.toggle_lock()  # lock
             self.assertEqual(self.visible(), ["hidden", "hidden", "hidden", "normal"])
             self.assertEqual(w.tabs.select(), str(w.operator_tab))
-            self.assertEqual([str(b["state"]) for b in (w.save_btn, w.open_csv_btn, w.settings_btn)], ["disabled"] * 3)
-            self.assertEqual(w.lock_btn["text"], "Unlock setup...")
+            self.assertEqual(str(w.save_btn["state"]), "disabled")
+            self.assertEqual([self.menu_state(k) for k in ("save", "open_csv", "options", "import", "opt_alerts",
+                                                           "test_api", "simulation", "view_setup")], ["disabled"] * 8)
+            self.assertEqual([self.menu_state(k) for k in ("lock", "log", "view_history", "help", "exit")],
+                             ["normal"] * 5)
+            self.assertEqual(self.menu_label("lock"), "Unlock setup...")
+            self.assertEqual(w.options_win.state(), "withdrawn")
+            w.open_options()  # and the Options window stays shut
+            self.assertEqual(w.options_win.state(), "withdrawn")
             w.update()  # the run controls stay usable: monitoring is stopped, so Start and Process now are on
             self.assertEqual([str(b["state"]) for b in (w.start_btn, w.once_btn, w.stop_btn)],
                              ["normal", "normal", "disabled"])
@@ -228,8 +244,9 @@ class SetupLock(WindowTest):
             self.answers("secret1")
             w.toggle_lock()
             self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])
-            self.assertEqual(w.lock_btn["text"], "Lock setup")
+            self.assertEqual(self.menu_label("lock"), "Lock setup")
             self.assertEqual(str(w.save_btn["state"]), "normal")
+            self.assertEqual([self.menu_state(k) for k in ("save", "options", "import", "simulation")], ["normal"] * 4)
 
             self.dialogs.clear()
             self.answers("wrong")
@@ -239,7 +256,7 @@ class SetupLock(WindowTest):
             w.remove_password()
             self.assertFalse(w.protected)
             self.assertEqual(self.visible(), ["normal", "normal", "normal", "hidden"])
-            self.assertEqual(w.lock_btn.winfo_manager(), "")
+            self.assertEqual(self.menu_state("lock"), "disabled")
             self.assertEqual(app.load_config(self.tmp / "data" / "config.json")["setup_password"], "")
             yield 100
         self.run_steps(steps)
@@ -878,7 +895,7 @@ class ModernLayout(WindowTest):
         w = self.window
 
         def steps():
-            self.assertEqual(len(page_titles(w)), 6)  # Setup, Delivery, Typed values, Pick, History, Log
+            self.assertEqual(len(page_titles(w)), 5)  # Setup, Delivery, Typed values, Pick, History
             self.assertEqual(w.counts["ok"].cget("style"), "MetricValue.TLabel")
             self.assertEqual(str(w.field_widgets["selection_header_0"].cget("text")), "Yes")
             self.assertIn("font", w.code_font)
@@ -910,6 +927,165 @@ class UnknownTheme(WindowTest):
     def test_falls_back_to_the_default_theme(self):
         def steps():
             self.assertEqual(self.window.theme.key, "modern")
+            yield 100
+        self.run_steps(steps)
+
+
+class MenuBar(WindowTest):
+    def fill_valid(self):
+        w = self.window
+        w.v["source_folder"].set(str(self.machine))
+        w.v["backup_folder"].set(str(self.backup))
+        w.b["shared_enabled"].set(True)
+        w.v["shared_folder"].set(str(self.shared))
+        w.sel_vars[0][1].set("A12:I14")
+
+    def test_menus_and_the_working_area(self):
+        w = self.window
+
+        def steps():
+            top = w.nametowidget(w.cget("menu"))
+            self.assertEqual([top.entrycget(i, "label") for i in range(top.index("end") + 1)],
+                             ["File", "Monitoring", "Settings", "Tools", "View", "Help"])
+            shown = [w.tabs.tab(t, "text").strip() for t in w.tabs.tabs() if str(w.tabs.tab(t, "state")) != "hidden"]
+            self.assertEqual(shown, ["Setup", "Delivery", "Pick ranges & preview", "History"])
+            for gone in ("settings_btn", "open_csv_btn", "open_folders_btn", "simulation_btn", "lock_btn"):
+                self.assertFalse(hasattr(w, gone), gone)  # the toolbar holds only the daily buttons
+            self.assertEqual(str(w.start_btn["state"]), "normal")
+            self.assertEqual(self.menu_state("start"), "normal")
+            self.assertEqual(self.menu_state("stop"), "disabled")
+            yield 100
+        self.run_steps(steps)
+
+    def test_every_setting_is_in_the_options_window(self):
+        w = self.window
+
+        def steps():
+            pages = {key: str(page) for key, page in w.option_pages.items()}
+            self.assertEqual(list(pages), ["processing", "output", "alerts", "access", "appearance"])
+            for key in ("autostart", "skip_duplicates", "poll_seconds", "encoding", "delimiter", "complete_marker",
+                        "run_in_background", "keep_backup_days", "json_numbers", "csv_flat", "time_zone",
+                        "rename_columns", "alert_notify", "alert_email_to", "test_alert", "shift_times",
+                        "set_password", "theme_modern", "theme_legacy", "restart_now"):
+                widget = w.field_widgets[key]
+                self.assertTrue(str(widget).startswith(str(w.options_win)), key)  # in Options, not in a tab
+            for key in ("station_name", "source_folder", "output_format_json", "selection_range_0", "shared_enabled",
+                        "api_url", "test_api"):
+                self.assertTrue(str(w.field_widgets[key]).startswith(str(w.tabs)), key)  # in the working area
+            yield 100
+        self.run_steps(steps)
+
+    def test_menu_opens_the_page_and_save_writes_the_change(self):
+        w = self.window
+
+        def steps():
+            self.fill_valid()
+            self.assertEqual(w.options_win.state(), "withdrawn")
+            menu, index = w.menu_items["opt_alerts"]
+            menu.invoke(index)
+            w.update()
+            self.assertEqual(w.options_win.state(), "normal")
+            self.assertEqual(w.options_tabs.select(), str(w.option_pages["alerts"]))
+            w.v["alert_after_minutes"].set("25")
+            w.options_save_btn.invoke()
+            self.assertEqual(app.load_config(self.tmp / "data" / "config.json")["alert_after_minutes"], 25)
+            menu, index = w.menu_items["opt_appearance"]
+            menu.invoke(index)
+            self.assertEqual(w.options_tabs.select(), str(w.option_pages["appearance"]))
+            w.close_options()
+            self.assertEqual(w.options_win.state(), "withdrawn")
+            yield 100
+        self.run_steps(steps)
+
+    def test_shortcuts_follow_the_menu_entries(self):
+        w = self.window
+
+        def steps():
+            self.fill_valid()
+            w.focus_force()
+            w.update()
+            w.event_generate("<Control-comma>")
+            w.update()
+            self.assertEqual(w.options_win.state(), "normal")
+            w.close_options()
+            w.event_generate("<F5>")
+            yield lambda: w.running
+            yield lambda: self.menu_state("start") == "disabled"  # the menu follows the run state at the next refresh
+            self.assertEqual((self.menu_state("start"), self.menu_state("stop")), ("disabled", "normal"))
+            w.focus_force()
+            w.event_generate("<Shift-F5>")
+            yield lambda: not w.running
+            w.event_generate("<Control-Key-2>")
+            w.update()
+            self.assertEqual(w.tabs.select(), str(w.delivery_tab))
+            w.event_generate("<Control-Key-4>")
+            w.update()
+            self.assertEqual(w.tabs.select(), str(w.history_tab))
+            w.event_generate("<Control-s>")
+            w.update()
+            self.assertIn("Settings saved", w.status_msg.get())
+        self.run_steps(steps)
+
+    def test_a_locked_window_ignores_the_setup_shortcuts(self):
+        w = self.window
+
+        def steps():
+            w._store_password(app.config.hash_password("secret1"))
+            w.unlocked = False  # as after a restart: the password is set and not yet entered
+            w._apply_lock()
+            w.update()
+            self.assertEqual(self.menu_state("options"), "disabled")
+            w.focus_force()
+            w.event_generate("<Control-comma>")
+            w.event_generate("<Control-s>")
+            w.update()
+            self.assertEqual(w.options_win.state(), "withdrawn")
+            self.assertNotIn("Settings saved", w.status_msg.get())
+            yield 100
+        self.run_steps(steps)
+
+
+class LogAndHelp(WindowTest):
+    def test_the_log_window_keeps_filling_while_hidden(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.log_win.state(), "withdrawn")
+            app.log.info("a message written while the log is hidden")
+            yield lambda: "written while the log is hidden" in w.log_text.get("1.0", "end")
+            menu, index = w.menu_items["log"]
+            menu.invoke(index)
+            w.update()
+            self.assertEqual(w.log_win.state(), "normal")
+            w.log_win.withdraw()
+        self.run_steps(steps)
+
+    def test_every_help_topic_shows_and_f1_opens_getting_started(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.help_win.state(), "withdrawn")
+            for key, title, _ in app.help_text.TOPICS:
+                w.open_help(key)
+                w.update()
+                shown = w.help_body.get("1.0", "end")
+                self.assertTrue(shown.startswith(title), key)
+                self.assertGreater(len(shown), 150, key)
+            self.assertIn("F5", shown)  # the last topic is the shortcut list
+            self.assertIn("Ctrl+S", shown)
+            w.help_win.withdraw()
+            w.focus_force()
+            w.update()
+            w.event_generate("<F1>")
+            w.update()
+            self.assertEqual(w.help_win.state(), "normal")
+            self.assertTrue(w.help_body.get("1.0", "end").startswith("Getting started"))
+            menu, index = w.menu_items["help_ranges"]
+            menu.invoke(index)
+            self.assertTrue(w.help_body.get("1.0", "end").startswith("Choosing cell ranges"))
+            self._patch(app.messagebox, "showinfo", lambda title, text, **k: self.dialogs.append((title, text)))
+            w.about()
+            self.assertIn(app.VERSION, self.dialogs[-1][1])
             yield 100
         self.run_steps(steps)
 

@@ -15,6 +15,7 @@ from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 from . import alerts, background, config, engine, shifts, theme
+from . import help as help_text
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
 from .font_registration import register_bundled_fonts
@@ -144,6 +145,7 @@ class App(tk.Tk):
         log.info("Theme: %s", self.theme.key)
 
         self._make_vars()
+        self._build_menubar()
         self._build_toolbar()
         self._build_header()
         self._build_tabs_scroller()
@@ -151,11 +153,14 @@ class App(tk.Tk):
         self._build_delivery()
         self._build_pick()
         self._build_history()
-        self._build_log()
         self._build_operator()
         self._build_footer()
+        self._build_options()
+        self._build_log()
+        self._build_help()
         self.fill(self.cfg)
         self._add_tooltips()
+        self._bind_shortcuts()
         self._apply_lock()
         self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -307,7 +312,126 @@ class App(tk.Tk):
             except AttributeError:
                 return
 
+    def _build_menubar(self):
+        """The menu bar: everything that is not the daily work. Each entry calls the method the old button did."""
+        bar = tk.Menu(self, tearoff=False)
+        self.menu_items = {}
+
+        def menu(label, parent=bar):
+            sub = tk.Menu(parent, tearoff=False)
+            parent.add_cascade(label=label, menu=sub, underline=0)
+            return sub
+
+        def item(parent, key, label, command, accelerator=None):
+            parent.add_command(label=label, command=command, accelerator=accelerator)
+            self.menu_items[key] = (parent, parent.index("end"))
+
+        file_menu = menu("File")
+        item(file_menu, "open_csv", "Open CSV file...", self.open_csv, "Ctrl+O")
+        item(file_menu, "open_newest", "Open newest machine file", self.open_newest_file)
+        file_menu.add_separator()
+        item(file_menu, "save", "Save settings", self.save, "Ctrl+S")
+        item(file_menu, "export", "Export settings...", self.export_settings)
+        item(file_menu, "import", "Import settings...", self.import_settings)
+        item(file_menu, "restore", "Restore an earlier version...",
+             lambda: self.import_settings(self.data_dir / "backups"))
+        file_menu.add_separator()
+        folders = menu("Open folder", file_menu)
+        for label, key in (("Machine CSV folder", "source_folder"), ("Back-up folder", "backup_folder"),
+                           ("Shared folder", "shared_folder")):
+            folders.add_command(label=label, command=lambda key=key: self._open_folder(self.v[key].get()))
+        folders.add_separator()
+        folders.add_command(label="Data folder (send queue, rejected files, log file)",
+                            command=lambda: self._open_folder(self.data_dir))
+        file_menu.add_separator()
+        item(file_menu, "exit", "Exit", self.on_close)
+
+        monitoring = menu("Monitoring")
+        item(monitoring, "start", "Start monitoring", self.start, "F5")
+        item(monitoring, "stop", "Stop", self.stop, "Shift+F5")
+        item(monitoring, "process_now", "Process now", self.process_now, "F6")
+
+        settings = menu("Settings")
+        item(settings, "options", "Options...", self.open_options, "Ctrl+,")
+        settings.add_separator()
+        for key, page, label in (("opt_processing", "processing", "Processing..."),
+                                 ("opt_output", "output", "Output..."),
+                                 ("opt_alerts", "alerts", "Alerts..."),
+                                 ("opt_access", "access", "Operators && access..."),
+                                 ("opt_appearance", "appearance", "Appearance...")):
+            item(settings, key, label.replace("&&", "&"), lambda page=page: self.open_options(page))
+        settings.add_separator()
+        item(settings, "lock", "Lock setup", self.toggle_lock)
+
+        tools = menu("Tools")
+        item(tools, "test_shared", "Test shared folder", self.test_shared)
+        item(tools, "test_api", "Test API connection", self.test_api)
+        item(tools, "test_alert", "Send test alert", self.test_alert)
+        tools.add_separator()
+        item(tools, "simulation", "Simulation...", self.open_simulation)
+
+        view = menu("View")
+        item(view, "log", "Activity log", self.open_log, "Ctrl+L")
+        view.add_separator()
+        for number, (key, attribute, label) in enumerate((("view_setup", "setup_tab", "Setup"),
+                                                          ("view_delivery", "delivery_tab", "Delivery"),
+                                                          ("view_pick", "pick_tab", "Pick ranges && preview"),
+                                                          ("view_history", "history_tab", "History")), 1):
+            item(view, key, label.replace("&&", "&"), lambda attribute=attribute: self._show_tab(getattr(self, attribute)),
+                 f"Ctrl+{number}")
+
+        help_menu = menu("Help")
+        item(help_menu, "help", "Getting started", lambda: self.open_help("start"), "F1")
+        for key, title, _ in help_text.TOPICS[1:]:
+            item(help_menu, f"help_{key}", title, lambda key=key: self.open_help(key))
+        help_menu.add_separator()
+        item(help_menu, "about", "About CNCBridge", self.about)
+        self.configure(menu=bar)
+
+    # entries that need the setup rights: they are disabled while the setup is locked
+    LOCKED_ENTRIES = ("open_csv", "open_newest", "save", "export", "import", "restore", "options", "opt_processing",
+                      "opt_output", "opt_alerts", "opt_access", "opt_appearance", "test_shared", "test_api",
+                      "test_alert", "simulation", "view_setup", "view_delivery", "view_pick")
+
+    def _set_menu(self, key, enabled):
+        menu, index = self.menu_items[key]
+        menu.entryconfigure(index, state="normal" if enabled else "disabled")
+
+    def _menu_enabled(self, key):
+        menu, index = self.menu_items[key]
+        return str(menu.entrycget(index, "state")) != "disabled"
+
+    def _bind_shortcuts(self):
+        """Keyboard shortcuts; each does what its menu entry does, and nothing while that entry is disabled."""
+        def bind(sequence, key, handler):
+            def run(_event=None):
+                if self._menu_enabled(key):
+                    handler()
+                return "break"
+            self.bind(sequence, run)
+
+        bind("<Control-o>", "open_csv", self.open_csv)
+        bind("<Control-s>", "save", self.save)
+        bind("<F5>", "start", self.start)
+        bind("<Shift-F5>", "stop", self.stop)
+        bind("<F6>", "process_now", self.process_now)
+        bind("<Control-comma>", "options", self.open_options)
+        bind("<Control-l>", "log", self.open_log)
+        bind("<F1>", "help", lambda: self.open_help("start"))
+        for number, (key, attribute) in enumerate((("view_setup", "setup_tab"), ("view_delivery", "delivery_tab"),
+                                                   ("view_pick", "pick_tab"), ("view_history", "history_tab")), 1):
+            bind(f"<Control-Key-{number}>", key, lambda attribute=attribute: self._show_tab(getattr(self, attribute)))
+
+    def _show_tab(self, tab):
+        if str(self.tabs.tab(tab, "state")) == "normal":
+            self.tabs.select(tab)
+
+    def open_newest_file(self):
+        self.tabs.select(self.pick_tab)
+        self.open_newest()
+
     def _build_toolbar(self):
+        """The buttons for the daily work. Everything else is in the menu bar."""
         bar = ttk.Frame(self, padding=(8, 4))
         bar.pack(fill="x")
 
@@ -316,42 +440,11 @@ class App(tk.Tk):
             b.pack(side="left", padx=(0, 6))
             return b
 
-        def divider():
-            ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6, pady=3)
-
         self.start_btn = button("▶  Start monitoring", self.start, "Go.Toolbutton")
         self.stop_btn = button("■  Stop", self.stop)
         self.once_btn = button("↻  Process now", self.process_now)
-        divider()
+        ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6, pady=3)
         self.save_btn = button("✔  Save settings", self.save)
-        self.settings_btn = ttk.Menubutton(bar, text="Settings  ▾", style="Toolbutton")
-        settings_menu = tk.Menu(self.settings_btn, tearoff=False, background=theme.SURFACE, foreground=theme.TEXT,
-                                activebackground=theme.ACCENT, activeforeground=theme.WHITE, borderwidth=1,
-                                relief="solid", selectcolor=theme.ACCENT)
-        settings_menu.add_command(label="Export settings...", command=self.export_settings)
-        settings_menu.add_command(label="Import settings...", command=self.import_settings)
-        settings_menu.add_command(label="Restore an earlier version...",
-                                  command=lambda: self.import_settings(self.data_dir / "backups"))
-        self.settings_btn["menu"] = settings_menu
-        self.settings_btn.pack(side="left", padx=(0, 6))
-        divider()
-        self.open_csv_btn = button("▦  Open CSV file...", self.open_csv)
-        folders = ttk.Menubutton(bar, text="Open folder  ▾", style="Toolbutton")
-        self.open_folders_btn = folders
-        menu = tk.Menu(folders, tearoff=False, background=theme.SURFACE, foreground=theme.TEXT,
-                       activebackground=theme.ACCENT, activeforeground=theme.WHITE, borderwidth=1,
-                       relief="solid", selectcolor=theme.ACCENT)
-        for label, key in (("Machine CSV folder", "source_folder"), ("Back-up folder", "backup_folder"),
-                           ("Shared folder", "shared_folder")):
-            menu.add_command(label=label, command=lambda key=key: self._open_folder(self.v[key].get()))
-        menu.add_separator()
-        menu.add_command(label="Data folder (send queue, rejected files, log file)",
-                         command=lambda: self._open_folder(self.data_dir))
-        folders["menu"] = menu
-        folders.pack(side="left", padx=1)
-        self.simulation_btn = button("Simulation", self.open_simulation)
-        self.lock_btn = ttk.Button(bar, text="Unlock setup...", style="Toolbutton", command=self.toggle_lock)
-        self.lock_bar = bar  # the lock button is shown (on the right) only while a password is set
         ttk.Separator(self).pack(fill="x")
 
     def _build_header(self):
@@ -472,21 +565,6 @@ class App(tk.Tk):
             choice = ttk.Radiobutton(formats, text=fmt.upper(), value=fmt, variable=self.v["output_format"])
             choice.pack(side="left", padx=(0, 28), pady=2)
             self.field_widgets[f"output_format_{fmt}"] = choice
-        ttk.Separator(box).pack(fill="x", pady=(8, 6))
-        for key, text in (("json_numbers", "JSON: write numbers as numbers, not as text"),
-                          ("csv_flat", "CSV: one plain table, a row per record"),
-                          ("time_zone", "Add the time zone to the processing time (+05:30)")):
-            check = ttk.Checkbutton(box, text=text, variable=self.b[key])
-            check.pack(anchor="w")
-            self.field_widgets[key] = check
-        ttk.Label(box, text="Rename columns, one per line as  Old name=New name", style="CardSmall.TLabel"
-                  ).pack(anchor="w", pady=(8, 3))
-        self.rename_text = tk.Text(box, height=3, width=30, font=(self._font_mono, self.L.text_mono), relief="solid",
-                                   borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT, insertbackground=theme.TEXT,
-                                   highlightthickness=1, highlightbackground=theme.BORDER, highlightcolor=theme.ACCENT,
-                                   padx=7, pady=5, wrap="none", undo=True)
-        self.rename_text.pack(fill="x")
-        self.field_widgets["rename_columns"] = self.rename_text
 
         box = ttk.LabelFrame(left, text=" 4  Details added to every file ", padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
@@ -503,7 +581,6 @@ class App(tk.Tk):
                                       "it applies from the next file, without stopping.")
         manual_help.grid(row=3, column=0, columnspan=3, sticky="ew", pady=(8, 2))
         self._fit_wrap(manual_help, self.px(470))
-        self._build_appearance(left)
 
         box = ttk.LabelFrame(right, text=" 3  Choose data to include (up to 10 ranges) ", padding=self.L.box_pad)
         box.pack(fill="both", expand=True)
@@ -541,8 +618,8 @@ class App(tk.Tk):
                          "Enable one or both destinations. If a destination is unavailable, files wait safely and retry automatically.")
         content = ttk.Frame(tab)
         content.pack(fill="both", expand=True)
-        content.columnconfigure(0, weight=6, uniform="delivery")
-        content.columnconfigure(1, weight=5, uniform="delivery")
+        content.columnconfigure(0, weight=5, uniform="delivery")
+        content.columnconfigure(1, weight=6, uniform="delivery")
         content.rowconfigure(0, weight=1)
         left, right = ttk.Frame(content), ttk.Frame(content)
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
@@ -560,8 +637,19 @@ class App(tk.Tk):
         test_shared.grid(row=2, column=1, sticky="w", padx=8, pady=(5, 2))
         self.field_widgets["test_shared"] = test_shared
 
-        box = ttk.LabelFrame(left, text=" 6  API connection ", padding=self.L.box_pad)
-        box.pack(fill="both", expand=True, pady=(self.L.box_gap, 0))
+        box = ttk.LabelFrame(left, text=" How delivery works ", padding=self.L.box_pad)
+        box.pack(fill="x", pady=(self.L.box_gap, 0))
+        note = ttk.Label(box, style="Card.TLabel", wraplength=self.px(540), justify="left", text=(
+            "Each output file is first queued on this PC and removed from the queue only after it has arrived. "
+            "If a destination cannot be reached, the files wait and are sent in order when it is back; machine "
+            "files are still processed and backed up.\n\n"
+            "A file the receiving site refuses is set aside in 'rejected' in the data folder, and the others "
+            "continue. More under Help."))
+        note.pack(anchor="nw", fill="x")
+        self._fit_wrap(note, self.px(540))
+
+        box = ttk.LabelFrame(right, text=" 6  API connection ", padding=self.L.box_pad)
+        box.pack(fill="both", expand=True)
         box.columnconfigure(1, weight=1)
         api_enabled = ttk.Checkbutton(box, text="Send every output file to the end user's site",
                                       variable=self.b["api_enabled"])
@@ -595,7 +683,59 @@ class App(tk.Tk):
         test_api.grid(row=6, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_api"] = test_api
 
-        box = ttk.LabelFrame(right, text=" Monitoring & file options ", padding=self.L.box_pad)
+    def _build_options(self):
+        """The Options window: the settings that are set once and rarely changed, on pages. Built once, then shown."""
+        win = self.options_win = tk.Toplevel(self, background=theme.BACKGROUND)
+        win.withdraw()
+        win.title(f"{APP_NAME} options")
+        win.transient(self)
+        win.protocol("WM_DELETE_WINDOW", self.close_options)
+        width = min(self.px(800), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(690), self.winfo_screenheight() - self.px(120))
+        win.geometry(f"{width}x{height}")
+        win.minsize(min(self.px(660), width), min(self.px(520), height))
+        notebook = self.options_tabs = ttk.Notebook(win)
+        notebook.pack(fill="both", expand=True, padx=14, pady=(14, 0))
+        self.option_pages = {}
+        for key, title, build in (("processing", "Processing", self._build_processing),
+                                  ("output", "Output", self._build_output_options),
+                                  ("alerts", "Alerts", self._build_alerts),
+                                  ("access", "Operators & access", self._build_access),
+                                  ("appearance", "Appearance", self._build_appearance)):
+            page = ttk.Frame(notebook, padding=self.L.tab_pad)
+            notebook.add(page, text=f"  {title}  ")
+            self.option_pages[key] = page
+            build(page)
+        bar = ttk.Frame(win, padding=(14, 10))
+        bar.pack(fill="x")
+        ttk.Label(bar, textvariable=self.status_msg, style="Small.TLabel", wraplength=self.px(430),
+                  justify="left").pack(side="left", fill="x", expand=True)
+        ttk.Button(bar, text="Close", command=self.close_options).pack(side="right")
+        self.options_save_btn = ttk.Button(bar, text="Save settings", style="Go.TButton", command=self.save)
+        self.options_save_btn.pack(side="right", padx=8)
+
+    def open_options(self, page=None):
+        if self.protected and not self.unlocked:
+            return
+        win = self.options_win
+        if page:
+            self.options_tabs.select(self.option_pages[page])
+        if win.state() == "withdrawn":
+            win.update_idletasks()
+            x = self.winfo_rootx() + max((self.winfo_width() - win.winfo_reqwidth()) // 2, 0)
+            y = self.winfo_rooty() + self.px(40)
+            win.geometry(f"+{x}+{y}")
+        self._update_theme_note()
+        win.deiconify()
+        win.lift()
+        win.focus_set()
+
+    def close_options(self):
+        self.options_win.withdraw()
+        self.focus_force()  # the shortcuts work again at once
+
+    def _build_processing(self, parent):
+        box = ttk.LabelFrame(parent, text=" Monitoring & file options ", padding=self.L.box_pad)
         box.pack(fill="x")
         autostart = ttk.Checkbutton(box, text="Start monitoring when the program opens",
                                     variable=self.b["autostart"])
@@ -642,18 +782,30 @@ class App(tk.Tk):
             self.field_widgets[key] = days
             ttk.Label(row, text=" days  (0 = keep everything)", style="Card.TLabel").pack(side="left")
 
-        self._build_alerts(right)
-        self._build_access(right)
 
-        box = ttk.LabelFrame(right, text=" What happens to your files ", padding=self.L.box_pad)
-        box.pack(fill="both", expand=True, pady=(self.L.box_gap, 0))
-        ttk.Label(box, style="Card.TLabel", wraplength=self.px(420), justify="left", text=(
-            "1. CNCBridge safely queues each output on this PC.\n\n"
-            "2. It sends the file to the destinations you enable. If a destination is unavailable, delivery retries "
-            "in order when it returns. Machine files continue to be processed and backed up.\n\n"
-            "3. A file refused by the receiving site is set aside in 'rejected' in the data folder, so other files "
-            "can continue."
-        )).pack(anchor="nw", fill="x", pady=3)
+    def _build_output_options(self, parent):
+        box = ttk.LabelFrame(parent, text=" Output options ", padding=self.L.box_pad)
+        box.pack(fill="x")
+        note = ttk.Label(box, style="CardSmall.TLabel", justify="left", wraplength=self.px(620), text=(
+            "All of these are off by default, and with all of them off the files are exactly what version 1.0 "
+            "wrote. Turn one on only when the receiving system asks for it. The Pick ranges & preview tab shows "
+            "the effect."))
+        note.pack(anchor="w", fill="x", pady=(0, 8))
+        self._fit_wrap(note, self.px(620))
+        for key, text in (("json_numbers", "JSON: write numbers as numbers, not as text"),
+                          ("csv_flat", "CSV: one plain table, a row per record"),
+                          ("time_zone", "Add the time zone to the processing time (+05:30)")):
+            check = ttk.Checkbutton(box, text=text, variable=self.b[key])
+            check.pack(anchor="w")
+            self.field_widgets[key] = check
+        ttk.Label(box, text="Rename columns, one per line as  Old name=New name", style="CardSmall.TLabel"
+                  ).pack(anchor="w", pady=(8, 3))
+        self.rename_text = tk.Text(box, height=3, width=30, font=(self._font_mono, self.L.text_mono), relief="solid",
+                                   borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT, insertbackground=theme.TEXT,
+                                   highlightthickness=1, highlightbackground=theme.BORDER, highlightcolor=theme.ACCENT,
+                                   padx=7, pady=5, wrap="none", undo=True)
+        self.rename_text.pack(fill="x")
+        self.field_widgets["rename_columns"] = self.rename_text
 
     def _build_alerts(self, parent):
         box = ttk.LabelFrame(parent, text=" Alerts ", padding=self.L.box_pad)
@@ -702,7 +854,7 @@ class App(tk.Tk):
 
     def _build_appearance(self, parent):
         """The look of the window. One radio button per theme in theme.THEMES, so a new theme appears by itself."""
-        box = ttk.LabelFrame(parent, text=" 5  Appearance ", padding=self.L.box_pad)
+        box = ttk.LabelFrame(parent, text=" Appearance ", padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
         for key, option in theme.THEMES.items():
             choice = ttk.Radiobutton(box, text=option.label, value=key, variable=self.v["theme"],
@@ -824,15 +976,14 @@ class App(tk.Tk):
         for tab in (self.setup_tab, self.delivery_tab, self.pick_tab):
             self.tabs.tab(tab, state="hidden" if locked else "normal")
         self.tabs.tab(self.operator_tab, state="normal" if locked else "hidden")
-        for button in (self.save_btn, self.open_csv_btn, self.simulation_btn):
-            button.configure(state="disabled" if locked else "normal")
-        self.settings_btn.configure(state="disabled" if locked else "normal")
-        if self.protected:
-            self.lock_btn.configure(text="Unlock setup..." if locked else "Lock setup")
-            if not self.lock_btn.winfo_ismapped():
-                self.lock_btn.pack(in_=self.lock_bar, side="right", padx=(0, 6))
-        else:
-            self.lock_btn.pack_forget()
+        self.save_btn.configure(state="disabled" if locked else "normal")
+        for key in self.LOCKED_ENTRIES:
+            self._set_menu(key, not locked)
+        lock_menu, lock_index = self.menu_items["lock"]
+        lock_menu.entryconfigure(lock_index, label="Unlock setup..." if locked else "Lock setup",
+                                 state="normal" if self.protected else "disabled")
+        if locked:
+            self.options_win.withdraw()
         for label, (name, _) in zip(self.operator_labels, self.man_vars):
             label.configure(text=name.get().strip() or label.cget("text"))
         self.password_state.set("Password is set" if self.protected else "No password")
@@ -883,7 +1034,6 @@ class App(tk.Tk):
         self.cfg = normalize_config(cfg)
         self.unlocked = True  # whoever just set or removed it is in setup
         self._apply_lock()
-        self.tabs.select(self.delivery_tab)
 
     # ================================================================ shift changes
     @staticmethod
@@ -1008,8 +1158,8 @@ class App(tk.Tk):
         self.preview_note = ttk.Label(right, text="", foreground=theme.WARNING, wraplength=self.px(360),
                                       justify="left", background=theme.BACKGROUND)
         self.preview_note.pack(fill="x", pady=(0, 8))
-        self.preview = tk.Text(right, wrap="none", font=(self._font_mono, self.L.text_mono), width=44, state="normal",
-                               relief="solid", borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT,
+        self.preview = tk.Text(right, wrap="none", font=(self._font_mono, self.L.text_mono), width=44, height=12,
+                               state="normal", relief="solid", borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT,
                                insertbackground=theme.TEXT, highlightthickness=1, highlightbackground=theme.BORDER,
                                highlightcolor=theme.ACCENT, padx=8, pady=8, takefocus=True)
         ys = ttk.Scrollbar(right, orient="vertical", command=self.preview.yview)
@@ -1024,6 +1174,7 @@ class App(tk.Tk):
 
     def _build_history(self):
         tab = ttk.Frame(self.tabs, padding=self.L.tab_pad)
+        self.history_tab = tab
         self.tabs.add(tab, text="  History  ")
         self._page_intro(tab, "File history", "Review processed machine files and check whether each output reached its destination.")
         bar = ttk.Frame(tab)
@@ -1064,10 +1215,20 @@ class App(tk.Tk):
         self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
 
     def _build_log(self):
-        tab = ttk.Frame(self.tabs, padding=self.L.tab_pad)
-        self.tabs.add(tab, text="  Log  ")
-        self._page_intro(tab, "Activity log", "Technical processing and delivery messages. Most day-to-day status is shown in File history.")
-        log_area = ttk.Frame(tab, style="Card.TFrame", padding=1)
+        """The activity log, in a window of its own (View > Activity log). It keeps filling while hidden."""
+        win = self.log_win = tk.Toplevel(self, background=theme.BACKGROUND)
+        win.withdraw()
+        win.title(f"{APP_NAME} activity log")
+        win.protocol("WM_DELETE_WINDOW", win.withdraw)
+        width = min(self.px(980), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(600), self.winfo_screenheight() - self.px(120))
+        win.geometry(f"{width}x{height}")
+        win.minsize(min(self.px(560), width), min(self.px(320), height))
+        frame = ttk.Frame(win, padding=(14, 12, 14, 0))
+        frame.pack(fill="both", expand=True)
+        ttk.Label(frame, text="Technical processing and delivery messages. Most day-to-day status is shown in "
+                              "History.", style="PageHint.TLabel").pack(anchor="w", pady=(0, 8))
+        log_area = ttk.Frame(frame, style="Card.TFrame", padding=1)
         log_area.pack(fill="both", expand=True)
         self.log_text = tk.Text(log_area, wrap="none", font=(self._font_mono, self.L.text_mono), state="disabled",
                                 relief="flat", borderwidth=0, background=theme.SURFACE, foreground=theme.TEXT,
@@ -1083,6 +1244,95 @@ class App(tk.Tk):
         self.log_empty = ttk.Label(log_area, style="EmptyState.TLabel",
                                    text="No activity messages yet\n\nMessages will appear as CNCBridge works.")
         self.log_empty.place(relx=0.5, rely=0.5, anchor="center")
+        bar = ttk.Frame(win, padding=(14, 10))
+        bar.pack(fill="x")
+        ttk.Button(bar, text="Close", command=win.withdraw).pack(side="right")
+        ttk.Button(bar, text="Open data folder", command=lambda: self._open_folder(self.data_dir)).pack(side="right",
+                                                                                                         padx=8)
+
+    def open_log(self):
+        self.log_win.deiconify()
+        self.log_win.lift()
+        self.log_text.see("end")
+
+    # ================================================================ help
+    def _build_help(self):
+        win = self.help_win = tk.Toplevel(self, background=theme.BACKGROUND)
+        win.withdraw()
+        win.title(f"{APP_NAME} help")
+        win.protocol("WM_DELETE_WINDOW", win.withdraw)
+        width = min(self.px(980), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(660), self.winfo_screenheight() - self.px(120))
+        win.geometry(f"{width}x{height}")
+        win.minsize(min(self.px(640), width), min(self.px(400), height))
+        panes = ttk.PanedWindow(win, orient="horizontal")
+        panes.pack(fill="both", expand=True, padx=14, pady=14)
+        topics = self.help_topics = ttk.Treeview(panes, show="tree", selectmode="browse")
+        topics.column("#0", width=self.px(300))
+        for key, title, _ in help_text.TOPICS:
+            topics.insert("", "end", iid=key, text=title)
+        topics.bind("<<TreeviewSelect>>", self._help_selected)
+        panes.add(topics, weight=1)
+        body = ttk.Frame(panes, style="Card.TFrame", padding=1)
+        text = self.help_body = tk.Text(body, wrap="word", state="disabled", relief="flat", borderwidth=0,
+                                        background=theme.SURFACE, foreground=theme.TEXT, highlightthickness=0,
+                                        padx=18, pady=14, font=(self._font_body, 11), cursor="arrow",
+                                        spacing3=3)
+        ys = ttk.Scrollbar(body, orient="vertical", command=text.yview)
+        text.configure(yscrollcommand=ys.set)
+        ys.pack(side="right", fill="y")
+        text.pack(fill="both", expand=True)
+        text.tag_configure("h1", font=self.strong(15), spacing3=6)
+        text.tag_configure("h2", font=self.strong(12), spacing1=10, spacing3=4)
+        text.tag_configure("bullet", lmargin1=self.px(12), lmargin2=self.px(28))
+        text.tag_configure("gap", font=(self._font_body, 5))
+        text.tag_configure("code", font=(self._font_mono, 10), background=theme.SURFACE_ALT, lmargin1=self.px(12),
+                           lmargin2=self.px(12), spacing3=0)
+        panes.add(body, weight=4)
+
+    def _help_selected(self, _event=None):
+        selection = self.help_topics.selection()
+        if selection:
+            self._render_help(selection[0])
+
+    def _render_help(self, key):
+        title, body = next((t, b) for k, t, b in help_text.TOPICS if k == key)
+        if key == "keys":
+            body = ("The shortcut is shown beside each menu entry. A shortcut does nothing while its entry is "
+                    "disabled (for example while the setup is locked).\n\n"
+                    + "\n".join(f"    {keys:<20}{what}" for keys, what in help_text.SHORTCUTS))
+        text = self.help_body
+        text.configure(state="normal")
+        text.delete("1.0", "end")
+        text.insert("end", title + "\n", "h1")
+        for line in body.split("\n"):
+            if line.startswith("## "):
+                text.insert("end", line[3:] + "\n", "h2")
+            elif line.startswith("- "):
+                text.insert("end", "•  " + line[2:] + "\n", "bullet")
+            elif line.startswith("    "):
+                text.insert("end", line + "\n", "code")
+            elif not line.strip():
+                text.insert("end", "\n", "gap")
+            else:
+                text.insert("end", line + "\n")
+        text.configure(state="disabled")
+        text.yview_moveto(0)
+
+    def open_help(self, key="start"):
+        self.help_topics.selection_set(key)
+        self.help_topics.see(key)
+        self._render_help(key)
+        self.help_win.deiconify()
+        self.help_win.lift()
+
+    def about(self):
+        messagebox.showinfo(
+            f"About {APP_NAME}",
+            f"{APP_NAME} {VERSION}\n\nTakes the CSV file an assembly machine writes for every board, cuts out the "
+            f"cell ranges you choose, and delivers the result as JSON, CSV or TXT to a shared folder and/or an API "
+            f"link.\n\nData folder:\n{self.data_dir}\n\nThe bundled fonts Roboto and Roboto Mono are used under the "
+            f"SIL Open Font License.", parent=self)
 
     def _build_footer(self):
         bar = ttk.Frame(self, padding=(18, 10))
@@ -1096,11 +1346,6 @@ class App(tk.Tk):
         Tooltip(self.stop_btn, "Stop monitoring and processing.")
         Tooltip(self.once_btn, "Process the current files once without continuous monitoring.")
         Tooltip(self.save_btn, "Save all current settings to configuration.")
-        Tooltip(self.settings_btn, "Export the settings to a file, import them on another PC, or restore one "
-                                   "of the last 20 saved versions.")
-        Tooltip(self.open_csv_btn, "Open a machine CSV file in the range picker.")
-        Tooltip(self.open_folders_btn, "Open a configured folder or CNCBridge's data folder.")
-        Tooltip(self.simulation_btn, "Open the CNCBridge simulation controls in a separate window. It uses an isolated workspace and does not change this configuration.")
         Tooltip(self.sample_open_btn, "Choose a sample machine file to inspect and select cell ranges.")
         Tooltip(self.sample_newest_btn, "Open the newest file waiting in the machine folder or most recent back-up.")
         Tooltip(self.grid_view.canvas, "Drag across cells to select them. Arrow keys move; hold Shift to extend a range.")
@@ -1189,7 +1434,6 @@ class App(tk.Tk):
                                                    "or change the typed values. Files keep being processed meanwhile.")
         Tooltip(self.field_widgets["restart_now"], "Save, then close this window and open it again with the "
                                                    "chosen look. Monitoring resumes by itself.")
-        Tooltip(self.lock_btn, "Lock the setup tabs, or unlock them with the setup password.")
         Tooltip(self.field_widgets["set_password"], "Set or change the password that locks the setup tabs.")
         Tooltip(self.field_widgets["remove_password"], "Remove the password so everyone can change settings.")
         Tooltip(self.field_widgets["operator_apply"], "Save the typed values; they apply from the next file.")
@@ -1700,6 +1944,9 @@ class App(tk.Tk):
         self.start_btn.configure(state="normal" if idle else "disabled")
         self.once_btn.configure(state="normal" if idle and not self.connected else "disabled")
         self.stop_btn.configure(state="normal" if running else "disabled")
+        self._set_menu("start", idle)
+        self._set_menu("process_now", idle and not self.connected)
+        self._set_menu("stop", running)
         if not running and self.status_msg.get().startswith("Stopping"):
             self.status_msg.set("Monitoring stopped.")
 
