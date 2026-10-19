@@ -74,6 +74,7 @@ class MenusMixin:
         tools = menu("Tools")
         item(tools, "test_shared", "Test shared folder", self.test_shared)
         item(tools, "test_api", "Test API connection", self.test_api)
+        item(tools, "test_ftp", "Test FTP connection", self.test_ftp)
         item(tools, "test_alert", "Send test alert", self.test_alert)
         tools.add_separator()
         item(tools, "simulation", "Simulation...", self.open_simulation)
@@ -141,7 +142,7 @@ class MenusMixin:
 
     # entries that need the setup rights: they are disabled while the setup is locked
     LOCKED_ENTRIES = ("open_csv", "open_newest", "save", "export", "import", "restore", "options", "opt_processing",
-                      "opt_output", "opt_alerts", "opt_access", "opt_appearance", "test_shared", "test_api",
+                      "opt_output", "opt_alerts", "opt_access", "opt_appearance", "test_shared", "test_api", "test_ftp",
                       "test_alert", "simulation", "view_setup", "view_delivery", "view_pick")
 
     def _set_menu(self, key, enabled):

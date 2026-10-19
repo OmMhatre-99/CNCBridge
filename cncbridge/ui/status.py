@@ -115,11 +115,12 @@ class StatusMixin:
                 selected = set(self.history.selection())
                 self.history.delete(*self.history.get_children())
                 for row in self.shown_history:
-                    pending = "queued" in (row["shared"], row["api"]) or "rejected" in (row["api"] or "")
+                    pending = "queued" in (row["shared"], row["api"], row["ftp"]) or any(
+                        "rejected" in (row[k] or "") for k in ("api", "ftp"))
                     tag = row["status"] if row["status"] != "ok" else "pending" if pending else ""
                     self.history.insert("", "end", iid=str(row["id"]), tags=(tag,), values=[
                         (row["processed_at"] or "").replace("T", "  "), row["source"], row["status"],
-                        row["output"] or "", row["shared"] or "", row["api"] or "", row["message"] or ""])
+                        row["output"] or "", row["shared"] or "", row["api"] or "", row["ftp"] or "", row["message"] or ""])
                 keep = [iid for iid in selected if self.history.exists(iid)]
                 if keep:
                     self.history.selection_set(keep)

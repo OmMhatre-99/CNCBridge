@@ -176,6 +176,22 @@ for it. The Pick tab's preview shows the effect.
 | Add the time zone | `processed_at` becomes `2026-10-19T09:30:00+05:30`. Times copied from the machine file are not changed, because CNCBridge does not know their zone |
 | Rename columns | one `Old name=New name` per line, matched ignoring upper and lower case, for example `Ref=Reference`. Applies to every selection with a header row, however it is chosen. If two columns end up with the same name, the second gets `_2` |
 
+## FTP / FTPS delivery
+
+A third destination, switched on under **7 FTP server** on the Delivery tab (off by default; with it off nothing
+changes). Enter the server and port, a user name (empty = anonymous), the password (stored encrypted, never
+exported) and a folder on the server (for example `/incoming/line1`; missing folders are created, empty = the
+login folder). **Encrypt (FTPS)** uses explicit TLS for the login and the data; **Passive mode** is on, as most
+firewalls need. Each file is uploaded under a temporary name starting with `.` and renamed when complete, like
+the shared folder, and a name that is taken gets `_1`, `_2`... **Test FTP** (or Tools > Test FTP connection)
+uploads and removes a small test file.
+
+It uses the same queue as the other destinations: if the server is down the files wait and are sent in order
+when it is back, with the usual alert. A reply that refuses one file (552 too big, 553 name not allowed) sets that
+file aside in `rejected` and the others continue; **Send again** in History puts it back. A wrong login or an
+unreachable server is treated as a problem with the server, not the file: everything waits. History shows an
+**FTP** column. Histories from before FTP gain the column when opened.
+
 ## What the API receives
 
 `POST <your link>` with the file as body (`Content-Type` `application/json`, `text/csv` or
@@ -453,6 +469,7 @@ cncbridge/theme.py       themes (Modern, Legacy): colours, fonts and widget styl
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
 tests/test_structure.py  the window's pieces fit together; no method is defined twice
+tests/test_ftp.py        FTP / FTPS delivery against a small FTP server written for the tests
 tests/test_theme.py      every theme is complete; unknown names fall back
 tests/test_window.py     drives the real window: set CNCBRIDGE_WINDOW_TESTS=1 first
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)

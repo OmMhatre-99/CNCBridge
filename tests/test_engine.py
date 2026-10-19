@@ -540,7 +540,7 @@ class Pipeline(unittest.TestCase):
         self.assertTrue((self.today() / "board1.csv").exists())
         row = eng.ledger.recent()[0]
         self.assertEqual((row["status"], row["shared"], row["api"]), ("ok", "ok", "off"))
-        self.assertEqual(engine.count_queued(self.tmp / "data"), {"shared": 0, "api": 0})
+        self.assertEqual(engine.count_queued(self.tmp / "data"), {"shared": 0, "api": 0, "ftp": 0})
 
     def test_each_format(self):
         for fmt in ("csv", "txt"):
@@ -624,7 +624,7 @@ class Pipeline(unittest.TestCase):
             os.utime(self.src / f"b{i}.csv", (time.time() - 60 + i,) * 2)
         self.assertEqual(eng.scan_once(), 2)
         self.assertEqual(len(list(self.shared.iterdir())), 2)  # the shared folder is not held up by the API
-        self.assertEqual(engine.count_queued(self.tmp / "data"), {"shared": 0, "api": 2})
+        self.assertEqual(engine.count_queued(self.tmp / "data"), {"shared": 0, "api": 2, "ftp": 0})
         self.assertEqual({r["api"] for r in eng.ledger.recent()}, {"queued"})
         self.api.status = 200
         eng.scan_once()

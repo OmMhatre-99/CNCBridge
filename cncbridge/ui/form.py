@@ -20,11 +20,13 @@ class FormMixin:
             "complete_marker", "shift_times", "theme", "color_mode", "font_family", "font_size", "ui_scale",
             "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
-            "keep_backup_days", "keep_history_days")}
+            "keep_backup_days", "keep_history_days", "ftp_host", "ftp_port", "ftp_user", "ftp_password",
+            "ftp_folder")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
                                                     "json_numbers", "csv_flat", "time_zone",
                                                     "alert_notify", "alert_webhook_enabled", "alert_email_enabled",
-                                                    "alert_email_starttls")}
+                                                    "alert_email_starttls", "ftp_enabled", "ftp_tls",
+                                                    "ftp_passive")}
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
@@ -48,7 +50,7 @@ class FormMixin:
 
     def fill(self, cfg):
         numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port", "keep_backup_days",
-                   "keep_history_days")
+                   "keep_history_days", "ftp_port")
         for k, var in self.v.items():
             var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k in numbers
                     else FONT_SIZE_LABELS[cfg[k]] if k == "font_size" else UI_SCALE_LABELS[cfg[k]] if k == "ui_scale"
@@ -111,6 +113,13 @@ class FormMixin:
         if not cfg["api_url"]:
             return messagebox.showerror("API link", "Enter the API link first.", parent=self)
         self._in_background("API link", lambda: f"A small test file was accepted (HTTP {engine.test_api(cfg)}).")
+
+    def test_ftp(self):
+        cfg = self.collect()
+        if not cfg["ftp_host"]:
+            return messagebox.showerror("FTP server", "Enter the FTP server address first.", parent=self)
+        self._in_background("FTP server", lambda: "A test file was uploaded and removed again in:\n"
+                                                  f"{engine.test_ftp(cfg)}")
 
     # ================================================================ settings files
     def export_settings(self):

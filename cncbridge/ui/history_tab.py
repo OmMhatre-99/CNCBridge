@@ -26,7 +26,7 @@ class HistoryTabMixin:
         ttk.Label(bar, text="Most recent 200 files", style="PageHint.TLabel").pack(side="right")
         cols = (("processed_at", "Time", 140), ("source", "Machine file", 200), ("status", "Result", 80),
                 ("output", "Output file", 250), ("shared", "Shared folder", 100), ("api", "API", 110),
-                ("message", "Note", 300))
+                ("ftp", "FTP", 90), ("message", "Note", 300))
         history_area = ttk.Frame(tab, style="Card.TFrame", padding=1)
         history_area.pack(fill="both", expand=True)
         self.history = ttk.Treeview(history_area, columns=[c[0] for c in cols], show="headings",
@@ -55,7 +55,7 @@ class HistoryTabMixin:
 
     @staticmethod
     def _refused(row):
-        return any((row[k] or "").startswith("rejected") for k in ("shared", "api"))
+        return any((row[k] or "").startswith("rejected") for k in ("shared", "api", "ftp"))
 
     def _update_history_buttons(self):
         rows = self._selected_rows()

@@ -99,7 +99,7 @@ class SetupTabMixin:
         tab = self.delivery_tab = ttk.Frame(self.tabs, padding=self.L.tab_pad)
         self.tabs.add(tab, text="  Delivery  ")
         self._page_intro(tab, "Choose where files are delivered",
-                         "Enable one or both destinations. If a destination is unavailable, files wait safely and retry automatically.")
+                         "Enable one or more destinations. If a destination is unavailable, files wait safely and retry automatically.")
         content = ttk.Frame(tab)
         content.pack(fill="both", expand=True)
         content.columnconfigure(0, weight=5, uniform="delivery")
@@ -120,6 +120,32 @@ class SetupTabMixin:
         test_shared = ttk.Button(box, text="Test folder", command=self.test_shared)
         test_shared.grid(row=2, column=1, sticky="w", padx=8, pady=(5, 2))
         self.field_widgets["test_shared"] = test_shared
+
+        box = ttk.LabelFrame(left, text=" 7  FTP server ", padding=self.L.box_pad)
+        box.pack(fill="x", pady=(self.L.box_gap, 0))
+        box.columnconfigure(1, weight=1)
+        ftp_enabled = ttk.Checkbutton(box, text="Upload every output file to an FTP server",
+                                      variable=self.b["ftp_enabled"])
+        ftp_enabled.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
+        self.field_widgets["ftp_enabled"] = ftp_enabled
+        for row, (label, key, options) in enumerate((("Server", "ftp_host", {}),
+                                                     ("Port", "ftp_port", {"width": 7, **self.code_font}),
+                                                     ("User name", "ftp_user", {}),
+                                                     ("Password", "ftp_password", {"show": "\u25cf"}),
+                                                     ("Folder on server", "ftp_folder", {})), 1):
+            ttk.Label(box, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=self.L.row)
+            entry = ttk.Entry(box, textvariable=self.v[key], **options)
+            entry.grid(row=row, column=1, sticky="w" if key == "ftp_port" else "ew", padx=(8, 0), pady=self.L.row)
+            self.field_widgets[key] = entry
+        choices = ttk.Frame(box)
+        choices.grid(row=6, column=1, sticky="w", padx=(8, 0), pady=(4, 0))
+        for key, text in (("ftp_tls", "Encrypt (FTPS)"), ("ftp_passive", "Passive mode")):
+            check = ttk.Checkbutton(choices, text=text, variable=self.b[key])
+            check.pack(side="left", padx=(0, 18))
+            self.field_widgets[key] = check
+        test_ftp = ttk.Button(box, text="Test FTP", command=self.test_ftp)
+        test_ftp.grid(row=7, column=1, sticky="w", padx=8, pady=(7, 2))
+        self.field_widgets["test_ftp"] = test_ftp
 
         box = ttk.LabelFrame(left, text=" How delivery works ", padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))

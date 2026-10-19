@@ -34,6 +34,7 @@ from cncbridge import alerts, app, engine, shifts, stations  # noqa: E402
 gc.disable()
 from test_engine import Receiver  # noqa: E402
 from test_stations import make_copy  # noqa: E402
+from test_ftp import FakeFtpServer  # noqa: E402
 
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
 
@@ -1494,6 +1495,56 @@ class StationsWindow(WindowTest):
             w.add_station()
             self.assertEqual([Path(e["folder"]).name for e in stations.load(registry)], ["LineC"])
             w.close_stations()
+            yield 100
+        self.run_steps(steps)
+
+
+class FtpInWindow(WindowTest):
+    def test_settings_test_button_and_delivery_through_the_window(self):
+        w = self.window
+        root = self.tmp / "ftproot"
+        root.mkdir()
+        server = FakeFtpServer(root)
+        self.addCleanup(server.close)
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.sel_vars[0][1].set("A12:I14")
+            w.b["ftp_enabled"].set(True)
+            for key, value in (("ftp_host", "127.0.0.1"), ("ftp_port", str(server.port)), ("ftp_user", "op"),
+                               ("ftp_password", "secret"), ("ftp_folder", "/incoming/line7")):
+                w.v[key].set(value)
+            self.assertTrue(w.save())  # FTP alone is enough: no shared folder or API needed
+            saved = app.load_config(self.tmp / "data" / "config.json")
+            self.assertEqual((saved["ftp_enabled"], saved["ftp_port"], saved["ftp_password"]), (True, server.port, "secret"))
+            self.assertNotIn("secret", (self.tmp / "data" / "config.json").read_text(encoding="utf-8"))
+
+            menu, index = w.menu_items["test_ftp"]  # Tools > Test FTP connection
+            menu.invoke(index)
+            yield lambda: any(name == "showinfo" for name, _ in self.dialogs)
+            self.assertIn("/incoming/line7", self.dialogs[-1][1][1])
+            self.dialogs.clear()
+
+            self.drop("a.csv", "S1")
+            w.start()
+            yield lambda: any(p.is_file() for p in root.rglob("*") if not p.name.startswith("."))
+            yield lambda: w.history.get_children() and w.history.item(w.history.get_children()[0], "values")[6] == "ok"
+            self.assertEqual(w.history.heading("ftp")["text"], "FTP")
+            w.stop()
+            yield lambda: not w.running
+        self.run_steps(steps)
+
+    def test_incomplete_ftp_settings_are_reported(self):
+        w = self.window
+
+        def steps():
+            w.b["ftp_enabled"].set(True)
+            self.assertIn("Enter the FTP server address.", engine.validate(w.collect()))
+            w.v["ftp_host"].set("")
+            menu, index = w.menu_items["test_ftp"]
+            menu.invoke(index)
+            self.assertEqual(self.dialogs[-1][0], "showerror")
             yield 100
         self.run_steps(steps)
 

@@ -14,6 +14,7 @@ Only the Python standard library is used.
 import codecs
 import contextlib
 import csv
+import ftplib
 import hashlib
 import io
 import json
@@ -443,8 +444,10 @@ def validate(cfg):
     except ValueError as e:
         p.append(f"Rename columns: {e}")
 
-    if not cfg["shared_enabled"] and not cfg["api_enabled"]:
-        p.append("Turn on at least one delivery: shared folder or API link.")
+    if not cfg["shared_enabled"] and not cfg["api_enabled"] and not cfg["ftp_enabled"]:
+        p.append("Turn on at least one delivery: shared folder, API link or FTP server.")
+    if cfg["ftp_enabled"] and not cfg["ftp_host"]:
+        p.append("Enter the FTP server address.")
     if cfg["shared_enabled"]:
         if not cfg["shared_folder"]:
             p.append("Enter the shared folder.")
@@ -477,6 +480,8 @@ class Ledger:
             c.execute("""CREATE TABLE IF NOT EXISTS files(
                 id INTEGER PRIMARY KEY, processed_at TEXT, source TEXT, sha256 TEXT, size INTEGER,
                 status TEXT, output TEXT, shared TEXT, api TEXT, message TEXT)""")
+            if "ftp" not in {row[1] for row in c.execute("PRAGMA table_info(files)")}:
+                c.execute("ALTER TABLE files ADD COLUMN ftp TEXT DEFAULT 'off'")  # histories from before FTP
             c.execute("CREATE INDEX IF NOT EXISTS ix_sha ON files(sha256)")
             c.execute("CREATE INDEX IF NOT EXISTS ix_output ON files(output)")
 
@@ -608,10 +613,126 @@ def copy_shared(file_path, cfg):
     atomic_write(dest / Path(file_path).name, Path(file_path).read_bytes())
 
 
+PERMANENT_FTP = ("552", "553")  # replies that refuse this one file (too big, name not allowed), not the server
+
+
+def _ftp_connect(cfg):
+    """A logged-in connection: plain FTP, or explicit FTPS (encrypted login and data)."""
+    ftp = (ftplib.FTP_TLS if cfg["ftp_tls"] else ftplib.FTP)(timeout=cfg["api_timeout"])
+    ftp.encoding = "utf-8"
+    try:
+        ftp.connect(cfg["ftp_host"], cfg["ftp_port"])
+        ftp.login(cfg["ftp_user"] or "anonymous", cfg["ftp_password"] or "")
+        if cfg["ftp_tls"]:
+            ftp.prot_p()
+        ftp.set_pasv(cfg["ftp_passive"])
+    except BaseException:
+        _ftp_quit(ftp)
+        raise
+    return ftp
+
+
+def _ftp_quit(ftp):
+    try:
+        ftp.quit()
+    except (ftplib.Error, OSError, EOFError, AttributeError):  # AttributeError: it never connected
+        ftp.close()
+
+
+def _ftp_enter(ftp, folder):
+    """Change into the target folder, making each missing level; an empty folder is the login folder."""
+    folder = (folder or "").strip().replace("\\", "/")
+    if not folder:
+        return
+    if folder.startswith("/"):
+        ftp.cwd("/")
+    for part in (p for p in folder.split("/") if p):
+        try:
+            ftp.cwd(part)
+        except ftplib.error_perm:
+            ftp.mkd(part)
+            ftp.cwd(part)
+
+
+def _ftp_free_name(ftp, name):
+    """The name to give the file on the server: its own, or with a number when that name is taken."""
+    try:
+        taken = {n.rsplit("/", 1)[-1] for n in ftp.nlst()}
+    except ftplib.error_perm:  # an empty folder answers 550 on some servers
+        taken = set()
+    stem, dot, ext = name.rpartition(".")
+    stem, ext = (stem, dot + ext) if dot else (name, "")
+    candidate, n = name, 1
+    while candidate in taken:
+        candidate = f"{stem}_{n}{ext}"
+        n += 1
+    return candidate
+
+
+def send_ftp(file_path, cfg):
+    """
+    Upload one output file. It goes up under a temporary name starting with '.' and is renamed when
+    complete, so a reader of the folder never sees half a file (as with the shared folder).
+    A reply that refuses this file (552, 553) raises Rejected; trouble with the server or the settings
+    raises RuntimeError, and the file waits in the queue and is tried again.
+    """
+    p = Path(file_path)
+    host = cfg["ftp_host"]
+    try:
+        ftp = _ftp_connect(cfg)
+    except ftplib.error_perm as e:
+        raise RuntimeError(f"the FTP server {host} refused the login ({e})") from None
+    except (ftplib.Error, OSError, EOFError) as e:
+        raise RuntimeError(f"cannot reach the FTP server {host} ({e})") from None
+    part = None
+    try:
+        _ftp_enter(ftp, cfg["ftp_folder"])
+        final = _ftp_free_name(ftp, p.name)
+        part = f".{final}.part"
+        with p.open("rb") as fh:
+            ftp.storbinary(f"STOR {part}", fh)
+        ftp.rename(part, final)
+        part = None
+    except ftplib.error_perm as e:
+        if str(e)[:3] in PERMANENT_FTP:
+            raise Rejected(f"FTP {e}") from None
+        raise RuntimeError(f"the FTP server {host} said: {e}") from None
+    except (ftplib.Error, OSError, EOFError) as e:
+        raise RuntimeError(f"FTP upload to {host} failed ({e})") from None
+    finally:
+        if part:
+            try:
+                ftp.delete(part)
+            except (ftplib.Error, OSError, EOFError):
+                pass
+        _ftp_quit(ftp)
+
+
 DESTINATIONS = {
     "shared": (copy_shared, lambda c: c["shared_enabled"] and c["shared_folder"]),
     "api": (send_api, lambda c: c["api_enabled"] and c["api_url"]),
+    "ftp": (send_ftp, lambda c: c["ftp_enabled"] and c["ftp_host"]),
 }
+
+
+def test_ftp(cfg):
+    """Upload and delete a small file on the FTP server. Returns the folder it used; raises on failure."""
+    try:
+        ftp = _ftp_connect(cfg)
+    except ftplib.error_perm as e:
+        raise RuntimeError(f"the server refused the login ({e})") from None
+    except (ftplib.Error, OSError, EOFError) as e:
+        raise RuntimeError(f"cannot reach the server ({e})") from None
+    try:
+        _ftp_enter(ftp, cfg["ftp_folder"])
+        probe = f".cncbridge_probe_{uuid.uuid4().hex[:6]}"
+        ftp.storbinary(f"STOR {probe}", io.BytesIO(b"ok"))
+        ftp.delete(probe)
+        return ftp.pwd()
+    except (ftplib.Error, OSError, EOFError) as e:
+        raise RuntimeError(f"the server did not accept a test file ({e})") from None
+    finally:
+        _ftp_quit(ftp)
 
 
 def test_shared(cfg):

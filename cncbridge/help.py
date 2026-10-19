@@ -91,6 +91,8 @@ empty is set aside as failed.
 headers and a choice between the file as the request body or as a form upload. Test connection sends a small test \
 file.
 
+- FTP server: uploads each output file to an FTP server, optionally encrypted (FTPS). Enter the server, port, login and a folder on the server (missing folders are created). Files go up under a temporary name starting with a dot and are renamed when complete, so nobody reads half a file; a name that is already taken gets a number. Test FTP uploads and removes a small test file.
+
 ## When something is not reachable
 - Files wait in the queue and are sent in order once it is back. Machine files are still processed and backed up.
 - If the API refuses one particular file (for example HTTP 400 or 422), that file is set aside in "rejected" in the \

@@ -39,6 +39,14 @@ DEFAULT_CONFIG = {
     "api_headers": "",                    # extra headers, one "Name: value" per line
     "api_body": "raw",                    # raw | multipart
     "api_timeout": 20,
+    "ftp_enabled": False,                 # third destination: upload each output file to an FTP / FTPS server
+    "ftp_host": "",
+    "ftp_port": 21,
+    "ftp_user": "",                       # empty = anonymous
+    "ftp_password": "",                   # encrypted on disk, like the API token; never exported
+    "ftp_folder": "",                     # folder on the server (created if missing); empty = the login folder
+    "ftp_tls": False,                     # FTPS: explicit TLS, the login and the data are encrypted
+    "ftp_passive": True,
     "skip_duplicates": True,              # identical file content is never sent twice
     "encoding": "auto",                   # auto | utf-8 | cp1252 | utf-16 | shift_jis | ...
     "delimiter": "auto",                  # auto | , | ; | tab | |
@@ -74,7 +82,7 @@ DEFAULT_CONFIG = {
     "alert_email_from": "",
     "alert_email_to": "",                 # one or more addresses, separated by commas
 }
-SECRET_KEYS = ("api_token", "alert_email_password")  # encrypted on disk, never exported
+SECRET_KEYS = ("api_token", "alert_email_password", "ftp_password")  # encrypted on disk, never exported
 
 log = logging.getLogger("cncbridge")
 
@@ -102,7 +110,7 @@ def normalize_config(cfg):
 
     for key in ("station_name", "source_folder", "file_pattern", "backup_folder", "shared_folder",
                 "api_url", "api_token", "encoding", "delimiter", "complete_marker", "setup_password", "shift_times",
-                "alert_webhook_url",
+                "alert_webhook_url", "ftp_host", "ftp_user", "ftp_folder",
                 "alert_email_server",
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
@@ -118,9 +126,11 @@ def normalize_config(cfg):
             base[key] = 100
     base["rename_columns"] = str(base["rename_columns"] or "")
     base["alert_email_password"] = str(base["alert_email_password"] or "")  # spaces may be part of it
+    base["ftp_password"] = str(base["ftp_password"] or "")
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",
                 "time_zone", "alert_notify",
-                "alert_webhook_enabled", "alert_email_enabled", "alert_email_starttls"):
+                "alert_webhook_enabled", "alert_email_enabled", "alert_email_starttls", "ftp_enabled", "ftp_tls",
+                "ftp_passive"):
         base[key] = bool(base[key])
     base["file_pattern"] = base["file_pattern"] or "*.csv"
     base["encoding"] = base["encoding"] or "auto"
@@ -136,6 +146,9 @@ def normalize_config(cfg):
     base["keep_history_days"] = int(_number(base["keep_history_days"], 0, 0))
     base["alert_after_minutes"] = _number(base["alert_after_minutes"], 10, 0)
     base["alert_email_port"] = int(_number(base["alert_email_port"], 587, 1))
+    base["ftp_port"] = int(_number(base["ftp_port"], 21, 1))
+    if base["ftp_port"] > 65535:
+        base["ftp_port"] = 21
     return base
 
 
