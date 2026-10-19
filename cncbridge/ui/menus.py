@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from .. import help as help_text
+from .dropdown import DropDown
 
 
 class MenusMixin:
@@ -10,7 +11,8 @@ class MenusMixin:
         """The menu bar: everything that is not the daily work. Each entry calls the method the old button did."""
         strip = ttk.Frame(self, style="MenuBar.TFrame")
         strip.pack(fill="x")
-        self.menu_items, self.menubar_buttons = {}, {}
+        self.menu_items, self.menubar_buttons, self.menus = {}, {}, {}
+        self._dropdown, self._dropdown_button = None, None
         menu_font = (self._font_body, self.L.menu_size)
 
         def menu(label, parent=None):
@@ -19,11 +21,12 @@ class MenusMixin:
                 parent.add_cascade(label=label, menu=sub)
                 return sub
             # a menu bar drawn by the program: Windows draws its own at a fixed size, whatever the font
-            button = ttk.Menubutton(strip, text=label, style="MenuBar.Toolbutton", underline=0, takefocus=False)
+            button = ttk.Button(strip, text=label, style="MenuBar.Toolbutton", underline=0, takefocus=False,
+                                command=lambda: self._click_title(button))
             button.pack(side="left")
             sub = tk.Menu(button, tearoff=False, font=menu_font)
-            button["menu"] = sub
             self.menubar_buttons[label] = button
+            self.menus[label] = sub
             self.bind(f"<Alt-{label[0].lower()}>", lambda event, b=button: self._open_menu(b))
             return sub
 
@@ -94,11 +97,46 @@ class MenusMixin:
         self.bind("<F10>", lambda event: self._open_menu(next(iter(self.menubar_buttons.values()))))
         ttk.Separator(self).pack(fill="x")
 
-    def _open_menu(self, button):
-        """Drop a menu down from its title, as Alt+letter and F10 do."""
-        self.nametowidget(str(button["menu"])).tk_popup(button.winfo_rootx(),
-                                                       button.winfo_rooty() + button.winfo_height())
+    def _open_menu(self, button, keyboard=True):
+        """Drop a menu down from its title, as Alt+letter, F10 and a click do."""
+        self._close_menus(refocus=False)
+        label = button["text"]
+        self._dropdown_button = button
+        self._dropdown = DropDown(self, self.menus[label], button.winfo_rootx(),
+                                  button.winfo_rooty() + button.winfo_height(), keyboard=keyboard)
         return "break"
+
+    def _click_title(self, button):
+        """A click on a menu title opens its menu, or closes it when it is already open."""
+        if self._dropdown is not None and self._dropdown_button is button:
+            self._close_menus()
+        else:
+            self._open_menu(button, keyboard=False)
+
+    def _close_menus(self, refocus=True):
+        if self._dropdown is not None:
+            dropdown, self._dropdown, self._dropdown_button = self._dropdown, None, None
+            dropdown.close()
+            if refocus:
+                self.focus_force()
+
+    def _step_menu(self, step):
+        """Left / Right in an open menu: the next or previous menu in the bar."""
+        buttons = list(self.menubar_buttons.values())
+        if self._dropdown_button in buttons:
+            self._open_menu(buttons[(buttons.index(self._dropdown_button) + step) % len(buttons)])
+
+    def _hover_menu(self, widget):
+        """While a menu is open, the pointer on another title switches to that menu."""
+        if self._dropdown is not None and widget in self.menubar_buttons.values()                 and widget is not self._dropdown_button:
+            self._open_menu(widget, keyboard=False)
+
+    def _click_outside_menus(self, widget):
+        """A click outside an open menu closes it; on another title it opens that menu instead."""
+        buttons = list(self.menubar_buttons.values())
+        self._close_menus()
+        if widget in buttons:
+            self._open_menu(widget, keyboard=False)
 
     # entries that need the setup rights: they are disabled while the setup is locked
     LOCKED_ENTRIES = ("open_csv", "open_newest", "save", "export", "import", "restore", "options", "opt_processing",

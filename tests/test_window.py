@@ -946,7 +946,7 @@ class MenuBar(WindowTest):
         def steps():
             self.assertEqual(list(w.menubar_buttons), ["File", "Monitoring", "Settings", "Tools", "View", "Help"])
             self.assertEqual(w.cget("menu"), "")  # the bar is drawn by the program, so it can be larger
-            drop_down = w.nametowidget(str(w.menubar_buttons["File"]["menu"]))
+            drop_down = w.menus["File"]
             self.assertGreaterEqual(tkfont.Font(font=drop_down.cget("font")).actual("size"), 11)  # native bar: 9
             self.assertGreater(w.menubar_buttons["File"].winfo_reqheight(), w.px(28))
             shown = [w.tabs.tab(t, "text").strip() for t in w.tabs.tabs() if str(w.tabs.tab(t, "state")) != "hidden"]
@@ -1240,6 +1240,144 @@ class AppearanceVariants(WindowTest):
             w.update()
             self.assertEqual(opened[-1], "File")
             yield 100
+        self.run_steps(steps)
+
+
+class MenuNavigation(WindowTest):
+    """The drop-downs are drawn by the program: Left/Right between menus, hover switching, submenus, no blocking."""
+
+    def label(self, dropdown):
+        return dropdown.menu.entrycget(dropdown.rows[dropdown.selected]["index"], "label")
+
+    def test_keyboard_opens_with_the_first_entry_and_left_right_change_menu(self):
+        w = self.window
+
+        def steps():
+            w._open_menu(w.menubar_buttons["File"])
+            w.update()
+            self.assertTrue(w._dropdown.exists())
+            self.assertEqual(self.label(w._dropdown), "Open CSV file...")
+            for title in ("Monitoring", "Settings", "Tools", "View", "Help", "File"):  # Right, wrapping round
+                w._dropdown.press("Right")
+                w.update()
+                self.assertEqual(w._dropdown_button["text"], title)
+            w._dropdown.press("Left")
+            w.update()
+            self.assertEqual(w._dropdown_button["text"], "Help")
+            w._dropdown.press("Escape")
+            self.assertIsNone(w._dropdown)
+            yield 100
+        self.run_steps(steps)
+
+    def test_up_down_skip_disabled_entries_and_enter_runs_the_entry(self):
+        w = self.window
+
+        def steps():
+            w._set_menu("open_newest", False)
+            w._open_menu(w.menubar_buttons["File"])
+            w.update()
+            dd = w._dropdown
+            dd.press("Down")
+            self.assertEqual(self.label(dd), "Save settings")  # "Open newest machine file" is disabled
+            dd.press("Up")
+            self.assertEqual(self.label(dd), "Open CSV file...")
+            dd.press("Up")  # wraps to the last entry
+            self.assertEqual(self.label(dd), "Exit")
+            w._set_menu("open_newest", True)
+            w._close_menus()
+            w._open_menu(w.menubar_buttons["View"])
+            w.update()
+            self.assertEqual(self.label(w._dropdown), "Activity log")
+            w._dropdown.press("Return")
+            w.update()
+            self.assertIsNone(w._dropdown)
+            self.assertEqual(w.log_win.state(), "normal")
+            w.log_win.withdraw()
+            yield 100
+        self.run_steps(steps)
+
+    def test_a_disabled_entry_does_nothing_when_clicked(self):
+        w = self.window
+
+        def steps():
+            w._set_menu("export", False)
+            w._open_menu(w.menubar_buttons["File"])
+            w.update()
+            dd = w._dropdown
+            position = next(i for i, r in enumerate(dd.rows) if dd.menu.entrycget(r["index"], "label") ==
+                            "Export settings...")
+            dd.activate(position)
+            self.assertIs(w._dropdown, dd)  # still open, nothing ran
+            w._close_menus()
+            yield 100
+        self.run_steps(steps)
+
+    def test_pointer_on_another_title_switches_and_clicks_open_and_close(self):
+        w = self.window
+
+        def steps():
+            w._click_title(w.menubar_buttons["File"])
+            w.update()
+            self.assertEqual(w._dropdown_button["text"], "File")
+            w._hover_menu(w.menubar_buttons["Help"])
+            w.update()
+            self.assertEqual(w._dropdown_button["text"], "Help")
+            self.assertEqual(w._dropdown.menu, w.menus["Help"])
+            w._hover_menu(w.menubar_buttons["Help"])  # the same title: nothing changes
+            self.assertEqual(w._dropdown_button["text"], "Help")
+            w._click_title(w.menubar_buttons["Help"])  # a second click closes
+            self.assertIsNone(w._dropdown)
+            w._hover_menu(w.menubar_buttons["File"])  # with no menu open, hovering opens nothing
+            self.assertIsNone(w._dropdown)
+            w._click_title(w.menubar_buttons["File"])
+            w._click_outside_menus(w.tabs)  # a click elsewhere closes it
+            self.assertIsNone(w._dropdown)
+            w._click_title(w.menubar_buttons["File"])
+            w._click_outside_menus(w.menubar_buttons["Tools"])  # on another title: that menu opens
+            self.assertEqual(w._dropdown_button["text"], "Tools")
+            w._close_menus()
+            yield 100
+        self.run_steps(steps)
+
+    def test_submenu_opens_with_right_closes_with_left_and_runs_its_entry(self):
+        w = self.window
+        opened = []
+        self._patch(app.os, "startfile", lambda folder: opened.append(str(folder)))
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w._open_menu(w.menubar_buttons["File"])
+            w.update()
+            dd = w._dropdown
+            position = next(i for i, r in enumerate(dd.rows) if r["kind"] == "cascade")
+            dd.selected = position
+            dd.press("Right")
+            w.update()
+            self.assertIsNotNone(dd.child)
+            self.assertEqual(self.label(dd.child), "Machine CSV folder")
+            dd.child.press("Left")  # back to the parent menu, which stays open
+            self.assertIsNone(dd.child)
+            self.assertIs(w._dropdown, dd)
+            dd.press("Right")
+            dd.child.press("Escape")  # Esc closes one level at a time
+            self.assertIsNone(dd.child)
+            self.assertIs(w._dropdown, dd)
+            dd.press("Right")
+            dd.child.press("Return")
+            self.assertEqual(opened, [str(self.machine)])
+            self.assertIsNone(w._dropdown)
+            yield 100
+        self.run_steps(steps)
+
+    def test_an_open_menu_never_blocks_the_window(self):
+        w = self.window
+        ticks = []
+
+        def steps():
+            w._open_menu(w.menubar_buttons["Settings"])
+            w.after(50, lambda: ticks.append(1))
+            yield lambda: ticks  # the event loop keeps running while the menu is open
+            w._close_menus()
         self.run_steps(steps)
 
 

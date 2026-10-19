@@ -127,6 +127,7 @@ show their keyboard shortcut:
 | Ctrl+1 ... Ctrl+4 | Setup, Delivery, Pick ranges & preview, History |
 | F1 | Help |
 | Alt+F / M / S / T / V / H, F10 | Open a menu |
+| Arrow keys, Enter, Esc (in a menu) | Move, choose, close; Left / Right go to the next menu |
 
 ## Output files
 
@@ -334,7 +335,8 @@ delivery are the same.
 
 The menu bar is drawn by the program, so it is larger than the Windows default (11 pt in Modern) and
 grows with Text size and Window scale. **Alt** plus the underlined letter, or **F10**, opens a menu from the
-keyboard.
+keyboard. The drop-downs are drawn by the program too: with a menu open, Left and Right move to the
+next menu, the pointer on another title switches to it, and nothing else in the window is frozen.
 
 The choices are the `theme`, `color_mode` (`light`, `dark`, `system`), `font_family`, `font_size` and
 `ui_scale` settings in `config.json`, and are part of Export/Import settings. An unknown or invalid value falls

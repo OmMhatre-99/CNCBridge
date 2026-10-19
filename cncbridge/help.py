@@ -18,6 +18,7 @@ SHORTCUTS = (
     ("F1", "Help"),
     ("Alt+F, M, S, T, V, H", "Open the File, Monitoring, Settings, Tools, View or Help menu"),
     ("F10", "Open the first menu"),
+    ("Arrow keys, Enter, Esc", "In an open menu: move (Left and Right change menu), choose, close"),
 )
 
 TOPICS = (
