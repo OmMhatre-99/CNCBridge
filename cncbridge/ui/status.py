@@ -5,6 +5,7 @@ import time
 
 from .. import alerts, background, engine, theme
 from .common import log
+from ..i18n import tr
 
 
 class StatusMixin:
@@ -78,12 +79,12 @@ class StatusMixin:
 
         running = self.processing
         if self.connected:
-            text, colour = ("In background", theme.SUCCESS) if running else ("Background off", theme.IDLE)
+            text, colour = (tr("In background"), theme.SUCCESS) if running else (tr("Background off"), theme.IDLE)
             if self.take_over_when_stopped and not running:
                 self._become_normal()
         else:
-            text, colour = ("Monitoring", theme.SUCCESS) if running else ("Working...", theme.WARNING) if self.busy else (
-                "Stopped", theme.IDLE)
+            text, colour = (tr("Monitoring"), theme.SUCCESS) if running else ("Working...", theme.WARNING) if self.busy else (
+                tr("Stopped"), theme.IDLE)
         self.state_label.configure(text=text, width=max(11, len(text)))
         self.state_label.configure(foreground=colour)
         self.state_dot.configure(fg=colour)
@@ -94,8 +95,8 @@ class StatusMixin:
         self._set_menu("start", idle)
         self._set_menu("process_now", idle and not self.connected)
         self._set_menu("stop", running)
-        if not running and self.status_msg.get().startswith("Stopping"):
-            self.status_msg.set("Monitoring stopped.")
+        if not running and self.status_msg.get() in self._stopping_notes():
+            self.status_msg.set(tr("Monitoring stopped."))
 
         if time.monotonic() - self._shift_checked > 15:  # cheap, but once every few seconds is plenty
             self._shift_checked = time.monotonic()
@@ -135,44 +136,44 @@ class StatusMixin:
     def _ago(seconds):
         """'just now', '5 min ago', '3 h ago', '2 days ago'."""
         if seconds < 60:
-            return "just now"
+            return tr("just now")
         if seconds < 3600:
-            return f"{int(seconds // 60)} min ago"
+            return tr("{n} min ago", n=int(seconds // 60))
         if seconds < 86400:
-            return f"{int(seconds // 3600)} h ago"
-        return f"{int(seconds // 86400)} days ago"
+            return tr("{n} h ago", n=int(seconds // 3600))
+        return tr("{n} days ago", n=int(seconds // 86400))
 
     @staticmethod
     def _span(seconds):
         """'5 min', '3 h', '2 days'."""
         if seconds < 60:
-            return "under a minute"
+            return tr("under a minute")
         if seconds < 3600:
-            return f"{int(seconds // 60)} min"
+            return tr("{n} min", n=int(seconds // 60))
         if seconds < 86400:
             return f"{int(seconds // 3600)} h"
-        return f"{int(seconds // 86400)} days"
+        return tr("{n} days", n=int(seconds // 86400))
 
     def _show_health(self, h):
         """The facts line under the counters; an item turns amber or red when it needs attention."""
         limit = self.cfg["alert_after_minutes"] * 60
         parts = {}
         last, age = h.get("last_file"), h.get("last_file_age")
-        parts["last"] = (f"Last file {last[11:16]} ({self._ago(age)})" if last and age is not None else "No files yet",
+        parts["last"] = (tr("Last file {time} ({ago})", time=last[11:16], ago=self._ago(age)) if last and age is not None else tr("No files yet"),
                          theme.MUTED)
         queued = h.get("oldest_queued_age")
         if queued is None:
-            parts["queue"] = ("Queue empty", theme.MUTED)
+            parts["queue"] = (tr("Queue empty"), theme.MUTED)
         else:
-            parts["queue"] = (f"Oldest in queue: {self._span(queued)}",
+            parts["queue"] = (tr("Oldest in queue: {span}", span=self._span(queued)),
                               theme.ERROR if limit and queued > 3 * limit else theme.WARNING if limit and queued > limit
                               else theme.MUTED)
         free, level = h.get("backup_free"), h.get("disk_level")
         if free is not None:
-            parts["disk"] = (f"Back-up drive {free / 1024 ** 3:.1f} GB free",
+            parts["disk"] = (tr("Back-up drive {free:.1f} GB free", free=free / 1024 ** 3),
                              theme.ERROR if level == "critical" else theme.WARNING if level == "low" else theme.MUTED)
         if h.get("source_reachable") is False:
-            parts["source"] = ("Machine folder not reachable", theme.ERROR)
+            parts["source"] = (tr("Machine folder not reachable"), theme.ERROR)
         shown = False
         for key, label in self.health_labels.items():
             label.pack_forget()  # packed again in order, so the items never swap places
@@ -185,7 +186,7 @@ class StatusMixin:
     def _show_alerts(self, open_alerts):
         """A red banner under the counters while a problem is open; gone when it is resolved."""
         if open_alerts:
-            lines = [f"⚠  {item['text']}  (since {item['since'][11:16]})" for item in open_alerts.values()]
+            lines = ["⚠  " + tr("{problem}  (since {time})", problem=item['text'], time=item['since'][11:16]) for item in open_alerts.values()]
             self.alert_banner.configure(text="\n".join(lines), wraplength=max(self.winfo_width() - 40, 400))
             if not self.alert_banner_shown:
                 self.alert_banner.pack(fill="x", after=self.header_sep)

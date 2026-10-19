@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
-from cncbridge import alerts, app, engine, shifts, stations  # noqa: E402
+from cncbridge import alerts, app, engine, i18n, shifts, stations  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
 # a closed window could be freed on a background thread and crash the process (Tcl_AsyncDelete). The tests
@@ -83,6 +83,16 @@ def drive(window, steps):
     window.after(600, advance)
     window.mainloop()
     return errors
+
+
+def focused(window):
+    """True once the window has the keyboard focus (asked for again on each try, since another program may hold it)."""
+    try:
+        window.focus_force()
+        window.update()
+        return window.focus_get() is not None
+    except Exception:
+        return False
 
 
 def drag(window, c1, r1, c2, r2):
@@ -1006,7 +1016,7 @@ class MenuBar(WindowTest):
 
         def steps():
             self.fill_valid()
-            w.focus_force()
+            yield lambda: focused(w)
             w.update()
             w.event_generate("<Control-comma>")
             w.update()
@@ -1016,7 +1026,7 @@ class MenuBar(WindowTest):
             yield lambda: w.running
             yield lambda: self.menu_state("start") == "disabled"  # the menu follows the run state at the next refresh
             self.assertEqual((self.menu_state("start"), self.menu_state("stop")), ("disabled", "normal"))
-            w.focus_force()
+            yield lambda: focused(w)
             w.event_generate("<Shift-F5>")
             yield lambda: not w.running
             w.event_generate("<Control-Key-2>")
@@ -1039,7 +1049,7 @@ class MenuBar(WindowTest):
             w._apply_lock()
             w.update()
             self.assertEqual(self.menu_state("options"), "disabled")
-            w.focus_force()
+            yield lambda: focused(w)
             w.event_generate("<Control-comma>")
             w.event_generate("<Control-s>")
             w.update()
@@ -1078,7 +1088,7 @@ class LogAndHelp(WindowTest):
             self.assertIn("F5", shown)  # the last topic is the shortcut list
             self.assertIn("Ctrl+S", shown)
             w.help_win.withdraw()
-            w.focus_force()
+            yield lambda: focused(w)
             w.update()
             w.event_generate("<F1>")
             w.update()
@@ -1161,7 +1171,7 @@ class ScaledWindow(WindowWithSettings):
             rows = int(app.ttk.Style(w).lookup("History.Treeview", "rowheight"))
             self.assertGreaterEqual(rows, tkfont.Font(font=("Roboto Mono", 11)).metrics("linespace") + w.px(8))
             self.assertEqual(w._chosen_appearance(), {"theme": "modern", "color_mode": "light", "font_family": "Arial",
-                                                      "font_size": 130, "ui_scale": 125})
+                                                      "font_size": 130, "ui_scale": 125, "language": "en"})
             yield 100
         self.run_steps(steps)
 
@@ -1231,7 +1241,7 @@ class AppearanceVariants(WindowTest):
         self._patch(app.App, "_open_menu", lambda self, button: opened.append(button["text"]))
 
         def steps():
-            w.focus_force()
+            yield lambda: focused(w)
             w.update()
             for letter, title in (("f", "File"), ("m", "Monitoring"), ("s", "Settings"), ("t", "Tools"),
                                   ("v", "View"), ("h", "Help")):
@@ -1545,6 +1555,92 @@ class FtpInWindow(WindowTest):
             menu, index = w.menu_items["test_ftp"]
             menu.invoke(index)
             self.assertEqual(self.dialogs[-1][0], "showerror")
+            yield 100
+        self.run_steps(steps)
+
+
+class TranslatedWindow(WindowWithSettings):
+    """A window started in another language: a stand-in language file with a handful of translations."""
+    settings = {"theme": "modern", "language": "xx"}
+
+    def setUp(self):
+        self.locales = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.locales, True)
+        (self.locales / "xx.json").write_text(json.dumps({"language": "Xish", "strings": {
+            "File": "Datei", "Open CSV file...": "CSV-Datei oeffnen...", "Save settings": "Einstellungen speichern",
+            "Setup": "Einrichtung", "1  Machine folders": "1  Maschinenordner", "Settings saved.": "Gespeichert.",
+            "No files yet": "Noch keine Dateien", "Getting started": "Erste Schritte",
+            "Last file {time} ({ago})": "Letzte Datei {time} ({ago})", "Stopped": "Angehalten"}}), encoding="utf-8")
+        self._patch(i18n, "LOCALE_DIR", self.locales)
+        self.addCleanup(i18n.use, "en")
+        super().setUp()
+
+    def test_the_window_is_shown_in_the_language(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual((w.language, i18n.current()), ("xx", "xx"))
+            self.assertEqual(w.menubar_buttons["File"]["text"], "Datei")  # the code still keys it by "File"
+            self.assertEqual(w.tabs.tab(w.setup_tab, "text").strip(), "Einrichtung")
+            self.assertEqual(w.save_btn["text"].strip()[-len("Einstellungen speichern"):], "Einstellungen speichern")
+            self.assertEqual(w.state_label["text"], "Angehalten")
+            self.assertTrue(w.bind("<Alt-d>"))  # Alt+D opens the menu now called Datei
+            self.assertFalse(w.bind("<Alt-f>"))
+            self.assertEqual(w.field_widgets["language"]["values"], ("English", "Xish"))
+            self.assertEqual(w.v["language"].get(), "Xish")
+            self.assertEqual(w._chosen_appearance()["language"], "xx")
+            self.assertEqual(str(w.restart_btn["state"]), "disabled")  # the language in use
+
+            w._open_menu(w.menubar_buttons["File"])  # translated titles still open their menus
+            w.update()
+            dd = w._dropdown
+            self.assertEqual(dd.menu.entrycget(dd.rows[0]["index"], "label"), "CSV-Datei oeffnen...")
+            w._close_menus()
+
+            w._show_health({})
+            self.assertEqual(w.health_labels["last"]["text"], "Noch keine Dateien")
+            w._show_health({"last_file": "2026-10-19T10:42:00", "last_file_age": 5})
+            self.assertEqual(w.health_labels["last"]["text"], "Letzte Datei 10:42 (just now)")  # untranslated part: English
+
+            w.open_help("start")
+            self.assertTrue(w.help_body.get("1.0", "end").startswith("Erste Schritte"))
+
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A12:I14")
+            self.assertTrue(w.save())
+            self.assertEqual(w.status_msg.get(), "Gespeichert.")
+            self.assertEqual(app.load_config(self.tmp / "data" / "config.json")["language"], "xx")
+            yield 100
+        self.run_steps(steps)
+
+    def test_changing_the_language_needs_a_save_and_a_restart(self):
+        w = self.window
+
+        def steps():
+            w.v["language"].set("English")
+            w._update_theme_note()
+            self.assertEqual(str(w.restart_btn["state"]), "normal")
+            self.assertIn("Save settings", w.theme_note.get())
+            self.assertEqual(w._chosen_appearance()["language"], "en")
+            yield 100
+        self.run_steps(steps)
+
+
+class UnknownLanguageWindow(WindowWithSettings):
+    settings = {"theme": "modern", "language": "zz"}
+
+    def test_an_unknown_language_shows_english(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.language, "en")
+            self.assertEqual(w.tabs.tab(w.setup_tab, "text").strip(), "Setup")
+            self.assertEqual(w.menubar_buttons["File"]["text"], "File")
+            self.assertEqual(w.v["language"].get(), "English")
+            self.assertEqual(w._chosen_appearance()["language"], "en")
             yield 100
         self.run_steps(steps)
 

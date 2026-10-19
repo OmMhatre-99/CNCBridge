@@ -4,6 +4,7 @@ from tkinter import ttk
 
 from .. import help as help_text
 from .dropdown import DropDown
+from ..i18n import tr
 
 
 class MenusMixin:
@@ -12,6 +13,7 @@ class MenusMixin:
         strip = ttk.Frame(self, style="MenuBar.TFrame")
         strip.pack(fill="x")
         self.menu_items, self.menubar_buttons, self.menus = {}, {}, {}
+        self.menu_titles = {}  # menu title button -> its English name, which the code keys everything by
         self._dropdown, self._dropdown_button = None, None
         menu_font = (self._font_body, self.L.menu_size)
 
@@ -21,13 +23,14 @@ class MenusMixin:
                 parent.add_cascade(label=label, menu=sub)
                 return sub
             # a menu bar drawn by the program: Windows draws its own at a fixed size, whatever the font
-            button = ttk.Button(strip, text=label, style="MenuBar.Toolbutton", underline=0, takefocus=False,
+            button = ttk.Button(strip, text=tr(label), style="MenuBar.Toolbutton", underline=0, takefocus=False,
                                 command=lambda: self._click_title(button))
             button.pack(side="left")
             sub = tk.Menu(button, tearoff=False, font=menu_font)
             self.menubar_buttons[label] = button
             self.menus[label] = sub
-            self.bind(f"<Alt-{label[0].lower()}>", lambda event, b=button: self._open_menu(b))
+            self.menu_titles[button] = label
+            self.bind(f"<Alt-{tr(label)[0].lower()}>", lambda event, b=button: self._open_menu(b))
             return sub
 
         def item(parent, key, label, command, accelerator=None):
@@ -35,74 +38,74 @@ class MenusMixin:
             self.menu_items[key] = (parent, parent.index("end"))
 
         file_menu = menu("File")
-        item(file_menu, "open_csv", "Open CSV file...", self.open_csv, "Ctrl+O")
-        item(file_menu, "open_newest", "Open newest machine file", self.open_newest_file)
+        item(file_menu, "open_csv", tr("Open CSV file..."), self.open_csv, "Ctrl+O")
+        item(file_menu, "open_newest", tr("Open newest machine file"), self.open_newest_file)
         file_menu.add_separator()
-        item(file_menu, "save", "Save settings", self.save, "Ctrl+S")
-        item(file_menu, "export", "Export settings...", self.export_settings)
-        item(file_menu, "import", "Import settings...", self.import_settings)
-        item(file_menu, "restore", "Restore an earlier version...",
+        item(file_menu, "save", tr("Save settings"), self.save, "Ctrl+S")
+        item(file_menu, "export", tr("Export settings..."), self.export_settings)
+        item(file_menu, "import", tr("Import settings..."), self.import_settings)
+        item(file_menu, "restore", tr("Restore an earlier version..."),
              lambda: self.import_settings(self.data_dir / "backups"))
         file_menu.add_separator()
-        folders = menu("Open folder", file_menu)
-        for label, key in (("Machine CSV folder", "source_folder"), ("Back-up folder", "backup_folder"),
-                           ("Shared folder", "shared_folder")):
+        folders = menu(tr("Open folder"), file_menu)
+        for label, key in ((tr("Machine CSV folder"), "source_folder"), (tr("Back-up folder"), "backup_folder"),
+                           (tr("Shared folder"), "shared_folder")):
             folders.add_command(label=label, command=lambda key=key: self._open_folder(self.v[key].get()))
         folders.add_separator()
-        folders.add_command(label="Data folder (send queue, rejected files, log file)",
+        folders.add_command(label=tr("Data folder (send queue, rejected files, log file)"),
                             command=lambda: self._open_folder(self.data_dir))
         file_menu.add_separator()
-        item(file_menu, "exit", "Exit", self.on_close)
+        item(file_menu, "exit", tr("Exit"), self.on_close)
 
         monitoring = menu("Monitoring")
-        item(monitoring, "start", "Start monitoring", self.start, "F5")
-        item(monitoring, "stop", "Stop", self.stop, "Shift+F5")
-        item(monitoring, "process_now", "Process now", self.process_now, "F6")
+        item(monitoring, "start", tr("Start monitoring"), self.start, "F5")
+        item(monitoring, "stop", tr("Stop"), self.stop, "Shift+F5")
+        item(monitoring, "process_now", tr("Process now"), self.process_now, "F6")
 
         settings = menu("Settings")
-        item(settings, "options", "Options...", self.open_options, "Ctrl+,")
+        item(settings, "options", tr("Options..."), self.open_options, "Ctrl+,")
         settings.add_separator()
-        for key, page, label in (("opt_processing", "processing", "Processing..."),
-                                 ("opt_output", "output", "Output..."),
-                                 ("opt_alerts", "alerts", "Alerts..."),
-                                 ("opt_access", "access", "Operators && access..."),
-                                 ("opt_appearance", "appearance", "Appearance...")):
-            item(settings, key, label.replace("&&", "&"), lambda page=page: self.open_options(page))
+        for key, page, label in (("opt_processing", "processing", tr("Processing...")),
+                                 ("opt_output", "output", tr("Output...")),
+                                 ("opt_alerts", "alerts", tr("Alerts...")),
+                                 ("opt_access", "access", tr("Operators & access...")),
+                                 ("opt_appearance", "appearance", tr("Appearance..."))):
+            item(settings, key, label, lambda page=page: self.open_options(page))
         settings.add_separator()
-        item(settings, "lock", "Lock setup", self.toggle_lock)
+        item(settings, "lock", tr("Lock setup"), self.toggle_lock)
 
         tools = menu("Tools")
-        item(tools, "test_shared", "Test shared folder", self.test_shared)
-        item(tools, "test_api", "Test API connection", self.test_api)
-        item(tools, "test_ftp", "Test FTP connection", self.test_ftp)
-        item(tools, "test_alert", "Send test alert", self.test_alert)
+        item(tools, "test_shared", tr("Test shared folder"), self.test_shared)
+        item(tools, "test_api", tr("Test API connection"), self.test_api)
+        item(tools, "test_ftp", tr("Test FTP connection"), self.test_ftp)
+        item(tools, "test_alert", tr("Send test alert"), self.test_alert)
         tools.add_separator()
-        item(tools, "simulation", "Simulation...", self.open_simulation)
+        item(tools, "simulation", tr("Simulation..."), self.open_simulation)
 
         view = menu("View")
-        item(view, "log", "Activity log", self.open_log, "Ctrl+L")
-        item(view, "stations", "Stations...", self.open_stations)
+        item(view, "log", tr("Activity log"), self.open_log, "Ctrl+L")
+        item(view, "stations", tr("Stations..."), self.open_stations)
         view.add_separator()
-        for number, (key, attribute, label) in enumerate((("view_setup", "setup_tab", "Setup"),
-                                                          ("view_delivery", "delivery_tab", "Delivery"),
-                                                          ("view_pick", "pick_tab", "Pick ranges && preview"),
-                                                          ("view_history", "history_tab", "History")), 1):
-            item(view, key, label.replace("&&", "&"), lambda attribute=attribute: self._show_tab(getattr(self, attribute)),
+        for number, (key, attribute, label) in enumerate((("view_setup", "setup_tab", tr("Setup")),
+                                                          ("view_delivery", "delivery_tab", tr("Delivery")),
+                                                          ("view_pick", "pick_tab", tr("Pick ranges & preview")),
+                                                          ("view_history", "history_tab", tr("History"))), 1):
+            item(view, key, label, lambda attribute=attribute: self._show_tab(getattr(self, attribute)),
                  f"Ctrl+{number}")
 
         help_menu = menu("Help")
-        item(help_menu, "help", "Getting started", lambda: self.open_help("start"), "F1")
+        item(help_menu, "help", tr("Getting started"), lambda: self.open_help("start"), "F1")
         for key, title, _ in help_text.TOPICS[1:]:
-            item(help_menu, f"help_{key}", title, lambda key=key: self.open_help(key))
+            item(help_menu, f"help_{key}", tr(title), lambda key=key: self.open_help(key))
         help_menu.add_separator()
-        item(help_menu, "about", "About CNCBridge", self.about)
+        item(help_menu, "about", tr("About CNCBridge"), self.about)
         self.bind("<F10>", lambda event: self._open_menu(next(iter(self.menubar_buttons.values()))))
         ttk.Separator(self).pack(fill="x")
 
     def _open_menu(self, button, keyboard=True):
         """Drop a menu down from its title, as Alt+letter, F10 and a click do."""
         self._close_menus(refocus=False)
-        label = button["text"]
+        label = self.menu_titles[button]
         self._dropdown_button = button
         self._dropdown = DropDown(self, self.menus[label], button.winfo_rootx(),
                                   button.winfo_rooty() + button.winfo_height(), keyboard=keyboard)

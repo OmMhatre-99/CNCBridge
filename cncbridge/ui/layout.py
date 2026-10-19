@@ -5,6 +5,7 @@ from pathlib import Path
 from tkinter import filedialog, ttk
 
 from .. import theme
+from ..i18n import tr
 
 
 class LayoutMixin:
@@ -88,11 +89,11 @@ class LayoutMixin:
             b.pack(side="left", padx=(0, 6))
             return b
 
-        self.start_btn = button("▶  Start monitoring", self.start, "Go.Toolbutton")
-        self.stop_btn = button("■  Stop", self.stop)
-        self.once_btn = button("↻  Process now", self.process_now)
+        self.start_btn = button("▶  " + tr("Start monitoring"), self.start, "Go.Toolbutton")
+        self.stop_btn = button("■  " + tr("Stop"), self.stop)
+        self.once_btn = button("↻  " + tr("Process now"), self.process_now)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6, pady=3)
-        self.save_btn = button("✔  Save settings", self.save)
+        self.save_btn = button("✔  " + tr("Save settings"), self.save)
         ttk.Separator(self).pack(fill="x")
 
     def _build_header(self):
@@ -102,13 +103,13 @@ class LayoutMixin:
         self.state_dot = tk.Label(bar, text="●", fg=theme.IDLE, bg=theme.BACKGROUND,
                                   font=(self._font_body, dot_size, "bold"))
         self.state_dot.pack(side="left")
-        self.state_label = ttk.Label(bar, text="Stopped", font=self.strong(state_size), width=11)
+        self.state_label = ttk.Label(bar, text=tr("Stopped"), font=self.strong(state_size), width=11)
         self.state_label.pack(side="left", padx=(4, 10))
 
         self.counts = {}
-        for key, caption in reversed((("ok", "Processed"), ("waiting", "Waiting in folder"),
-                                      ("queued", "Queued to send"), ("failed", "Failed files"),
-                                      ("rejected", "Refused by API"))):
+        for key, caption in reversed((("ok", tr("Processed")), ("waiting", tr("Waiting in folder")),
+                                      ("queued", tr("Queued to send")), ("failed", tr("Failed files")),
+                                      ("rejected", tr("Refused by API")))):
             if self.L.metric_cards:
                 box = ttk.Frame(bar, style="Metric.TFrame", padding=(12, 5))
                 box.pack(side="right", padx=(8, 0))
@@ -166,14 +167,14 @@ class LayoutMixin:
         entry = ttk.Entry(parent, textvariable=self.v[key])
         entry.grid(row=row, column=1, sticky="ew", padx=8, pady=self.L.row)
         self.field_widgets[key] = entry
-        browse = ttk.Button(parent, text="Browse...", width=9,
+        browse = ttk.Button(parent, text=tr("Browse..."), width=9,
                             command=lambda: self._browse(self.v[key]))
         browse.grid(row=row, column=2, padx=(2, 0), pady=self.L.row)
         self.field_widgets[f"{key}_browse"] = browse
 
     def _browse(self, var):
         start = var.get() if Path(var.get() or "?").is_dir() else None
-        folder = filedialog.askdirectory(parent=self, initialdir=start, title="Choose a folder")
+        folder = filedialog.askdirectory(parent=self, initialdir=start, title=tr("Choose a folder"))
         if folder:
             var.set(os.path.normpath(folder))
 

@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
     "autostart": False,                   # start monitoring when the program opens
     "theme": "modern",                    # the look of the window: modern | legacy (more to come); applies on restart
     "color_mode": "light",                # light | dark | system (follow Windows)
+    "language": "en",                     # the window's language: a code from cncbridge/locales; applies on restart
     "font_family": "",                    # "" = the theme's own font, else one of theme.FONT_CHOICES
     "font_size": 100,                     # text size in percent: one of FONT_SIZES
     "ui_scale": 100,                      # size of the whole window in percent: one of UI_SCALES
@@ -120,6 +121,7 @@ def normalize_config(cfg):
     if base["color_mode"] not in COLOR_MODES:
         base["color_mode"] = "light"
     base["font_family"] = str(base["font_family"] or "").strip()
+    base["language"] = str(base["language"] or "").strip().lower() or "en"  # an unknown one shows English
     for key, allowed in (("font_size", FONT_SIZES), ("ui_scale", UI_SCALES)):
         base[key] = int(_number(base[key], 100, 1))
         if base[key] not in allowed:

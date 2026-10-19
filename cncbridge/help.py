@@ -143,7 +143,7 @@ password. The password is stored as a hash and cannot be recovered; if it is los
 config.json in the data folder.
 """),
 
-    ("stations", "Several machines: Stations", """One copy of CNCBridge looks after one machine folder, with its own settings, history and queue. To run two lines on one PC, start a second copy with its own data folder (a shortcut to CNCBridge.exe --data C:\CNCBridge\line2).
+    ("stations", "Several machines: Stations", """One copy of CNCBridge looks after one machine folder, with its own settings, history and queue. To run two lines on one PC, start a second copy with its own data folder (a shortcut to CNCBridge.exe --data C:\\CNCBridge\\line2).
 
 View > Stations... shows every copy on this PC side by side: its name, whether it is open in a window, running in the background or stopped, the counters, the last file, the back-up drive's free space and any open problem. It only reads the other copies; it never changes them or takes over their work.
 
@@ -166,6 +166,11 @@ running it starts again by itself. Appearance only changes how the window looks:
 - Light, Dark, or Follow Windows (the app mode set in Windows settings).
 - Modern has a designed dark palette. Legacy's dark mode inverts its own colours, because its native Windows \
 controls cannot take a normal dark palette.
+
+## Language
+The window's text can be shown in any language that has a file in cncbridge\\locales; English is built in. Choose it \
+under Language. Texts without a translation stay in English. The log, the output files and what is sent to other \
+systems are never translated.
 
 ## Font, text size and window scale
 - Font: the theme's own font, or one of the clear user-interface fonts installed on this PC.

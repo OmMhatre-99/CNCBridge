@@ -63,6 +63,7 @@ if "%WANT_DEMO%"=="1" call :unlocked CNCBridgeDemo || exit /b 1
 
 set FONTS=
 if exist "assets\fonts" set FONTS=--add-data "%~dp0assets\fonts;assets/fonts"
+if exist "cncbridge\locales" set FONTS=%FONTS% --add-data "%~dp0cncbridge\locales;cncbridge/locales"
 if not exist build mkdir build
 del "build\*.done" 2>nul
 

@@ -15,6 +15,8 @@ from dataclasses import dataclass, replace
 from tkinter import font as tkfont
 from typing import Callable
 
+from .i18n import N_
+
 COLOUR_NAMES = (
     "BACKGROUND", "SURFACE", "SURFACE_ALT", "TEXT", "MUTED", "BORDER", "DISABLED_SURFACE", "DISABLED_TEXT",
     "DISABLED_ACCENT", "HOVER_SURFACE", "FOCUS_SURFACE", "ACTIVE_HEADER", "ACCENT", "ACCENT_HOVER", "ACCENT_TINT",
@@ -225,8 +227,8 @@ def _modern_styles(style, px, fonts):
 
 MODERN = Theme(
     key="modern",
-    label="Modern",
-    description="Light industrial look with flat controls and the bundled Roboto fonts. The default.",
+    label=N_("Modern"),
+    description=N_("Light industrial look with flat controls and the bundled Roboto fonts. The default."),
     colours=dict(
         BACKGROUND="#f4f5f2", SURFACE="#ffffff", SURFACE_ALT="#edf2f1", TEXT="#26343d", MUTED="#52636b",
         BORDER="#d3dcda", DISABLED_SURFACE="#ecefed", DISABLED_TEXT="#68777d", DISABLED_ACCENT="#5a7372",
@@ -361,8 +363,9 @@ def _legacy_dark_palette(root, fonts):
 
 LEGACY = Theme(
     key="legacy",
-    label="Legacy",
-    description="The look of version 1.0: native Windows controls, Segoe UI and Consolas, grey and blue, compact spacing and no page titles.",
+    label=N_("Legacy"),
+    description=N_("The look of version 1.0: native Windows controls, Segoe UI and Consolas, grey and blue, "
+                   "compact spacing and no page titles."),
     colours=dict(
         BACKGROUND="#f0f0f0", SURFACE="#ffffff", SURFACE_ALT="#f1f1f1", TEXT="#000000", MUTED="#6b6b6b",
         BORDER="#adadad", DISABLED_SURFACE="#f0f0f0", DISABLED_TEXT="#a0a0a0", DISABLED_ACCENT="#a0a0a0",

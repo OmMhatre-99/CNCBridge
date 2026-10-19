@@ -10,13 +10,19 @@ from tkinter import messagebox
 from .. import background, config, engine, shifts
 from ..config import APP_NAME, save_config
 from .common import log
+from ..i18n import tr
 
 
 class ControlMixin:
+    def _stopping_notes(self):
+        """The status messages shown while a stop is under way (the window clears them when it has stopped)."""
+        return {tr("Stopping the background processing after the current file..."),
+                tr("Stopping after the current file...")}
+
     def open_simulation(self):
         """Open the optional simulator control window without opening a console."""
         if self.simulation_process is not None and self.simulation_process.poll() is None:
-            self.status_msg.set("Simulation window is already open.")
+            self.status_msg.set(tr("Simulation window is already open."))
             return
 
         base = config.program_dir()  # the same folder as before: beside the exe, or the project folder
@@ -28,10 +34,10 @@ class ControlMixin:
             command = [str(pythonw if pythonw.exists() else python), "-m", "demo.run_demo"]
         try:
             self.simulation_process = subprocess.Popen(command, cwd=str(base))
-            self.status_msg.set("Simulation window opened.")
+            self.status_msg.set(tr("Simulation window opened."))
         except OSError as exc:
             self.simulation_process = None
-            messagebox.showerror(APP_NAME, f"Could not open the simulation window:\n{exc}", parent=self)
+            messagebox.showerror(APP_NAME, tr("Could not open the simulation window:\n{exc}", exc=exc), parent=self)
 
     @property
     def running(self):
@@ -52,7 +58,7 @@ class ControlMixin:
         cfg = self.collect()
         problems = engine.validate(cfg)
         if self.processing and problems:
-            messagebox.showerror(APP_NAME, "Monitoring is running, so the settings must stay complete.\n\n- "
+            messagebox.showerror(APP_NAME, tr("Monitoring is running, so the settings must stay complete.\n\n- ")
                                  + "\n- ".join(problems), parent=self)
             return False
         shift_problem = self._shift_problem(cfg)
@@ -68,7 +74,7 @@ class ControlMixin:
         if self.running:
             self.engine.cfg = cfg
         log.info("Settings saved")
-        self.status_msg.set("Settings saved." if not problems else "Settings saved. Before starting: " + problems[0])
+        self.status_msg.set(tr("Settings saved.") if not problems else tr("Settings saved. Before starting: ") + problems[0])
         self._apply_background_choice()  # the background process reads the saved settings by itself
         return True
 
@@ -89,7 +95,7 @@ class ControlMixin:
                 if self.connected and self.bg_running:
                     background.request_stop(self.data_dir)
                     self.take_over_when_stopped = True
-                    self.status_msg.set("Background processing is stopping. This window takes over when it has.")
+                    self.status_msg.set(tr("Background processing is stopping. This window takes over when it has."))
                 elif self.connected:
                     self._become_normal()
         except OSError as e:
@@ -107,12 +113,12 @@ class ControlMixin:
         self.connected = True
         self._log_to("window.log")
         if engine.validate(self.cfg):
-            self.status_msg.set("Background processing is set up. Complete the settings, then press Start "
-                                "monitoring.")
+            self.status_msg.set(tr("Background processing is set up. Complete the settings, then press Start "
+                                "monitoring."))
             return
         background.start_task(self.data_dir)
-        self.status_msg.set("Processing now runs in the background. It goes on after this window closes and "
-                            "starts when you log on to Windows.")
+        self.status_msg.set(tr("Processing now runs in the background. It goes on after this window closes and "
+                            "starts when you log on to Windows."))
 
     def _become_normal(self):
         """The background is off and stopped: this window processes files itself again."""
@@ -122,7 +128,7 @@ class ControlMixin:
         self.lock, self.connected, self.take_over_when_stopped, self.bg_running = lock, False, False, False
         background.mark_holder(self.data_dir, "window")
         self._log_to("cncbridge.log")
-        self.status_msg.set("Background processing is off. Press Start monitoring to process in this window.")
+        self.status_msg.set(tr("Background processing is off. Press Start monitoring to process in this window."))
         return True
 
     def _log_to(self, filename):
@@ -143,7 +149,7 @@ class ControlMixin:
             if quiet:
                 log.error("Monitoring was not started: %s", " ".join(problems))
             else:
-                messagebox.showerror(APP_NAME, "Please complete the settings first.\n\n- " + "\n- ".join(problems),
+                messagebox.showerror(APP_NAME, tr("Please complete the settings first.\n\n- ") + "\n- ".join(problems),
                                      parent=self)
             return None
         self._apply(cfg)
@@ -158,7 +164,7 @@ class ControlMixin:
             if background.task_exists(self.data_dir):
                 try:
                     background.start_task(self.data_dir)
-                    self.status_msg.set("Starting the background processing...")
+                    self.status_msg.set(tr("Starting the background processing..."))
                 except OSError as e:
                     messagebox.showerror(APP_NAME, str(e), parent=self)
             elif self._become_normal():  # it was started some other way and has stopped
@@ -169,15 +175,15 @@ class ControlMixin:
             self.engine = engine.Engine(cfg, self.data_dir)
             self.thread = threading.Thread(target=self.engine.run_forever, daemon=True)
             self.thread.start()
-            self.status_msg.set("Monitoring started.")
+            self.status_msg.set(tr("Monitoring started."))
 
     def stop(self):
         if self.connected and self.bg_running:
             background.request_stop(self.data_dir)
-            self.status_msg.set("Stopping the background processing after the current file...")
+            self.status_msg.set(tr("Stopping the background processing after the current file..."))
         elif self.running:
             self.engine.stop()
-            self.status_msg.set("Stopping after the current file...")
+            self.status_msg.set(tr("Stopping after the current file..."))
 
     def process_now(self):
         if self.processing or self.busy or self.connected:
@@ -216,8 +222,8 @@ class ControlMixin:
             self.destroy()
             return
         if self.running and not messagebox.askokcancel(
-                APP_NAME, "Monitoring is running.\n\nClosing the window stops it; machine files will wait in the "
-                          "folder until the program is started again.\n\nClose anyway?", parent=self):
+                APP_NAME, tr("Monitoring is running.\n\nClosing the window stops it; machine files will wait in the "
+                          "folder until the program is started again.\n\nClose anyway?"), parent=self):
             return
         self.closing.set()
         if self.engine:

@@ -5,6 +5,7 @@ from tkinter import messagebox, ttk
 from .. import theme
 from .. import help as help_text
 from ..config import APP_NAME, VERSION
+from ..i18n import tr
 
 
 class WindowsMixin:
@@ -14,7 +15,7 @@ class WindowsMixin:
         win.withdraw()
         if self.theme.dark:
             theme.dark_title_bar(win)
-        win.title(f"{APP_NAME} activity log")
+        win.title(tr("{APP_NAME} activity log", APP_NAME=APP_NAME))
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
         width = min(self.px(980 * self.text_scale), self.winfo_screenwidth() - self.px(30))
         height = min(self.px(600 * self.text_scale), self.winfo_screenheight() - self.px(120))
@@ -22,8 +23,8 @@ class WindowsMixin:
         win.minsize(min(self.px(560), width), min(self.px(320), height))
         frame = ttk.Frame(win, padding=(14, 12, 14, 0))
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Technical processing and delivery messages. Most day-to-day status is shown in "
-                              "History.", style="PageHint.TLabel").pack(anchor="w", pady=(0, 8))
+        ttk.Label(frame, text=tr("Technical processing and delivery messages. Most day-to-day status is shown in "
+                              "History."), style="PageHint.TLabel").pack(anchor="w", pady=(0, 8))
         log_area = ttk.Frame(frame, style="Card.TFrame", padding=1)
         log_area.pack(fill="both", expand=True)
         self.log_text = tk.Text(log_area, wrap="none", font=(self._font_mono, self.L.text_mono), state="disabled",
@@ -38,12 +39,12 @@ class WindowsMixin:
         xs.pack(side="bottom", fill="x")
         self.log_text.pack(fill="both", expand=True)
         self.log_empty = ttk.Label(log_area, style="EmptyState.TLabel",
-                                   text="No activity messages yet\n\nMessages will appear as CNCBridge works.")
+                                   text=tr("No activity messages yet\n\nMessages will appear as CNCBridge works."))
         self.log_empty.place(relx=0.5, rely=0.5, anchor="center")
         bar = ttk.Frame(win, padding=(14, 10))
         bar.pack(fill="x")
-        ttk.Button(bar, text="Close", command=win.withdraw).pack(side="right")
-        ttk.Button(bar, text="Open data folder", command=lambda: self._open_folder(self.data_dir)).pack(side="right",
+        ttk.Button(bar, text=tr("Close"), command=win.withdraw).pack(side="right")
+        ttk.Button(bar, text=tr("Open data folder"), command=lambda: self._open_folder(self.data_dir)).pack(side="right",
                                                                                                          padx=8)
 
     def open_log(self):
@@ -59,7 +60,7 @@ class WindowsMixin:
         win.withdraw()
         if self.theme.dark:
             theme.dark_title_bar(win)
-        win.title(f"{APP_NAME} help")
+        win.title(tr("{APP_NAME} help", APP_NAME=APP_NAME))
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
         width = min(self.px(980 * self.text_scale), self.winfo_screenwidth() - self.px(30))
         height = min(self.px(660 * self.text_scale), self.winfo_screenheight() - self.px(120))
@@ -70,7 +71,7 @@ class WindowsMixin:
         topics = self.help_topics = ttk.Treeview(panes, show="tree", selectmode="browse")
         topics.column("#0", width=self.px(300))
         for key, title, _ in help_text.TOPICS:
-            topics.insert("", "end", iid=key, text=title)
+            topics.insert("", "end", iid=key, text=tr(title))
         topics.bind("<<TreeviewSelect>>", self._help_selected)
         panes.add(topics, weight=1)
         body = ttk.Frame(panes, style="Card.TFrame", padding=1)
@@ -97,10 +98,11 @@ class WindowsMixin:
 
     def _render_help(self, key):
         title, body = next((t, b) for k, t, b in help_text.TOPICS if k == key)
+        title, body = tr(title), tr(body)
         if key == "keys":
-            body = ("The shortcut is shown beside each menu entry. A shortcut does nothing while its entry is "
-                    "disabled (for example while the setup is locked).\n\n"
-                    + "\n".join(f"    {keys:<20}{what}" for keys, what in help_text.SHORTCUTS))
+            body = (tr("The shortcut is shown beside each menu entry. A shortcut does nothing while its entry is "
+                    "disabled (for example while the setup is locked).\n\n")
+                    + "\n".join(f"    {keys:<20}{tr(what)}" for keys, what in help_text.SHORTCUTS))
         text = self.help_body
         text.configure(state="normal")
         text.delete("1.0", "end")
@@ -130,8 +132,5 @@ class WindowsMixin:
 
     def about(self):
         messagebox.showinfo(
-            f"About {APP_NAME}",
-            f"{APP_NAME} {VERSION}\n\nTakes the CSV file an assembly machine writes for every board, cuts out the "
-            f"cell ranges you choose, and delivers the result as JSON, CSV or TXT to a shared folder and/or an API "
-            f"link.\n\nData folder:\n{self.data_dir}\n\nThe bundled fonts Roboto and Roboto Mono are used under the "
-            f"SIL Open Font License.", parent=self)
+            tr("About {APP_NAME}", APP_NAME=APP_NAME),
+            tr("{APP_NAME} {VERSION}\n\nTakes the CSV file an assembly machine writes for every board, cuts out the cell ranges you choose, and delivers the result as JSON, CSV or TXT to a shared folder and/or an API link.\n\nData folder:\n{v2}\n\nThe bundled fonts Roboto and Roboto Mono are used under the SIL Open Font License.", APP_NAME=APP_NAME, VERSION=VERSION, v2=self.data_dir), parent=self)

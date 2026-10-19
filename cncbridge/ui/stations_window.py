@@ -8,19 +8,23 @@ from tkinter import filedialog, messagebox, ttk
 
 from .. import config, stations, theme
 from ..config import APP_NAME
+from ..i18n import N_
+from ..i18n import tr
 
 
 class StationsMixin:
-    COLUMNS = (("name", "Station", 250), ("folder", "Data folder", 260), ("state", "State", 110),
-               ("processed", "Processed", 80), ("failed", "Failed", 60), ("waiting", "Waiting", 70),
-               ("queued", "Queued", 70), ("rejected", "Refused", 70), ("last", "Last file", 150),
-               ("disk", "Back-up free", 100), ("problem", "Open problem", 300))
-    STATE_TEXT = {"window": "Window open", "background": "In background", "stopped": "Stopped", "missing": "Missing"}
+    # N_ marks the texts for translation; they are translated where they are shown (this is read at import)
+    COLUMNS = (("name", N_("Station"), 250), ("folder", N_("Data folder"), 260), ("state", N_("State"), 110),
+               ("processed", N_("Processed"), 80), ("failed", N_("Failed"), 60), ("waiting", N_("Waiting"), 70),
+               ("queued", N_("Queued"), 70), ("rejected", N_("Refused"), 70), ("last", N_("Last file"), 150),
+               ("disk", N_("Back-up free"), 100), ("problem", N_("Open problem"), 300))
+    STATE_TEXT = {"window": N_("Window open"), "background": N_("In background"), "stopped": N_("Stopped"),
+                  "missing": N_("Missing")}
 
     def _build_stations(self):
         win = self.stations_win = tk.Toplevel(self, background=theme.BACKGROUND)
         win.withdraw()
-        win.title(f"{APP_NAME} stations")
+        win.title(tr("{APP_NAME} stations", APP_NAME=APP_NAME))
         win.protocol("WM_DELETE_WINDOW", self.close_stations)
         width = min(self.px(1180 * self.text_scale), self.winfo_screenwidth() - self.px(30))
         height = min(self.px(480 * self.text_scale), self.winfo_screenheight() - self.px(120))
@@ -28,15 +32,15 @@ class StationsMixin:
         win.minsize(min(self.px(760), width), min(self.px(300), height))
         frame = ttk.Frame(win, padding=(14, 12, 14, 0))
         frame.pack(fill="both", expand=True)
-        ttk.Label(frame, text="Every CNCBridge copy on this PC. Each keeps its own machine folder, settings and "
-                              "history; this is only a view of them.", style="PageHint.TLabel").pack(anchor="w",
+        ttk.Label(frame, text=tr("Every CNCBridge copy on this PC. Each keeps its own machine folder, settings and "
+                              "history; this is only a view of them."), style="PageHint.TLabel").pack(anchor="w",
                                                                                                     pady=(0, 8))
         area = ttk.Frame(frame, style="Card.TFrame", padding=1)
         area.pack(fill="both", expand=True)
         self.stations_tree = ttk.Treeview(area, columns=[c[0] for c in self.COLUMNS], show="headings",
                                           selectmode="browse")
         for key, title, column_width in self.COLUMNS:
-            self.stations_tree.heading(key, text=title, anchor="w")
+            self.stations_tree.heading(key, text=tr(title), anchor="w")
             self.stations_tree.column(key, width=self.px(column_width), anchor="w", stretch=key == "problem")
         self.stations_tree.tag_configure("problem", foreground=theme.ERROR)
         self.stations_tree.tag_configure("missing", foreground=theme.MUTED)
@@ -51,12 +55,12 @@ class StationsMixin:
         self.stations_tree.bind("<Double-1>", lambda event: self.open_station())
         bar = ttk.Frame(win, padding=(14, 10))
         bar.pack(fill="x")
-        ttk.Button(bar, text="Close", command=self.close_stations).pack(side="right")
+        ttk.Button(bar, text=tr("Close"), command=self.close_stations).pack(side="right")
         self.station_buttons = {}
-        for key, text, command in (("open", "Open", self.open_station),
-                                   ("data", "Open data folder", self.open_station_folder),
-                                   ("remove", "Remove from list", self.remove_station),
-                                   ("add", "Add...", self.add_station)):
+        for key, text, command in (("open", tr("Open"), self.open_station),
+                                   ("data", tr("Open data folder"), self.open_station_folder),
+                                   ("remove", tr("Remove from list"), self.remove_station),
+                                   ("add", tr("Add..."), self.add_station)):
             button = ttk.Button(bar, text=text, command=command)
             button.pack(side="left", padx=(0, 8))
             self.station_buttons[key] = button
@@ -103,8 +107,8 @@ class StationsMixin:
         tree.delete(*tree.get_children())
         self.station_rows = {}
         for row in rows:
-            name = (row["name"] or (Path(row["folder"]).name if row["state"] == "missing" else "(no name yet)")) + (
-                "   ← this window" if row["this"] else "")
+            name = (row["name"] or (Path(row["folder"]).name if row["state"] == "missing" else tr("(no name yet)"))) + (
+                tr("   ← this window") if row["this"] else "")
             free = f"{row['backup_free'] / 1024 ** 3:.1f} GB" if row["backup_free"] is not None else ""
             last = ""
             if row["last_file"]:
@@ -114,7 +118,7 @@ class StationsMixin:
                 ["this"] if row["this"] else []
             self.station_rows[row["folder"]] = row
             tree.insert("", "end", iid=row["folder"], tags=tags, values=[
-                name, row["folder"], self.STATE_TEXT.get(row["state"], row["state"]), row["processed"], row["failed"],
+                name, row["folder"], tr(self.STATE_TEXT.get(row["state"], row["state"])), row["processed"], row["failed"],
                 row["waiting"], row["queued"], row["rejected"], last, free, row["problem"] or ""])
         keep = [iid for iid in selected if tree.exists(iid)]
         if keep:
@@ -142,7 +146,7 @@ class StationsMixin:
         try:
             subprocess.Popen(stations.launch_command(row["folder"]), cwd=str(config.program_dir()), env=env)
         except OSError as e:
-            messagebox.showerror(APP_NAME, f"CNCBridge could not be opened for that station:\n{e}",
+            messagebox.showerror(APP_NAME, tr("CNCBridge could not be opened for that station:\n{e}", e=e),
                                  parent=self.stations_win)
 
     def open_station_folder(self):
@@ -151,12 +155,12 @@ class StationsMixin:
             self._open_folder(row["folder"])
 
     def add_station(self):
-        folder = filedialog.askdirectory(parent=self.stations_win, title="Choose the data folder of a CNCBridge copy")
+        folder = filedialog.askdirectory(parent=self.stations_win, title=tr("Choose the data folder of a CNCBridge copy"))
         if not folder:
             return
         if not config.has_data(folder):
-            return messagebox.showinfo(APP_NAME, "That folder holds no CNCBridge settings or history. Choose the "
-                                                 "data folder of a copy (the folder that contains config.json).",
+            return messagebox.showinfo(APP_NAME, tr("That folder holds no CNCBridge settings or history. Choose the "
+                                                 "data folder of a copy (the folder that contains config.json)."),
                                        parent=self.stations_win)
         stations.register(folder)
         self.refresh_stations()
@@ -165,9 +169,9 @@ class StationsMixin:
         row = self._selected_station()
         if row is None:
             return
-        if not messagebox.askokcancel(APP_NAME, "Remove this station from the list?\n\nNothing is deleted; the copy "
+        if not messagebox.askokcancel(APP_NAME, tr("Remove this station from the list?\n\nNothing is deleted; the copy "
                                                 "and its data stay as they are, and it is listed again when it "
-                                                "starts.", parent=self.stations_win):
+                                                "starts."), parent=self.stations_win):
             return
         stations.unregister(row["folder"])
         self.refresh_stations()

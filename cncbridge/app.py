@@ -19,7 +19,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import alerts, background, config, engine, shifts, theme
+from . import alerts, background, config, engine, i18n, shifts, theme
 from . import help as help_text
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
@@ -67,9 +67,11 @@ class App(LayoutMixin,
         self.data_dir = Path(data_dir)
         self.cfg_path = self.data_dir / "config.json"
         self.cfg = load_config(self.cfg_path)
-        # the look is chosen once, before any widget exists
+        # the look and the language are chosen once, before any widget exists
         self.theme = theme.use(self.cfg["theme"], self.cfg["color_mode"])
-        self.appearance_in_use = dict({k: self.cfg[k] for k in APPEARANCE_KEYS}, theme=self.theme.key)
+        self.language = i18n.use(self.cfg["language"])
+        self.appearance_in_use = dict({k: self.cfg[k] for k in APPEARANCE_KEYS}, theme=self.theme.key,
+                                      language=self.language)
         self.bundled_fonts = register_bundled_fonts() if self.theme.bundled_fonts else {}
         super().__init__()
         # Window scale enlarges everything; Text size only the text. Fonts are in points, so Tk's scaling carries both.
@@ -116,8 +118,9 @@ class App(LayoutMixin,
             style.theme_use(self.theme.ttk_base)
         self.theme.configure_styles(style, self.px, self.font_families)
         self._font_body, self._font_heading, self._font_mono = body, heading, mono
-        log.info("Theme: %s%s, font %s, text %d%%, scale %d%%", self.theme.key, " (dark)" if self.theme.dark else "",
-                 self.font_families["body"], self.cfg["font_size"], self.cfg["ui_scale"])
+        log.info("Theme: %s%s, font %s, text %d%%, scale %d%%, language %s", self.theme.key,
+                 " (dark)" if self.theme.dark else "", self.font_families["body"], self.cfg["font_size"],
+                 self.cfg["ui_scale"], self.language)
 
         self._make_vars()
         self._build_menubar()

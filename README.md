@@ -372,6 +372,9 @@ delivery are the same.
 - **Window scale.** 90% to 150%: everything grows, including spacing, buttons and the menu bar. For large or
   touch screens.
 
+- **Language.** The window's text in a language that has a file in `cncbridge\locales`. English is built in
+  and is what you get for a missing translation; see *Translating* below.
+
 The menu bar is drawn by the program, so it is larger than the Windows default (11 pt in Modern) and
 grows with Text size and Window scale. **Alt** plus the underlined letter, or **F10**, opens a menu from the
 keyboard. The drop-downs are drawn by the program too: with a menu open, Left and Right move to the
@@ -385,6 +388,25 @@ Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a 
 `COLOUR_NAMES`, ten range colours, candidate fonts, a `Layout` (sizes and spacing) and a function that styles
 the ttk widgets, then add it to `THEMES`. Give it `dark_colours` (and `dark_range_colours`) to offer a dark
 mode; without them it stays light. It appears in the Appearance page on its own.
+
+## Translating
+
+Every text the window shows goes through `tr("English text")` (`cncbridge/i18n.py`), so the English text is the key
+and a missing translation simply shows English. To add a language:
+
+1. `python tools/extract_strings.py` writes `cncbridge/locales/template.json`, a list of every English text
+   (window, menus, tooltips, messages, Help topics and shortcut descriptions).
+2. Copy it to `cncbridge/locales/<code>.json`, for example `de.json`, set `"language"` to the language's own name
+   (`"Deutsch"`) and fill in `"strings"`. An empty value means *not translated yet*. Keep every `{placeholder}`
+   of the English text (`{count} file(s) queued` needs `{count}`).
+3. The language appears in **Settings > Appearance... > Language**; choose it, Save, Restart now.
+
+Padding spaces and the symbols in front of buttons are not part of the texts. **Not translated, on purpose:**
+the log, the output files, what is sent to a receiving system (API, webhook, FTP) and the messages the processing
+engine produces, such as the reasons listed by "Please complete the settings", because machines and other systems
+read those. The option lists of a few drop-downs (text size, window scale, API body) are also English for now.
+`python tools/extract_strings.py --check` tells whether the template is up to date; the tests fail when it is not,
+or when new window text is not wrapped in `tr()`.
 
 ## Automatic clean-up
 
@@ -456,6 +478,8 @@ cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
+cncbridge/i18n.py           tr() and the language files; cncbridge/locales/ holds template.json
+tools/extract_strings.py   writes the template of every English text
 cncbridge/stations.py       the list of copies on this PC and a read-only look at each
 cncbridge/app.py         the main window: puts the pieces below together, and run()
 cncbridge/ui/            the pieces of the window, one mixin each: layout (frame, toolbar, header), menus
