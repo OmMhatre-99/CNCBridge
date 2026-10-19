@@ -1,7 +1,7 @@
 """
 Packs the programs in dist\\ into release files. Run it through release.bat, which builds them first.
 
-    release\\CNCBridge-<version>.zip      CNCBridge.exe, CNCBridgeDemo.exe (when built) and README.md
+    release\\CNCBridge-<version>.zip      CNCBridgeSetup.exe, CNCBridge.exe, CNCBridgeDemo.exe (when built), README.md
     release\\CNCBridge-<version>.sha256   SHA-256 of each file in the zip and of the zip itself
 
 Publishing the files (for example on GitHub) is a separate, deliberate step.
@@ -31,7 +31,8 @@ def main():
     if zip_path.exists():
         print(f"ERROR: {zip_path.relative_to(ROOT)} already exists. Raise VERSION in cncbridge\\config.py first.")
         return 1
-    files = [ROOT / "dist" / "CNCBridge.exe", ROOT / "dist" / "CNCBridgeDemo.exe", ROOT / "README.md"]
+    files = [ROOT / "dist" / "CNCBridgeSetup.exe", ROOT / "dist" / "CNCBridge.exe", ROOT / "dist" / "CNCBridgeDemo.exe",
+             ROOT / "README.md"]
     files = [f for f in files if f.exists()]
     if not (ROOT / "dist" / "CNCBridge.exe").exists():
         print("ERROR: dist\\CNCBridge.exe is missing. Run build_exe.bat first.")

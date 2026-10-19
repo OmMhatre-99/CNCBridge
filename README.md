@@ -35,7 +35,23 @@ installed on the machine PC and it needs no internet connection.
 
 ## Install
 
-Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for example
+**With the set-up program.** Run `CNCBridgeSetup.exe` as an administrator (Windows asks). It installs
+CNCBridge into `C:\Program Files\CNCBridge`, adds Start-menu entries and a desktop shortcut, makes the data folder
+writable for ordinary users (they run CNCBridge, and it keeps its settings, history and queue there), and lists
+CNCBridge under **Settings > Apps**, from where it is uninstalled (so does `Uninstall CNCBridge` in the Start menu).
+Run the same set-up again to update: the program files are replaced, settings and history stay. If CNCBridge is
+running, the set-up offers to close it. Uninstalling removes the program, the shortcuts and the background task and
+asks whether to keep the settings and history (it does by default).
+
+For deployment without a window: `CNCBridgeSetup.exe /S` installs, `/D=D:\CNCBridge` (last on the line) chooses the
+folder, `/NOMENU` and `/NODESKTOP` leave out the shortcuts, and `CNCBridgeSetup.exe --uninstall /S` removes it
+(`/DELETEDATA` also deletes settings and history). The exit code is 0 when done, 1 for a problem and 2 when CNCBridge
+is running. `build_setup.bat` builds it from `dist\CNCBridge.exe`, so run `build_exe.bat` first; `release.bat` does
+both and puts it in the release zip. The setup is not signed unless `CNCBRIDGE_SIGN_CERT` is set (see *Signing the
+programs*). Settings cannot be made administrator-only: operators save the typed values and shift confirmations in
+`config.json`, so the file has to stay writable for them.
+
+**Or by hand.** Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for example
 `C:\CNCBridge\`, and start it. Settings, history, send queue and log are kept in the data
 folder `%ProgramData%\CNCBridge` (or `%LOCALAPPDATA%\CNCBridge` if that cannot be written),
 outside the program folder, so replacing or rebuilding the program never removes them.
@@ -460,8 +476,8 @@ demo (`CNCBridgeDemo.exe`) there.
 
 ## Making a release
 
-`release.bat` builds both programs and writes `release\CNCBridge-<version>.zip` (the two exe
-files and this README) and `release\CNCBridge-<version>.sha256` (checksums, so the receiving
+`release.bat` builds the programs and the set-up and writes `release\CNCBridge-<version>.zip` (the
+set-up, the two programs and this README) and `release\CNCBridge-<version>.sha256` (checksums, so the receiving
 PC can check the files arrived intact). Raise `VERSION` in `cncbridge\config.py` before each
 release; an existing zip with the same version is never overwritten. The exe files are not
 kept in git; publish the zip instead, for example on GitHub Releases with the command that
@@ -480,6 +496,7 @@ cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
 cncbridge/i18n.py           tr() and the language files; cncbridge/locales/ holds template.json
 tools/extract_strings.py   writes the template of every English text
+installer/                  the set-up program (core, window, command line); CNCBridgeSetup.pyw starts it
 cncbridge/stations.py       the list of copies on this PC and a read-only look at each
 cncbridge/app.py         the main window: puts the pieces below together, and run()
 cncbridge/ui/            the pieces of the window, one mixin each: layout (frame, toolbar, header), menus
@@ -493,10 +510,12 @@ cncbridge/theme.py       themes (Modern, Legacy): colours, fonts and widget styl
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
 tests/test_structure.py  the window's pieces fit together; no method is defined twice
+tests/test_installer.py  install, update and uninstall into temporary folders and a test registry key
 tests/test_ftp.py        FTP / FTPS delivery against a small FTP server written for the tests
 tests/test_theme.py      every theme is complete; unknown names fall back
 tests/test_window.py     drives the real window: set CNCBRIDGE_WINDOW_TESTS=1 first
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)
+build_setup.bat          builds CNCBridgeSetup.exe from dist\CNCBridge.exe
 build_exe.bat            builds CNCBridge.exe, and CNCBridgeDemo.exe where demo\ exists (options: app, demo, clean)
 sign_exe.ps1             signs the programs (used by build_exe.bat)
 release.bat, release.py  build, then pack a release zip with checksums

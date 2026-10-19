@@ -35,6 +35,9 @@ gc.disable()
 from test_engine import Receiver  # noqa: E402
 from test_stations import make_copy  # noqa: E402
 from test_ftp import FakeFtpServer  # noqa: E402
+from test_installer import delete_registry_tree, fake_exe, hold_open, release  # noqa: E402
+from installer import core as setup_core  # noqa: E402
+from installer.wizard import Wizard  # noqa: E402
 
 SAMPLE = ROOT / "samples" / "pnp_L1M8_board_00001.csv"
 
@@ -1643,6 +1646,86 @@ class UnknownLanguageWindow(WindowWithSettings):
             self.assertEqual(w._chosen_appearance()["language"], "en")
             yield 100
         self.run_steps(steps)
+
+
+class SetupWizard(unittest.TestCase):
+    """The set-up window, working on temporary folders and a test registry key."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        delete_registry_tree()
+        self.addCleanup(lambda: (delete_registry_tree(), shutil.rmtree(self.tmp, ignore_errors=True)))
+        where = setup_core.locations(self.tmp / "machine")
+        payload = self.tmp / "payload"
+        payload.mkdir()
+        (payload / "CNCBridge.exe").write_bytes(fake_exe("app"))
+        (payload / "README.md").write_text("readme", encoding="utf-8")
+        self.parts = {"payload": payload, "program": where["program"], "data": where["data"], "menu": where["menu"],
+                      "desktop": where["desktop"], "registry": where["registry"], "setup_exe": None,
+                      "running_exe": None, "remove_tasks": lambda folder: None}
+        self.where = where
+
+    def log(self, wizard):
+        return wizard.log.get("1.0", "end")
+
+    def test_install_then_uninstall_through_the_window(self):
+        wizard = Wizard(self.parts, sync=True)
+        try:
+            self.assertEqual(wizard.go_button["text"], "Install")
+            wizard.start_menu.set(False)
+            wizard.desktop.set(False)
+            wizard.go()
+            wizard.update()
+            self.assertEqual(wizard.outcome[0], "ok")
+            self.assertIn("is installed in", self.log(wizard))
+            self.assertEqual(wizard.close_button["text"], "Finish")
+            self.assertTrue((self.where["program"] / "CNCBridge.exe").exists())
+            self.assertEqual(setup_core.installed_location(self.where["registry"])[0], self.where["program"])
+        finally:
+            wizard.destroy()
+        again = Wizard(self.parts, sync=True)  # started again: it knows CNCBridge is installed
+        try:
+            texts = [w.cget("text") for w in again.winfo_children()[0].winfo_children() if w.winfo_class() == "TLabel"]
+            self.assertTrue(any("is installed in" in t and "updates it" in t for t in texts))
+        finally:
+            again.destroy()
+        (self.where["data"] / "config.json").write_text("{}")
+        remove = Wizard(self.parts, uninstall=True, sync=True)
+        try:
+            self.assertEqual(remove.go_button["text"], "Uninstall")
+            self.assertTrue(remove.keep_data.get())  # the default keeps the person's settings
+            remove.go()
+            remove.update()
+            self.assertEqual(remove.outcome[0], "ok")
+            self.assertIn("is removed", self.log(remove))
+        finally:
+            remove.destroy()
+        self.assertFalse(self.where["program"].exists())
+        self.assertEqual((self.where["data"] / "config.json").read_text(), "{}")
+
+    def test_a_program_that_is_running_is_reported_and_the_person_can_try_again(self):
+        wizard = Wizard(self.parts, sync=True)
+        self.addCleanup(lambda: wizard.winfo_exists() and wizard.destroy())
+        wizard.start_menu.set(False)
+        wizard.desktop.set(False)
+        wizard.go()
+        wizard.update()
+        handle = hold_open(self.where["program"] / "CNCBridge.exe")
+        original = messagebox.askyesno
+        messagebox.askyesno = lambda *a, **k: False  # the person does not want it closed
+        try:
+            wizard.go()
+            wizard.update()
+        finally:
+            messagebox.askyesno = original
+            release(handle)
+        self.assertEqual(wizard.outcome[0], "error")
+        self.assertIn("in use", self.log(wizard))
+        self.assertEqual(wizard.go_button["text"], "Try again")
+        self.assertEqual(str(wizard.go_button["state"]), "normal")
+        wizard.go()  # closed now: it works
+        wizard.update()
+        self.assertEqual(wizard.outcome[0], "ok")
 
 
 class Notice(unittest.TestCase):
