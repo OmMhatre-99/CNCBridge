@@ -126,6 +126,7 @@ show their keyboard shortcut:
 | Ctrl+L | Activity log |
 | Ctrl+1 ... Ctrl+4 | Setup, Delivery, Pick ranges & preview, History |
 | F1 | Help |
+| Alt+F / M / S / T / V / H, F10 | Open a menu |
 
 ## Output files
 
@@ -308,26 +309,41 @@ about again when the program is opened, and one that was answered is not. Settin
 the first time does not ask about a shift that began earlier. Leave the field empty to switch it
 off (the default).
 
-## Appearance (themes)
+## Appearance
 
-**Settings > Appearance...** chooses the look of the window. Two themes come with the program:
+**Settings > Appearance...** controls how the window looks. Choose, press **Save settings**, then
+**Restart now**: the window saves, closes and opens again by itself with the new look; if monitoring was
+running it starts again at once. Appearance only changes how the window looks: processing, output files and
+delivery are the same.
 
-- **Modern** (default): flat controls, light industrial colours and the bundled Roboto fonts. Titles, counters
-  and buttons use a real semibold font, large counters, clear tick boxes and radio buttons, a one-line page
-  heading on each tab, and the scrollbar appears only when a tab is taller than the window.
-- **Legacy**: the look of version 1.0: native Windows controls, Segoe UI and Consolas, grey and blue, compact
-  spacing, bare counters and no page headings, in the same 1180 x 740 window. Everything added since version 1.0
-  (alerts, Appearance, operator view, history actions and so on) is there too, drawn in the same style.
+- **Theme.** **Modern** (default) has flat controls, light industrial colours and the bundled Roboto
+  fonts, a real semibold font for titles, counters and buttons, large counters, clear tick boxes and radio
+  buttons, a one-line page heading on each tab, and a scrollbar only when a tab is taller than the window.
+  **Legacy** is the look of version 1.0: native Windows controls, Segoe UI and Consolas, compact spacing,
+  bare counters and no page headings, in the same 1180 x 740 window, with everything added since
+  version 1.0 drawn in the same style.
+- **Colours.** **Light**, **Dark** or **Follow Windows** (the app mode in the Windows settings). Modern has a
+  designed dark palette. Legacy's dark mode **inverts its own colours** (light grey becomes near-black, the
+  blue accent becomes amber), because the native Windows controls cannot take a normal dark palette; it
+  draws the same classic controls, recoloured. The title bars follow.
+- **Font.** The theme's own font, or one of the clear interface fonts installed on the PC (Segoe UI, Roboto,
+  Arial, Calibri, Tahoma, Verdana, Bahnschrift and similar). Cell ranges and the preview stay monospaced.
+- **Text size.** 90%, 100%, 115% or 130%: only the text grows; table rows and the window width follow it.
+- **Window scale.** 90% to 150%: everything grows, including spacing, buttons and the menu bar. For large or
+  touch screens.
 
-Pick a theme, press **Save settings**, then **Restart now**. The window saves, closes and opens
-again by itself with the new look; if monitoring was running it starts again at once. A theme
-only changes how the window looks: processing, output files and delivery are the same in both.
-The choice is the `theme` setting in `config.json` (`modern` or `legacy`); an unknown name falls
-back to Modern. It is also part of Export/Import settings.
+The menu bar is drawn by the program, so it is larger than the Windows default (11 pt in Modern) and
+grows with Text size and Window scale. **Alt** plus the underlined letter, or **F10**, opens a menu from the
+keyboard.
 
-Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every
-name in `COLOUR_NAMES`, ten range colours, candidate fonts and a `Layout` (sizes and
-spacing) and a function that styles the ttk widgets, then add it to `THEMES`. It appears in the Appearance box on its own; nothing else changes.
+The choices are the `theme`, `color_mode` (`light`, `dark`, `system`), `font_family`, `font_size` and
+`ui_scale` settings in `config.json`, and are part of Export/Import settings. An unknown or invalid value falls
+back to the default.
+
+Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every name in
+`COLOUR_NAMES`, ten range colours, candidate fonts, a `Layout` (sizes and spacing) and a function that styles
+the ttk widgets, then add it to `THEMES`. Give it `dark_colours` (and `dark_range_colours`) to offer a dark
+mode; without them it stays light. It appears in the Appearance page on its own.
 
 ## Automatic clean-up
 

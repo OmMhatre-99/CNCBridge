@@ -26,6 +26,10 @@ log = logging.getLogger("cncbridge")
 
 BODY_LABELS = {"raw": "File as request body", "multipart": "Form upload (multipart)"}
 ENCODINGS = ("auto", "utf-8", "cp1252", "utf-16", "shift_jis", "gbk", "big5", "euc_kr")
+DEFAULT_FONT_LABEL = "Theme default"
+FONT_SIZE_LABELS = {90: "Small (90%)", 100: "Normal (100%)", 115: "Large (115%)", 130: "Extra large (130%)"}
+UI_SCALE_LABELS = {90: "90%", 100: "100% (normal)", 110: "110%", 125: "125%", 150: "150% (large screen)"}
+APPEARANCE_KEYS = ("theme", "color_mode", "font_family", "font_size", "ui_scale")  # applied when the window restarts
 DELIMITER_CHOICES = ("auto", ",", ";", "tab", "|")
 PREVIEW_LIMIT = 200_000
 
@@ -51,6 +55,8 @@ class ShiftDialog(tk.Toplevel):
         self.title("Shift change")
         self.transient(app)
         self.configure(background=theme.BACKGROUND)
+        if app.theme.dark:
+            theme.dark_title_bar(self)
         frame = ttk.Frame(self, padding=18)
         frame.pack(fill="both", expand=True)
         frame.columnconfigure(1, weight=1)
@@ -102,9 +108,16 @@ class App(tk.Tk):
         self.data_dir = Path(data_dir)
         self.cfg_path = self.data_dir / "config.json"
         self.cfg = load_config(self.cfg_path)
-        self.theme = theme.use(self.cfg["theme"])  # the look is chosen once, before any widget exists
+        # the look is chosen once, before any widget exists
+        self.theme = theme.use(self.cfg["theme"], self.cfg["color_mode"])
+        self.appearance_in_use = dict({k: self.cfg[k] for k in APPEARANCE_KEYS}, theme=self.theme.key)
         self.bundled_fonts = register_bundled_fonts() if self.theme.bundled_fonts else {}
         super().__init__()
+        # Window scale enlarges everything; Text size only the text. Fonts are in points, so Tk's scaling carries both.
+        dpi_scale = self.winfo_fpixels("1i") / 96
+        window_scale, self.text_scale = self.cfg["ui_scale"] / 100, self.cfg["font_size"] / 100
+        if window_scale != 1 or self.text_scale != 1:
+            self.tk.call("tk", "scaling", float(self.tk.call("tk", "scaling")) * window_scale * self.text_scale)
         self.lock, self.connected = lock, connected
         self.bg_running = False          # connected: the background process is working (stats thread)
         self.take_over_when_stopped = False
@@ -125,24 +138,27 @@ class App(tk.Tk):
         log.setLevel(logging.INFO)
 
         self.title(f"{APP_NAME} {VERSION}")
-        self.scale = self.winfo_fpixels("1i") / 96  # fonts grow with the Windows display scale; sizes must follow
+        self.scale = dpi_scale * window_scale  # fonts grow with the Windows display scale; sizes must follow
         # never taller or wider than the screen (minus taskbar and title bar), or the Save button ends up off-screen
         self.L = self.theme.layout
         wide, tall, min_wide, min_tall = self.L.window
-        width = min(self.px(wide), self.winfo_screenwidth() - self.px(30))
+        width = min(self.px(wide * self.text_scale), self.winfo_screenwidth() - self.px(30))
         height = min(self.px(tall), self.winfo_screenheight() - self.px(100))
         self.geometry(f"{width}x{height}+{(self.winfo_screenwidth() - width) // 2}+{self.px(8)}")
-        self.minsize(min(self.px(min_wide), width), min(self.px(min_tall), height))
-        self.font_families = theme.resolve_font_families(self, self.theme)
+        self.minsize(min(self.px(min_wide * self.text_scale), width), min(self.px(min_tall), height))
+        self.font_families = theme.resolve_font_families(self, self.theme, self.cfg["font_family"])
         body, heading, mono = (self.font_families[k] for k in ("body", "heading", "mono"))
         theme.apply_tk_palette(self, self.font_families, self.theme)
         self.configure(background=theme.BACKGROUND)
+        if self.theme.dark:
+            theme.dark_title_bar(self)
         style = ttk.Style(self)
         if self.theme.ttk_base and self.theme.ttk_base in style.theme_names():
             style.theme_use(self.theme.ttk_base)
         self.theme.configure_styles(style, self.px, self.font_families)
         self._font_body, self._font_heading, self._font_mono = body, heading, mono
-        log.info("Theme: %s", self.theme.key)
+        log.info("Theme: %s%s, font %s, text %d%%, scale %d%%", self.theme.key, " (dark)" if self.theme.dark else "",
+                 self.font_families["body"], self.cfg["font_size"], self.cfg["ui_scale"])
 
         self._make_vars()
         self._build_menubar()
@@ -189,7 +205,8 @@ class App(tk.Tk):
         self.v = {k: tk.StringVar(self) for k in (
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
             "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
-            "complete_marker", "shift_times", "theme", "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
+            "complete_marker", "shift_times", "theme", "color_mode", "font_family", "font_size", "ui_scale",
+            "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
@@ -222,7 +239,9 @@ class App(tk.Tk):
         numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port", "keep_backup_days",
                    "keep_history_days")
         for k, var in self.v.items():
-            var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k in numbers else cfg[k])
+            var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k in numbers
+                    else FONT_SIZE_LABELS[cfg[k]] if k == "font_size" else UI_SCALE_LABELS[cfg[k]] if k == "ui_scale"
+                    else (cfg[k] or DEFAULT_FONT_LABEL) if k == "font_family" else cfg[k])
         for k, var in self.b.items():
             var.set(cfg[k])
         for (name, rng, header), s in zip(self.sel_vars, cfg["selections"]):
@@ -241,6 +260,7 @@ class App(tk.Tk):
         cfg.update({k: var.get() for k, var in self.v.items()})
         cfg.update({k: var.get() for k, var in self.b.items()})
         cfg["api_body"] = next((k for k, label in BODY_LABELS.items() if label == self.v["api_body"].get()), "raw")
+        cfg.update(self._chosen_appearance())
         cfg["api_headers"] = self.headers_text.get("1.0", "end").strip()
         cfg["rename_columns"] = self.rename_text.get("1.0", "end").strip()
         cfg["selections"] = []
@@ -314,12 +334,23 @@ class App(tk.Tk):
 
     def _build_menubar(self):
         """The menu bar: everything that is not the daily work. Each entry calls the method the old button did."""
-        bar = tk.Menu(self, tearoff=False)
-        self.menu_items = {}
+        strip = ttk.Frame(self, style="MenuBar.TFrame")
+        strip.pack(fill="x")
+        self.menu_items, self.menubar_buttons = {}, {}
+        menu_font = (self._font_body, self.L.menu_size)
 
-        def menu(label, parent=bar):
-            sub = tk.Menu(parent, tearoff=False)
-            parent.add_cascade(label=label, menu=sub, underline=0)
+        def menu(label, parent=None):
+            if parent is not None:
+                sub = tk.Menu(parent, tearoff=False, font=menu_font)
+                parent.add_cascade(label=label, menu=sub)
+                return sub
+            # a menu bar drawn by the program: Windows draws its own at a fixed size, whatever the font
+            button = ttk.Menubutton(strip, text=label, style="MenuBar.Toolbutton", underline=0, takefocus=False)
+            button.pack(side="left")
+            sub = tk.Menu(button, tearoff=False, font=menu_font)
+            button["menu"] = sub
+            self.menubar_buttons[label] = button
+            self.bind(f"<Alt-{label[0].lower()}>", lambda event, b=button: self._open_menu(b))
             return sub
 
         def item(parent, key, label, command, accelerator=None):
@@ -386,7 +417,14 @@ class App(tk.Tk):
             item(help_menu, f"help_{key}", title, lambda key=key: self.open_help(key))
         help_menu.add_separator()
         item(help_menu, "about", "About CNCBridge", self.about)
-        self.configure(menu=bar)
+        self.bind("<F10>", lambda event: self._open_menu(next(iter(self.menubar_buttons.values()))))
+        ttk.Separator(self).pack(fill="x")
+
+    def _open_menu(self, button):
+        """Drop a menu down from its title, as Alt+letter and F10 do."""
+        self.nametowidget(str(button["menu"])).tk_popup(button.winfo_rootx(),
+                                                       button.winfo_rooty() + button.winfo_height())
+        return "break"
 
     # entries that need the setup rights: they are disabled while the setup is locked
     LOCKED_ENTRIES = ("open_csv", "open_newest", "save", "export", "import", "restore", "options", "opt_processing",
@@ -589,7 +627,7 @@ class App(tk.Tk):
         for col, text in ((1, "Name in the output"), (2, "Cell range"), (3, "First row is header")):
             ttk.Label(box, text=text, style="CardSmall.TLabel").grid(row=0, column=col, sticky="w", padx=6, pady=(0, 6))
         for i, (name, rng, header) in enumerate(self.sel_vars):
-            tk.Label(box, text=f" {i + 1} ", bg=theme.RANGE_COLOURS[i][1], fg="white",
+            tk.Label(box, text=f" {i + 1} ", bg=theme.RANGE_COLOURS[i][1], fg=theme.WHITE,
                      font=self.strong(self.L.grid_badge + 1)).grid(row=i + 1, column=0, pady=3)
             name_entry = ttk.Entry(box, textvariable=name)
             name_entry.grid(row=i + 1, column=1, sticky="ew", padx=6, pady=self.L.row)
@@ -687,11 +725,13 @@ class App(tk.Tk):
         """The Options window: the settings that are set once and rarely changed, on pages. Built once, then shown."""
         win = self.options_win = tk.Toplevel(self, background=theme.BACKGROUND)
         win.withdraw()
+        if self.theme.dark:
+            theme.dark_title_bar(win)
         win.title(f"{APP_NAME} options")
         win.transient(self)
         win.protocol("WM_DELETE_WINDOW", self.close_options)
-        width = min(self.px(800), self.winfo_screenwidth() - self.px(30))
-        height = min(self.px(690), self.winfo_screenheight() - self.px(120))
+        width = min(self.px(800 * self.text_scale), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(690 * self.text_scale), self.winfo_screenheight() - self.px(120))
         win.geometry(f"{width}x{height}")
         win.minsize(min(self.px(660), width), min(self.px(520), height))
         notebook = self.options_tabs = ttk.Notebook(win)
@@ -729,6 +769,8 @@ class App(tk.Tk):
         win.deiconify()
         win.lift()
         win.focus_set()
+        if self.theme.dark:
+            theme.dark_title_bar(win)
 
     def close_options(self):
         self.options_win.withdraw()
@@ -853,7 +895,7 @@ class App(tk.Tk):
         self.field_widgets["test_alert"] = test
 
     def _build_appearance(self, parent):
-        """The look of the window. One radio button per theme in theme.THEMES, so a new theme appears by itself."""
+        """How the window looks: theme, colour mode, font, text size, scale. They apply when the window restarts."""
         box = ttk.LabelFrame(parent, text=" Appearance ", padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
         for key, option in theme.THEMES.items():
@@ -865,6 +907,36 @@ class App(tk.Tk):
                               justify="left")
             about.pack(fill="x", padx=(24, 0), pady=(0, 6))
             self._fit_wrap(about, self.px(440))
+        ttk.Separator(box).pack(fill="x", pady=(2, 8))
+
+        modes = ttk.Frame(box)
+        modes.pack(fill="x")
+        ttk.Label(modes, text="Colours", style="Card.TLabel").pack(side="left", padx=(0, 16))
+        for value, label in (("light", "Light"), ("dark", "Dark"), ("system", "Follow Windows")):
+            radio = ttk.Radiobutton(modes, text=label, value=value, variable=self.v["color_mode"],
+                                    command=self._update_theme_note)
+            radio.pack(side="left", padx=(0, 16))
+            self.field_widgets[f"color_mode_{value}"] = radio
+        self.mode_note = tk.StringVar(self)
+        ttk.Label(box, textvariable=self.mode_note, style="CardSmall.TLabel", wraplength=self.px(440),
+                  justify="left").pack(anchor="w", pady=(2, 6))
+
+        fields = ttk.Frame(box)
+        fields.pack(fill="x")
+        fields.columnconfigure(1, weight=1)
+        for row, (label, key, values) in enumerate((
+                ("Font", "font_family", [DEFAULT_FONT_LABEL] + theme.installed_font_choices(self)),
+                ("Text size", "font_size", list(FONT_SIZE_LABELS.values())),
+                ("Window scale", "ui_scale", list(UI_SCALE_LABELS.values())))):
+            ttk.Label(fields, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=self.L.row)
+            combo = ttk.Combobox(fields, textvariable=self.v[key], values=values, state="readonly", width=26)
+            combo.grid(row=row, column=1, sticky="w", padx=8, pady=self.L.row)
+            combo.bind("<<ComboboxSelected>>", lambda event: self._update_theme_note())
+            self.field_widgets[key] = combo
+        ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(440), justify="left",
+                  text="Text size changes only the text. Window scale makes everything larger, "
+                       "including spacing, buttons and the menu bar.").pack(anchor="w", pady=(2, 6))
+
         row = ttk.Frame(box)
         row.pack(fill="x", pady=(2, 0))
         ttk.Label(row, textvariable=self.theme_note, style="CardSmall.TLabel", wraplength=self.px(300),
@@ -873,18 +945,29 @@ class App(tk.Tk):
         self.restart_btn.pack(side="right")
         self.field_widgets["restart_now"] = self.restart_btn
 
+    def _chosen_appearance(self):
+        """The appearance settings as shown in the form."""
+        family = self.v["font_family"].get()
+        return {"theme": self.v["theme"].get(), "color_mode": self.v["color_mode"].get(),
+                "font_family": "" if family == DEFAULT_FONT_LABEL else family,
+                "font_size": next((n for n, label in FONT_SIZE_LABELS.items()
+                                   if label == self.v["font_size"].get()), 100),
+                "ui_scale": next((n for n, label in UI_SCALE_LABELS.items()
+                                  if label == self.v["ui_scale"].get()), 100)}
+
     def _update_theme_note(self):
-        """Say what the chosen theme needs: saving, a restart, or nothing."""
+        """Say what the chosen look needs: saving, a restart, or nothing."""
         if not hasattr(self, "restart_btn"):
             return
-        chosen = self.v["theme"].get()
-        if chosen == self.theme.key:
+        chosen = self._chosen_appearance()
+        if chosen == self.appearance_in_use:
             note, state = "This is the look in use.", "disabled"
-        elif chosen == self.cfg["theme"]:
+        elif chosen == {k: self.cfg[k] for k in APPEARANCE_KEYS}:
             note, state = "Saved. It takes effect when CNCBridge restarts.", "normal"
         else:
-            note, state = "Press Save settings to keep this choice, then restart to see it.", "normal"
+            note, state = "Press Save settings to keep these choices, then restart to see them.", "normal"
         self.theme_note.set(note)
+        self.mode_note.set("Legacy's dark mode inverts its colours." if chosen["theme"] == "legacy" else "")
         self.restart_btn.configure(state=state)
 
     def _restart_command(self, resume=False):
@@ -1131,7 +1214,9 @@ class App(tk.Tk):
                                     command=self._update_pick_range)
         pick_open.pack(side="left")
         self.field_widgets["pick_open"] = pick_open
-        ttk.Label(bar, text="Slot", style="Card.TLabel").pack(side="left", padx=(12, 5))
+        bar = ttk.Frame(left, padding=(10, 0, 10, 8))  # a second row: the slot controls need the room
+        bar.pack(fill="x")
+        ttk.Label(bar, text="Slot", style="Card.TLabel").pack(side="left", padx=(0, 5))
         self.slot_box = ttk.Combobox(bar, state="readonly", width=22)
         self.slot_box.pack(side="left")
         self.slot_box.bind("<<ComboboxSelected>>", self._slot_chosen)
@@ -1218,10 +1303,12 @@ class App(tk.Tk):
         """The activity log, in a window of its own (View > Activity log). It keeps filling while hidden."""
         win = self.log_win = tk.Toplevel(self, background=theme.BACKGROUND)
         win.withdraw()
+        if self.theme.dark:
+            theme.dark_title_bar(win)
         win.title(f"{APP_NAME} activity log")
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
-        width = min(self.px(980), self.winfo_screenwidth() - self.px(30))
-        height = min(self.px(600), self.winfo_screenheight() - self.px(120))
+        width = min(self.px(980 * self.text_scale), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(600 * self.text_scale), self.winfo_screenheight() - self.px(120))
         win.geometry(f"{width}x{height}")
         win.minsize(min(self.px(560), width), min(self.px(320), height))
         frame = ttk.Frame(win, padding=(14, 12, 14, 0))
@@ -1253,16 +1340,20 @@ class App(tk.Tk):
     def open_log(self):
         self.log_win.deiconify()
         self.log_win.lift()
+        if self.theme.dark:
+            theme.dark_title_bar(self.log_win)
         self.log_text.see("end")
 
     # ================================================================ help
     def _build_help(self):
         win = self.help_win = tk.Toplevel(self, background=theme.BACKGROUND)
         win.withdraw()
+        if self.theme.dark:
+            theme.dark_title_bar(win)
         win.title(f"{APP_NAME} help")
         win.protocol("WM_DELETE_WINDOW", win.withdraw)
-        width = min(self.px(980), self.winfo_screenwidth() - self.px(30))
-        height = min(self.px(660), self.winfo_screenheight() - self.px(120))
+        width = min(self.px(980 * self.text_scale), self.winfo_screenwidth() - self.px(30))
+        height = min(self.px(660 * self.text_scale), self.winfo_screenheight() - self.px(120))
         win.geometry(f"{width}x{height}")
         win.minsize(min(self.px(640), width), min(self.px(400), height))
         panes = ttk.PanedWindow(win, orient="horizontal")
@@ -1325,6 +1416,8 @@ class App(tk.Tk):
         self._render_help(key)
         self.help_win.deiconify()
         self.help_win.lift()
+        if self.theme.dark:
+            theme.dark_title_bar(self.help_win)
 
     def about(self):
         messagebox.showinfo(

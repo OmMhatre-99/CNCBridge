@@ -35,7 +35,7 @@ class Grid(ttk.Frame):
         self.rw = self.cw * 5 + 10
 
         self.canvas = tk.Canvas(self, background=theme.SURFACE, highlightthickness=2, highlightbackground=theme.GRID_LINE,
-                                highlightcolor=theme.ACCENT, takefocus=True,
+                                highlightcolor=theme.ACCENT, takefocus=True, height=160,  # small: the pane gives it the room
                                 yscrollincrement=self.rh, xscrollincrement=self.cw * 4)
         vs = ttk.Scrollbar(self, orient="vertical", command=self._yview)
         hs = ttk.Scrollbar(self, orient="horizontal", command=self._xview)
@@ -203,7 +203,7 @@ class Grid(ttk.Frame):
                     room = (self.colx[col + 1] - self.colx[col] - 10) // self.cw
                     if len(text) > room:
                         text = text[:room - 1] + "…"
-                    c.create_text(rw + self.colx[col] + 5, y, text=text, anchor="w", font=self.font)
+                    c.create_text(rw + self.colx[col] + 5, y, text=text, anchor="w", font=self.font, fill=theme.TEXT)
 
         for slot, bounds in visible:
             left, top, right, bottom = self._box(bounds)
@@ -235,5 +235,5 @@ class Grid(ttk.Frame):
         for slot, bounds in visible:
             left, top = self._box(bounds)[:2]
             if left >= x0 + rw and top >= y0 + rh:
-                c.create_oval(left - 8, top - 8, left + 8, top + 8, fill=theme.RANGE_COLOURS[slot % 10][1], outline="white")
-                c.create_text(left, top, text=str(slot + 1), fill="white", font=self.badge_font)
+                c.create_oval(left - 8, top - 8, left + 8, top + 8, fill=theme.RANGE_COLOURS[slot % 10][1], outline=theme.SURFACE)
+                c.create_text(left, top, text=str(slot + 1), fill=theme.WHITE, font=self.badge_font)

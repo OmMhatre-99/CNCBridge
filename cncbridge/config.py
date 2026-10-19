@@ -18,6 +18,9 @@ MAX_SELECTIONS = 10
 MAX_MANUAL = 2
 FORMATS = ("json", "csv", "txt")
 API_BODIES = ("raw", "multipart")
+COLOR_MODES = ("light", "dark", "system")
+FONT_SIZES = (90, 100, 115, 130)
+UI_SCALES = (90, 100, 110, 125, 150)
 BACKUPS_KEPT = 20  # copies of the settings file kept in <data folder>\backups
 
 DEFAULT_CONFIG = {
@@ -44,6 +47,10 @@ DEFAULT_CONFIG = {
     "complete_marker": "",                # text the machine writes last (e.g. End_Time); empty = idle time only
     "autostart": False,                   # start monitoring when the program opens
     "theme": "modern",                    # the look of the window: modern | legacy (more to come); applies on restart
+    "color_mode": "light",                # light | dark | system (follow Windows)
+    "font_family": "",                    # "" = the theme's own font, else one of theme.FONT_CHOICES
+    "font_size": 100,                     # text size in percent: one of FONT_SIZES
+    "ui_scale": 100,                      # size of the whole window in percent: one of UI_SCALES
     # output switches: all off, so the files stay exactly as in version 1.0
     "json_numbers": False,                # JSON: write 12 and 40.53 as numbers, not as text
     "csv_flat": False,                    # CSV: one plain table, one row per record
@@ -101,6 +108,14 @@ def normalize_config(cfg):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")
     base["theme"] = str(base["theme"] or "").strip().lower() or "modern"  # an unknown name falls back when used
+    base["color_mode"] = str(base["color_mode"] or "").strip().lower()
+    if base["color_mode"] not in COLOR_MODES:
+        base["color_mode"] = "light"
+    base["font_family"] = str(base["font_family"] or "").strip()
+    for key, allowed in (("font_size", FONT_SIZES), ("ui_scale", UI_SCALES)):
+        base[key] = int(_number(base[key], 100, 1))
+        if base[key] not in allowed:
+            base[key] = 100
     base["rename_columns"] = str(base["rename_columns"] or "")
     base["alert_email_password"] = str(base["alert_email_password"] or "")  # spaces may be part of it
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",

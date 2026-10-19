@@ -73,12 +73,85 @@ class Registry(unittest.TestCase):
         self.assertEqual(theme.MODERN.ttk_base, "clam")
 
 
+class DarkMode(unittest.TestCase):
+    def tearDown(self):
+        theme.use(theme.DEFAULT_THEME)
+
+    def test_modern_has_a_complete_dark_palette(self):
+        self.assertEqual(set(theme.MODERN.dark_colours), set(theme.COLOUR_NAMES))
+        self.assertEqual(len(theme.MODERN.dark_range_colours), 10)
+
+    def test_dark_modern_is_in_force_after_use(self):
+        t = theme.use("modern", "dark")
+        self.assertTrue(t.dark)
+        self.assertEqual(theme.BACKGROUND, theme.MODERN.dark_colours["BACKGROUND"])
+        self.assertEqual(theme.RANGE_COLOURS, theme.MODERN.dark_range_colours)
+        self.assertEqual(t.ttk_base, "clam")
+        self.assertIs(theme.use("modern", "light"), theme.MODERN)  # light is the theme itself
+        self.assertFalse(theme.MODERN.dark)
+        self.assertEqual(theme.BACKGROUND, theme.MODERN.colours["BACKGROUND"])
+
+    def test_invert_colour(self):
+        self.assertEqual(theme.invert_colour("#000000"), "#ffffff")
+        self.assertEqual(theme.invert_colour("#1a66d9"), "#e59926")
+        for colour in ("#f0f0f0", "#c5221f", "#123456"):
+            self.assertEqual(theme.invert_colour(theme.invert_colour(colour)), colour)
+
+    def test_legacy_dark_is_the_inverse_of_every_legacy_colour(self):
+        t = theme.use("legacy", "dark")
+        self.assertTrue(t.dark)
+        self.assertEqual(set(t.colours), set(theme.COLOUR_NAMES))
+        for name, light in theme.LEGACY.colours.items():
+            self.assertEqual(t.colours[name], theme.invert_colour(light), name)
+            self.assertEqual(getattr(theme, name), theme.invert_colour(light), name)
+        for (tint, edge), (dark_tint, dark_edge) in zip(theme.LEGACY.range_colours, t.range_colours):
+            self.assertEqual((dark_tint, dark_edge), (theme.invert_colour(tint), theme.invert_colour(edge)))
+        self.assertEqual(t.ttk_base, "alt")  # the native controls cannot be recoloured
+        self.assertIsNot(t.configure_styles, theme.LEGACY.configure_styles)
+        self.assertEqual(theme.LEGACY.ttk_base, "")  # light Legacy is untouched
+
+    def test_follow_windows(self):
+        original = theme.system_is_dark
+        try:
+            theme.system_is_dark = lambda: True
+            self.assertTrue(theme.use("modern", "system").dark)
+            theme.system_is_dark = lambda: False
+            self.assertFalse(theme.use("modern", "system").dark)
+            self.assertFalse(theme.use("modern", "light").dark)
+        finally:
+            theme.system_is_dark = original
+
+    def test_a_theme_without_a_dark_version_stays_light(self):
+        plain = theme.replace(theme.MODERN, key="plain", dark_colours=None)
+        theme.THEMES["plain"] = plain
+        try:
+            self.assertFalse(theme.use("plain", "dark").dark)
+        finally:
+            del theme.THEMES["plain"]
+
+    def test_every_layout_has_a_menu_size(self):
+        for t in theme.THEMES.values():
+            self.assertGreaterEqual(t.layout.menu_size, 10)
+
+
 class Setting(unittest.TestCase):
     def test_default_and_cleaning(self):
         self.assertEqual(normalize_config({})["theme"], "modern")
         self.assertEqual(normalize_config({"theme": "  Legacy "})["theme"], "legacy")
         self.assertEqual(normalize_config({"theme": None})["theme"], "modern")
         self.assertEqual(normalize_config({"theme": "gone"})["theme"], "gone")  # kept; the window falls back
+
+
+    def test_appearance_settings_are_checked(self):
+        defaults = normalize_config({})
+        self.assertEqual([defaults[k] for k in ("color_mode", "font_family", "font_size", "ui_scale")],
+                         ["light", "", 100, 100])
+        good = normalize_config({"color_mode": " Dark ", "font_family": " Arial ", "font_size": "115", "ui_scale": 125})
+        self.assertEqual([good[k] for k in ("color_mode", "font_family", "font_size", "ui_scale")],
+                         ["dark", "Arial", 115, 125])
+        bad = normalize_config({"color_mode": "purple", "font_size": 7, "ui_scale": "huge"})
+        self.assertEqual([bad[k] for k in ("color_mode", "font_size", "ui_scale")], ["light", 100, 100])
+        self.assertEqual(normalize_config({"color_mode": None, "font_family": None})["color_mode"], "light")
 
 
 if __name__ == "__main__":

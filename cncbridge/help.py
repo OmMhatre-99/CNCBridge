@@ -16,6 +16,8 @@ SHORTCUTS = (
     ("Ctrl+L", "Activity log"),
     ("Ctrl+1 ... Ctrl+4", "Go to Setup, Delivery, Pick ranges & preview, History"),
     ("F1", "Help"),
+    ("Alt+F, M, S, T, V, H", "Open the File, Monitoring, Settings, Tools, View or Help menu"),
+    ("F10", "Open the first menu"),
 )
 
 TOPICS = (
@@ -138,15 +140,25 @@ password. The password is stored as a hash and cannot be recovered; if it is los
 config.json in the data folder.
 """),
 
-    ("themes", "Themes", """\
-Settings > Appearance chooses the look of the window:
+    ("themes", "Appearance: theme, colours, font and size", """\
+Settings > Appearance... controls how the window looks. Everything here is applied when the window restarts: choose, \
+press Save settings, then Restart now. The window saves, closes and opens again with the new look; if monitoring was \
+running it starts again by itself. Appearance only changes how the window looks: processing and output are the same.
 
+## Theme
 - Modern (default): flat controls, light industrial colours, semibold emphasis, large counters.
 - Legacy: the look of version 1.0: native Windows controls, Segoe UI and Consolas, compact spacing.
 
-Choose one, press Save settings, then Restart now. The window saves, closes and opens again with the new look; if \
-monitoring was running it starts again by itself. A theme only changes how the window looks: processing and output \
-are the same.
+## Colours
+- Light, Dark, or Follow Windows (the app mode set in Windows settings).
+- Modern has a designed dark palette. Legacy's dark mode inverts its own colours, because its native Windows \
+controls cannot take a normal dark palette.
+
+## Font, text size and window scale
+- Font: the theme's own font, or one of the clear user-interface fonts installed on this PC.
+- Text size (90% to 130%) enlarges only the text; table rows grow with it.
+- Window scale (90% to 150%) enlarges everything: text, spacing, buttons and the menu bar. Use it on a large screen \
+or for a touch screen.
 """),
 
     ("trouble", "Troubleshooting", """\

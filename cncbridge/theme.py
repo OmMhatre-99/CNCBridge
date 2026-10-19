@@ -2,13 +2,16 @@
 Themes for the CNCBridge window: colours, fonts and the styles of the ttk widgets.
 
 To add a theme, write its colours (every name in COLOUR_NAMES) and a function that styles the ttk widgets,
-create a Theme for it and add it to THEMES. It then appears in the Appearance box on the Setup tab.
+create a Theme for it and add it to THEMES. It then appears in Settings > Appearance. A theme may also carry a
+dark version of its colours (dark_colours); use(key, "dark") then returns the theme with those in place.
 
 The rest of the program reads colours as theme.ACCENT, theme.SURFACE and so on, at the moment a widget is
 built, so whatever theme use() selected is what a new window gets. A theme is chosen once, when the window
 starts; changing it in the settings takes effect after a restart.
 """
-from dataclasses import dataclass
+import ctypes
+import sys
+from dataclasses import dataclass, replace
 from tkinter import font as tkfont
 from typing import Callable
 
@@ -39,6 +42,7 @@ class Layout:
     grid_font: int           # font size in the cell grid
     grid_badge: int          # font size of the slot numbers on the grid
     grid_empty: tuple         # sizes of the two lines shown while the grid is empty
+    menu_size: int            # font size of the menu bar and its menus
 
 
 @dataclass(frozen=True)
@@ -54,6 +58,13 @@ class Theme:
     ttk_base: str             # ttk theme to start from; "" keeps the native Windows one
     configure_styles: Callable   # (style, px, fonts) -> None
     apply_palette: Callable      # (root, fonts) -> None, defaults for classic Tk widgets and dialogs
+    # the dark version, if the theme has one; whatever is left None is taken from the light version
+    dark_colours: dict = None
+    dark_range_colours: tuple = None
+    dark_ttk_base: str = None
+    dark_configure_styles: Callable = None
+    dark_apply_palette: Callable = None
+    dark: bool = False        # set on the copy that use() returns when the dark version is in force
 
 
 def strong_font(fonts, size):
@@ -65,10 +76,21 @@ def strong_font(fonts, size):
     return (family, size) if "semibold" in family.casefold() else (family, size, "bold")
 
 
+def invert_colour(colour):
+    """'#rrggbb' as on an inverted screen: every channel becomes 255 minus itself."""
+    r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+    return "#%02x%02x%02x" % (255 - r, 255 - g, 255 - b)
+
+
+def _row_height(px, font, minimum, pad=8):
+    """Height of a table row: the theme's minimum, or the text's line height plus a little air when larger."""
+    return max(px(minimum), tkfont.Font(font=font).metrics("linespace") + px(pad))
+
+
 # ---------------------------------------------------------------- modern: light industrial
 def _modern_palette(root, fonts):
     """Set defaults for classic Tk widgets and Tk-rendered dialogs."""
-    c = MODERN.colours
+    c = ACTIVE.colours
     root.tk_setPalette(
         background=c["BACKGROUND"],
         foreground=c["TEXT"],
@@ -85,6 +107,7 @@ def _modern_palette(root, fonts):
     root.option_add("*Menu.activeForeground", c["WHITE"])
     root.option_add("*Menu.borderColor", c["BORDER"])
     root.option_add("*Menu.relief", "solid")
+    root.option_add("*Menu.disabledForeground", c["DISABLED_TEXT"])
     root.option_add("*Dialog.background", c["BACKGROUND"])
     root.option_add("*Dialog.msg.background", c["BACKGROUND"])
     root.option_add("*Dialog.msg.foreground", c["TEXT"])
@@ -102,7 +125,7 @@ def _modern_palette(root, fonts):
 
 
 def _modern_styles(style, px, fonts):
-    c = MODERN.colours
+    c = ACTIVE.colours
     BACKGROUND, SURFACE, SURFACE_ALT, TEXT, MUTED, BORDER = (c[k] for k in (
         "BACKGROUND", "SURFACE", "SURFACE_ALT", "TEXT", "MUTED", "BORDER"))
     DISABLED_SURFACE, DISABLED_TEXT, DISABLED_ACCENT, HOVER_SURFACE, FOCUS_SURFACE, ACTIVE_HEADER = (c[k] for k in (
@@ -110,7 +133,7 @@ def _modern_styles(style, px, fonts):
     ACCENT, ACCENT_HOVER, ACCENT_TINT, FOCUS, WHITE = (c[k] for k in (
         "ACCENT", "ACCENT_HOVER", "ACCENT_TINT", "FOCUS", "WHITE"))
     body, heading, mono = fonts["body"], fonts["heading"], fonts["mono"]
-    layout = MODERN.layout
+    layout = ACTIVE.layout
     style.configure(".", font=(body, 11), foreground=TEXT)
     style.configure("TFrame", background=BACKGROUND)
     style.configure("TLabel", background=BACKGROUND, foreground=TEXT)
@@ -147,6 +170,11 @@ def _modern_styles(style, px, fonts):
                     foreground=WHITE, bordercolor=ACCENT)
     style.map("Go.Toolbutton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
               foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
+    style.configure("MenuBar.TFrame", background=SURFACE)
+    style.configure("MenuBar.Toolbutton", font=(body, layout.menu_size), padding=(px(12), px(6)),
+                    background=SURFACE, foreground=TEXT, bordercolor=SURFACE, borderwidth=0, relief="flat")
+    style.map("MenuBar.Toolbutton", background=[("pressed", ACCENT_TINT), ("active", HOVER_SURFACE)],
+              bordercolor=[("pressed", ACCENT_TINT), ("active", HOVER_SURFACE)])
     style.configure("TEntry", padding=(px(7), px(5)), fieldbackground=SURFACE,
                     bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, insertcolor=TEXT)
     style.map("TEntry", bordercolor=[("focus", ACCENT)], lightcolor=[("focus", ACCENT)],
@@ -180,9 +208,9 @@ def _modern_styles(style, px, fonts):
                     padding=(px(15), px(9)), font=strong_font(fonts, 11))
     style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", SURFACE_ALT)],
               foreground=[("selected", ACCENT), ("active", TEXT)], bordercolor=[("focus", FOCUS)])
-    style.configure("Treeview", rowheight=px(30), background=SURFACE, fieldbackground=SURFACE,
-                    foreground=TEXT, bordercolor=BORDER, font=(body, 11))
-    style.configure("History.Treeview", rowheight=px(30), background=SURFACE,
+    style.configure("Treeview", rowheight=_row_height(px, (body, 11), 30), background=SURFACE,
+                    fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, font=(body, 11))
+    style.configure("History.Treeview", rowheight=_row_height(px, (mono, 11), 30), background=SURFACE,
                     fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, font=(mono, 11))
     style.configure("Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
                     font=strong_font(fonts, 10), padding=(px(8), px(8)))
@@ -219,7 +247,8 @@ MODERN = Theme(
     layout=Layout(
         window=(1240, 790, 1020, 660), page_intros=True, intro_inline=True, metric_cards=True,
         tab_pad=(16, 12), box_pad=(12, 8), box_gap=10, row=4, range_size=11, text_mono=11, code_mono=True,
-        counter_size=16, state=(15, 12), check_text="Yes", grid_font=11, grid_badge=9, grid_empty=(13, 11)),
+        counter_size=16, state=(15, 12), check_text="Yes", grid_font=11, grid_badge=9, grid_empty=(13, 11),
+        menu_size=11),
     bundled_fonts=True,
     ttk_base="clam",
     configure_styles=_modern_styles,
@@ -234,25 +263,100 @@ def _legacy_palette(root, fonts):
 
 def _legacy_styles(style, px, fonts):
     """Version 1.0: native Windows controls, Segoe UI 9, a few tweaks. Colours come from the Legacy palette."""
-    c = LEGACY.colours
+    c = ACTIVE.colours
     body = fonts["body"]
+    layout = ACTIVE.layout
     style.configure(".", font=(body, 9))
+    style.configure("MenuBar.Toolbutton", font=(body, layout.menu_size), padding=(px(10), px(5)))
     style.configure("Small.TLabel", foreground=c["MUTED"])
     style.configure("CardSmall.TLabel", foreground=c["MUTED"])
     style.configure("MetricSmall.TLabel", foreground=c["MUTED"])
     style.configure("PageTitle.TLabel", font=(fonts["heading"], 14, "bold"))
     style.configure("PageHint.TLabel", foreground=c["MUTED"])
     style.configure("EmptyState.TLabel", foreground=c["MUTED"], font=(body, 10), justify="center", padding=(20, 14))
-    style.configure("MetricValue.TLabel", font=strong_font(fonts, LEGACY.layout.counter_size))
-    style.configure("Count.TLabel", font=strong_font(fonts, LEGACY.layout.counter_size))
+    style.configure("MetricValue.TLabel", font=strong_font(fonts, layout.counter_size))
+    style.configure("Count.TLabel", font=strong_font(fonts, layout.counter_size))
     style.configure("TLabelframe.Label", font=(body, 9))
     style.configure("Metric.TFrame", relief="solid", borderwidth=1)
     style.configure("TButton", padding=(px(8), px(2)))
     style.configure("Go.TButton", font=strong_font(fonts, 9))
     style.configure("Toolbutton", padding=(px(8), px(4)))
     style.configure("Go.Toolbutton", font=strong_font(fonts, 9))
-    style.configure("Treeview", rowheight=px(22))
-    style.configure("History.Treeview", rowheight=px(22))
+    style.configure("Treeview", rowheight=_row_height(px, (body, 9), 22, 6))
+    style.configure("History.Treeview", rowheight=_row_height(px, (fonts["mono"], 9), 22, 6))
+
+
+def _legacy_dark_styles(style, px, fonts):
+    """
+    Legacy with its colours inverted. The native Windows controls cannot be recoloured, so this starts from
+    Tk's "alt" theme, which has the same classic shapes, and paints every widget with the inverted palette.
+    """
+    _legacy_styles(style, px, fonts)
+    c = ACTIVE.colours
+    BACKGROUND, SURFACE, SURFACE_ALT, TEXT, MUTED, BORDER = (c[k] for k in (
+        "BACKGROUND", "SURFACE", "SURFACE_ALT", "TEXT", "MUTED", "BORDER"))
+    HOVER, ACCENT, ACCENT_HOVER, ACCENT_TINT, DISABLED_TEXT, WHITE, FOCUS = (c[k] for k in (
+        "HOVER_SURFACE", "ACCENT", "ACCENT_HOVER", "ACCENT_TINT", "DISABLED_TEXT", "WHITE", "FOCUS"))
+    style.configure(".", background=BACKGROUND, foreground=TEXT, fieldbackground=SURFACE, troughcolor=BACKGROUND,
+                    bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, focuscolor=FOCUS, insertcolor=TEXT,
+                    selectbackground=ACCENT_TINT, selectforeground=TEXT)
+    style.map(".", foreground=[("disabled", DISABLED_TEXT)])
+    for name in ("Small.TLabel", "CardSmall.TLabel", "PageHint.TLabel", "EmptyState.TLabel"):
+        style.configure(name, foreground=MUTED)
+    style.configure("MetricSmall.TLabel", foreground=MUTED)
+    style.configure("Card.TFrame", background=SURFACE)
+    style.configure("Metric.TFrame", background=SURFACE, bordercolor=BORDER)
+    style.configure("TButton", background=SURFACE_ALT, foreground=TEXT)
+    style.configure("Toolbutton", background=BACKGROUND, foreground=TEXT)
+    style.configure("MenuBar.Toolbutton", background=BACKGROUND, foreground=TEXT)
+    style.configure("Go.TButton", background=ACCENT, foreground=WHITE)
+    style.configure("Go.Toolbutton", background=ACCENT, foreground=WHITE)
+    style.map("TButton", background=[("active", HOVER), ("disabled", BACKGROUND)])
+    style.map("Toolbutton", background=[("active", HOVER), ("pressed", ACCENT_TINT)])
+    style.map("MenuBar.Toolbutton", background=[("pressed", ACCENT_TINT), ("active", HOVER)])
+    style.map("Go.TButton", background=[("active", ACCENT_HOVER), ("disabled", BACKGROUND)],
+              foreground=[("disabled", DISABLED_TEXT)])
+    style.map("Go.Toolbutton", background=[("active", ACCENT_HOVER), ("disabled", BACKGROUND)],
+              foreground=[("disabled", DISABLED_TEXT)])
+    style.configure("TEntry", fieldbackground=SURFACE, foreground=TEXT)
+    style.map("TEntry", fieldbackground=[("readonly", SURFACE_ALT), ("disabled", BACKGROUND)],
+              foreground=[("disabled", DISABLED_TEXT)])
+    style.configure("TCombobox", fieldbackground=SURFACE, foreground=TEXT, background=SURFACE_ALT, arrowcolor=TEXT)
+    style.map("TCombobox", fieldbackground=[("readonly", SURFACE), ("disabled", BACKGROUND)],
+              foreground=[("disabled", DISABLED_TEXT)], background=[("active", HOVER)])
+    for name in ("TCheckbutton", "TRadiobutton"):
+        style.configure(name, background=BACKGROUND, foreground=TEXT, indicatorbackground=SURFACE,
+                        indicatorforeground=TEXT, indicatorcolor=SURFACE)
+        style.map(name, background=[("active", BACKGROUND)], indicatorcolor=[("selected", ACCENT)])
+    style.configure("TLabelframe", background=BACKGROUND, bordercolor=BORDER)
+    style.configure("TScrollbar", background=SURFACE_ALT, troughcolor=BACKGROUND, arrowcolor=TEXT)
+    style.map("TScrollbar", background=[("active", HOVER)])
+    style.configure("TPanedwindow", background=BACKGROUND)
+    style.configure("Sash", background=BORDER)
+    style.configure("TSeparator", background=BORDER)
+    style.configure("TNotebook", background=BACKGROUND)
+    style.configure("TNotebook.Tab", background=SURFACE_ALT, foreground=TEXT)
+    style.map("TNotebook.Tab", background=[("selected", BACKGROUND), ("active", HOVER)])
+    for name in ("Treeview", "History.Treeview"):
+        style.configure(name, background=SURFACE, fieldbackground=SURFACE, foreground=TEXT)
+        style.map(name, background=[("selected", ACCENT_TINT)], foreground=[("selected", TEXT)])
+    for name in ("Treeview.Heading", "History.Treeview.Heading"):
+        style.configure(name, background=SURFACE_ALT, foreground=TEXT)
+        style.map(name, background=[("active", HOVER)])
+
+
+def _legacy_dark_palette(root, fonts):
+    c = ACTIVE.colours
+    root.tk_setPalette(background=c["BACKGROUND"], foreground=c["TEXT"], activeBackground=c["HOVER_SURFACE"],
+                       activeForeground=c["TEXT"], selectBackground=c["ACCENT_TINT"], selectForeground=c["TEXT"],
+                       insertBackground=c["TEXT"], highlightColor=c["FOCUS"], troughColor=c["SURFACE"])
+    root.option_add("*Menu.background", c["SURFACE"])
+    root.option_add("*Menu.foreground", c["TEXT"])
+    root.option_add("*Menu.activeBackground", c["ACCENT_TINT"])
+    root.option_add("*Menu.activeForeground", c["TEXT"])
+    root.option_add("*Menu.disabledForeground", c["DISABLED_TEXT"])
+    root.option_add("*Dialog.background", c["BACKGROUND"])
+    root.option_add("*Dialog.msg.foreground", c["TEXT"])
 
 
 LEGACY = Theme(
@@ -279,13 +383,37 @@ LEGACY = Theme(
     layout=Layout(
         window=(1180, 740, 980, 620), page_intros=False, intro_inline=False, metric_cards=False,
         tab_pad=(10, 10), box_pad=(10, 10), box_gap=10, row=3, range_size=10, text_mono=9, code_mono=False,
-        counter_size=15, state=(14, 11), check_text="", grid_font=10, grid_badge=7, grid_empty=(10, 10)),
+        counter_size=15, state=(14, 11), check_text="", grid_font=10, grid_badge=7, grid_empty=(10, 10),
+        menu_size=10),
     bundled_fonts=False,
     ttk_base="",
     configure_styles=_legacy_styles,
     apply_palette=_legacy_palette,
 )
 
+
+# ---------------------------------------------------------------- dark versions
+MODERN = replace(
+    MODERN,
+    dark_colours=dict(
+        BACKGROUND="#171c20", SURFACE="#20272c", SURFACE_ALT="#2a3238", TEXT="#e6ecee", MUTED="#9fb0b8",
+        BORDER="#3a464d", DISABLED_SURFACE="#252d32", DISABLED_TEXT="#76868d", DISABLED_ACCENT="#3d6a6a",
+        HOVER_SURFACE="#2c353b", FOCUS_SURFACE="#26363a", ACTIVE_HEADER="#323d44", ACCENT="#4fb3b5",
+        ACCENT_HOVER="#6cc6c8", ACCENT_TINT="#1f4a4c", FOCUS="#f0a53a", SUCCESS="#5cc98a", WARNING="#f0b445",
+        ERROR="#ff8a80", ERROR_TINT="#4a2623", WARNING_TINT="#4a3a1c", IDLE="#9fb0b8", WHITE="#0c1a1b",
+        GRID_LINE="#3a464d", GRID_HEADER="#2a3238", GRID_HEADER_TEXT="#9fb0b8", GRID_SELECTION="#1f4a4c",
+        GRID_SELECTION_EDGE="#4fb3b5", GRID_HEADER_SELECTION="#2f5f61"),
+    dark_range_colours=(
+        ("#1d3a3a", "#4fb3b5"), ("#222f44", "#7da4d8"), ("#3a3220", "#d4a94c"), ("#27381f", "#8cbf6f"),
+        ("#3d2622", "#e08a78"), ("#2e2840", "#a994d4"), ("#1c3a36", "#5cc2b4"), ("#38361f", "#cfc25a"),
+        ("#2c3235", "#9aa8ad"), ("#3c2634", "#d98fb0")))
+LEGACY = replace(
+    LEGACY,
+    dark_colours={name: invert_colour(value) for name, value in LEGACY.colours.items()},
+    dark_range_colours=tuple((invert_colour(tint), invert_colour(edge)) for tint, edge in LEGACY.range_colours),
+    dark_ttk_base="alt",
+    dark_configure_styles=_legacy_dark_styles,
+    dark_apply_palette=_legacy_dark_palette)
 
 # ---------------------------------------------------------------- the registry
 THEMES = {t.key: t for t in (MODERN, LEGACY)}   # add new themes here
@@ -294,31 +422,80 @@ ACTIVE = MODERN
 RANGE_COLOURS = MODERN.range_colours
 
 
-def use(key):
+def system_is_dark():
+    """True when Windows is set to dark mode for apps."""
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_CURRENT_USER,
+                            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize") as key:
+            return winreg.QueryValueEx(key, "AppsUseLightTheme")[0] == 0
+    except Exception:  # not Windows, or the setting is not there
+        return False
+
+
+def use(key, mode="light"):
     """
     Make this theme the one the window is built with, and return it. An unknown name gives the default
     theme, so a settings file from a newer version never stops the program from starting.
+
+    mode is "light", "dark" or "system" (what Windows is set to). A theme without a dark version stays light.
     """
     global ACTIVE, RANGE_COLOURS
     theme = THEMES.get(str(key).strip().lower(), THEMES[DEFAULT_THEME])
+    if theme.dark_colours and (mode == "dark" or (mode == "system" and system_is_dark())):
+        theme = replace(
+            theme, colours=theme.dark_colours, range_colours=theme.dark_range_colours or theme.range_colours,
+            ttk_base=theme.ttk_base if theme.dark_ttk_base is None else theme.dark_ttk_base,
+            configure_styles=theme.dark_configure_styles or theme.configure_styles,
+            apply_palette=theme.dark_apply_palette or theme.apply_palette, dark=True)
     globals().update(theme.colours)
     ACTIVE, RANGE_COLOURS = theme, theme.range_colours
     return theme
 
 
+def dark_title_bar(window, dark=True):
+    """Make the Windows title bar of a window dark too. Does nothing where that is not possible."""
+    if sys.platform != "win32":
+        return
+    try:
+        window.update_idletasks()
+        hwnd = ctypes.windll.user32.GetParent(window.winfo_id())
+        value = ctypes.c_int(1 if dark else 0)
+        ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(value), ctypes.sizeof(value))
+    except Exception:
+        pass
+
+
+# fonts offered in Settings > Appearance, when installed: clear user-interface fonts, not symbol or decorative ones
+FONT_CHOICES = ("Segoe UI", "Roboto", "Arial", "Calibri", "Tahoma", "Verdana", "Bahnschrift", "Trebuchet MS",
+                "Candara", "Corbel")
+
+
+def installed_font_choices(root):
+    available = {family.casefold() for family in tkfont.families(root)}
+    return [name for name in FONT_CHOICES if name.casefold() in available]
+
+
 use(DEFAULT_THEME)
 
 
-def resolve_font_families(root, theme=None):
-    """Choose installed font families for a theme, falling back cleanly when its fonts are absent."""
+def resolve_font_families(root, theme=None, family=""):
+    """
+    Choose installed font families for a theme, falling back cleanly when its fonts are absent. A chosen
+    family (one of FONT_CHOICES) replaces the theme's heading, body and strong fonts; the monospaced one stays.
+    """
     theme = theme or ACTIVE
-    available = {family.casefold(): family for family in tkfont.families(root)}
+    available = {name.casefold(): name for name in tkfont.families(root)}
     default = tkfont.nametofont("TkDefaultFont", root).actual("family")
     fixed = tkfont.nametofont("TkFixedFont", root).actual("family")
 
     def choose(candidates, fallback):
         return next((available[name.casefold()] for name in candidates if name.casefold() in available), fallback)
 
+    if family and family.casefold() in available:
+        chosen = available[family.casefold()]
+        return {"heading": chosen, "body": chosen, "strong": available.get(f"{chosen} semibold".casefold(), chosen),
+                "mono": choose(theme.fonts["mono"], fixed)}
     return {"heading": choose(theme.fonts["heading"], default),
             "body": choose(theme.fonts["body"], default),
             "strong": choose(theme.fonts["strong"], default),

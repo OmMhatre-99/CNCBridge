@@ -17,7 +17,7 @@ import traceback
 import unittest
 from datetime import datetime
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, font as tkfont, messagebox
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -944,9 +944,11 @@ class MenuBar(WindowTest):
         w = self.window
 
         def steps():
-            top = w.nametowidget(w.cget("menu"))
-            self.assertEqual([top.entrycget(i, "label") for i in range(top.index("end") + 1)],
-                             ["File", "Monitoring", "Settings", "Tools", "View", "Help"])
+            self.assertEqual(list(w.menubar_buttons), ["File", "Monitoring", "Settings", "Tools", "View", "Help"])
+            self.assertEqual(w.cget("menu"), "")  # the bar is drawn by the program, so it can be larger
+            drop_down = w.nametowidget(str(w.menubar_buttons["File"]["menu"]))
+            self.assertGreaterEqual(tkfont.Font(font=drop_down.cget("font")).actual("size"), 11)  # native bar: 9
+            self.assertGreater(w.menubar_buttons["File"].winfo_reqheight(), w.px(28))
             shown = [w.tabs.tab(t, "text").strip() for t in w.tabs.tabs() if str(w.tabs.tab(t, "state")) != "hidden"]
             self.assertEqual(shown, ["Setup", "Delivery", "Pick ranges & preview", "History"])
             for gone in ("settings_btn", "open_csv_btn", "open_folders_btn", "simulation_btn", "lock_btn"):
@@ -1086,6 +1088,157 @@ class LogAndHelp(WindowTest):
             self._patch(app.messagebox, "showinfo", lambda title, text, **k: self.dialogs.append((title, text)))
             w.about()
             self.assertIn(app.VERSION, self.dialogs[-1][1])
+            yield 100
+        self.run_steps(steps)
+
+
+class WindowWithSettings(WindowTest):
+    """A window started with the settings in `settings`, written before it opens (a second window per test is avoided)."""
+    settings = {}
+
+    def make_window(self):
+        data = self.tmp / "data"
+        data.mkdir(exist_ok=True)
+        (data / "config.json").write_text(json.dumps(self.settings), encoding="utf-8")
+        return app.App(data)
+
+
+class ModernDarkWindow(WindowWithSettings):
+    settings = {"theme": "modern", "color_mode": "dark"}
+
+    def test_modern_dark(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.theme.dark)
+            self.assertEqual(app.theme.BACKGROUND, app.theme.MODERN.dark_colours["BACKGROUND"])
+            self.assertEqual(w.cget("background"), app.theme.MODERN.dark_colours["BACKGROUND"])
+            self.assertEqual(app.ttk.Style(w).lookup("TLabel", "foreground"), app.theme.MODERN.dark_colours["TEXT"])
+            self.assertEqual(w.appearance_in_use["color_mode"], "dark")
+            self.assertEqual(str(w.restart_btn.cget("state")), "disabled")  # the look in use
+            w.tabs.select(w.pick_tab)
+            self.assertTrue(w.open_sample(SAMPLE))
+            w.update()
+            canvas = w.grid_view.canvas
+            fills = {canvas.itemcget(i, "fill") for i in canvas.find_all() if canvas.type(i) == "text"}
+            self.assertIn(app.theme.MODERN.dark_colours["TEXT"], fills)  # cell text is light on the dark grid
+            self.assertNotIn("black", fills)
+            yield 100
+        self.run_steps(steps)
+
+
+class LegacyDarkWindow(WindowWithSettings):
+    settings = {"theme": "legacy", "color_mode": "dark"}
+
+    def test_legacy_dark_inverts_the_legacy_colours(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.theme.dark)
+            self.assertEqual(app.ttk.Style(w).theme_use(), "alt")
+            self.assertEqual(app.theme.BACKGROUND, app.theme.invert_colour(app.theme.LEGACY.colours["BACKGROUND"]))
+            self.assertEqual(w.cget("background"), app.theme.invert_colour("#f0f0f0"))
+            self.assertEqual(w.L.window, (1180, 740, 980, 620))  # the 1.0 layout, as in light
+            for tab in w.tabs.tabs():  # every tab builds in this mode
+                w.tabs.select(tab)
+                w.update()
+            yield 100
+        self.run_steps(steps)
+
+
+class ScaledWindow(WindowWithSettings):
+    settings = {"theme": "modern", "font_family": "Arial", "font_size": 130, "ui_scale": 125}
+
+    def test_text_size_scale_and_font(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual((w.text_scale, w.font_families["body"], w.font_families["heading"]), (1.3, "Arial", "Arial"))
+            dpi = w.winfo_fpixels("1i") / 96
+            self.assertAlmostEqual(dpi / w.scale, 1.3, places=2)  # the text carries both factors, spacing only the scale
+            rows = int(app.ttk.Style(w).lookup("History.Treeview", "rowheight"))
+            self.assertGreaterEqual(rows, tkfont.Font(font=("Roboto Mono", 11)).metrics("linespace") + w.px(8))
+            self.assertEqual(w._chosen_appearance(), {"theme": "modern", "color_mode": "light", "font_family": "Arial",
+                                                      "font_size": 130, "ui_scale": 125})
+            yield 100
+        self.run_steps(steps)
+
+
+class BadAppearanceWindow(WindowWithSettings):
+    settings = {"theme": "modern", "color_mode": "purple", "font_family": "No Such Font", "font_size": 7,
+                "ui_scale": 3}
+
+    def test_bad_appearance_values_fall_back(self):
+        w = self.window
+
+        def steps():
+            self.assertFalse(w.theme.dark)
+            self.assertEqual((w.text_scale, w.scale / (w.winfo_fpixels("1i") / 96)), (1.0, 1.0))
+            self.assertEqual(w.font_families["body"], "Roboto")  # an unknown family is ignored: the theme's own
+            yield 100
+        self.run_steps(steps)
+
+
+class AppearanceVariants(WindowTest):
+    def test_appearance_page_note_follows_every_choice(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(str(w.restart_btn.cget("state")), "disabled")
+            for key, value in (("color_mode", "dark"), ("font_family", "Arial"),
+                               ("font_size", app.FONT_SIZE_LABELS[115]), ("ui_scale", app.UI_SCALE_LABELS[150])):
+                before = w.v[key].get()
+                w.v[key].set(value)
+                w._update_theme_note()
+                self.assertEqual(str(w.restart_btn.cget("state")), "normal", key)
+                self.assertIn("Save settings", w.theme_note.get(), key)
+                w.v[key].set(before)
+                w._update_theme_note()
+                self.assertEqual(str(w.restart_btn.cget("state")), "disabled", key)
+            w.v["theme"].set("legacy")
+            w.v["color_mode"].set("dark")
+            w._update_theme_note()
+            self.assertIn("inverts", w.mode_note.get())
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A12:I14")
+            self.assertTrue(w.save())
+            saved = app.load_config(self.tmp / "data" / "config.json")
+            self.assertEqual((saved["theme"], saved["color_mode"]), ("legacy", "dark"))
+            self.assertIn("Saved", w.theme_note.get())  # and it now waits for a restart
+            self.assertEqual(str(w.restart_btn.cget("state")), "normal")
+            yield 100
+        self.run_steps(steps)
+
+    def test_font_choices_are_installed_ui_fonts(self):
+        w = self.window
+
+        def steps():
+            choices = app.theme.installed_font_choices(w)
+            self.assertTrue(set(choices) <= set(app.theme.FONT_CHOICES))
+            self.assertIn("Segoe UI", choices)
+            self.assertEqual(list(w.field_widgets["font_family"]["values"]), [app.DEFAULT_FONT_LABEL] + choices)
+            yield 100
+        self.run_steps(steps)
+
+    def test_alt_keys_and_f10_open_the_menus(self):
+        w = self.window
+        opened = []
+        self._patch(app.App, "_open_menu", lambda self, button: opened.append(button["text"]))
+
+        def steps():
+            w.focus_force()
+            w.update()
+            for letter, title in (("f", "File"), ("m", "Monitoring"), ("s", "Settings"), ("t", "Tools"),
+                                  ("v", "View"), ("h", "Help")):
+                w.event_generate(f"<Alt-{letter}>")
+                w.update()
+                self.assertEqual(opened[-1], title)
+            w.event_generate("<F10>")
+            w.update()
+            self.assertEqual(opened[-1], "File")
             yield 100
         self.run_steps(steps)
 
