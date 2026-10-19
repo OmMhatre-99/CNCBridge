@@ -29,6 +29,28 @@ class Registry(unittest.TestCase):
                 self.assertTrue({"body", "heading", "mono"} <= set(t.fonts))
                 self.assertTrue(callable(t.configure_styles) and callable(t.apply_palette))
 
+    def test_every_theme_has_a_complete_layout(self):
+        fields = set(theme.Layout.__dataclass_fields__)
+        for key, t in theme.THEMES.items():
+            with self.subTest(theme=key):
+                self.assertIsInstance(t.layout, theme.Layout)
+                self.assertEqual(len(t.layout.window), 4)
+                self.assertTrue(all(v is not None for v in (getattr(t.layout, f) for f in fields)))
+                self.assertIn("strong", t.fonts)
+
+    def test_strong_font_is_made_bold_unless_it_is_a_semibold_family(self):
+        self.assertEqual(theme.strong_font({"strong": "Segoe UI Semibold"}, 12), ("Segoe UI Semibold", 12))
+        self.assertEqual(theme.strong_font({"strong": "Segoe UI"}, 12), ("Segoe UI", 12, "bold"))
+
+    def test_legacy_is_the_compact_version_1_layout(self):
+        layout = theme.LEGACY.layout
+        self.assertEqual(layout.window[:2], (1180, 740))  # the window size of version 1.0
+        self.assertFalse(layout.page_intros)
+        self.assertFalse(layout.metric_cards)
+        self.assertEqual(layout.check_text, "")
+        self.assertTrue(theme.MODERN.layout.page_intros)
+        self.assertTrue(theme.MODERN.layout.metric_cards)
+
     def test_labels_are_unique(self):
         labels = [t.label for t in theme.THEMES.values()]
         self.assertEqual(len(labels), len(set(labels)))

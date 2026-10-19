@@ -25,10 +25,11 @@ class Grid(ttk.Frame):
 
         root = self.winfo_toplevel()
         fonts = getattr(root, "font_families", None) or theme.resolve_font_families(root)
-        self.font = tkfont.Font(root=root, family=fonts["mono"], size=11)
-        self.heading_font = tkfont.Font(root=root, family=fonts["heading"], size=13, weight="bold")
-        self.body_font = tkfont.Font(root=root, family=fonts["body"], size=11)
-        self.badge_font = tkfont.Font(root=root, family=fonts["body"], size=9, weight="bold")
+        layout = theme.ACTIVE.layout
+        self.font = tkfont.Font(root=root, family=fonts["mono"], size=layout.grid_font)
+        self.heading_font = tkfont.Font(root=root, family=fonts["heading"], size=layout.grid_empty[0], weight="bold")
+        self.body_font = tkfont.Font(root=root, family=fonts["body"], size=layout.grid_empty[1])
+        self.badge_font = tkfont.Font(root=root, family=fonts["strong"], size=layout.grid_badge, weight="bold")
         self.cw = max(self.font.measure("0"), 6)
         self.rh = self.font.metrics("linespace") + 8
         self.rw = self.cw * 5 + 10

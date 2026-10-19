@@ -20,17 +20,49 @@ COLOUR_NAMES = (
 
 
 @dataclass(frozen=True)
+class Layout:
+    """Sizes and spacing of the window, so a theme can be compact or airy as well as coloured."""
+    window: tuple             # width, height, minimum width, minimum height (in 96-dpi pixels)
+    page_intros: bool         # a title and a hint at the top of every tab
+    intro_inline: bool        # ... on one line instead of two
+    metric_cards: bool        # counters in boxes (otherwise a bare number over its caption)
+    tab_pad: tuple            # space around the content of a tab
+    box_pad: tuple            # space inside a framed box
+    box_gap: int              # space between boxes
+    row: int                  # vertical space around a row of fields
+    range_size: int           # font size of cell ranges
+    text_mono: int            # font size of the preview, log and other text areas
+    code_mono: bool           # short codes (file pattern, minutes, ...) in the monospaced font
+    counter_size: int         # font size of the counters
+    state: tuple              # size of the status dot and of the status text
+    check_text: str           # text beside the "first row is header" tick
+    grid_font: int           # font size in the cell grid
+    grid_badge: int          # font size of the slot numbers on the grid
+    grid_empty: tuple         # sizes of the two lines shown while the grid is empty
+
+
+@dataclass(frozen=True)
 class Theme:
     key: str                  # stored in the settings
     label: str                # shown in the Appearance box
     description: str
     colours: dict             # every name in COLOUR_NAMES
     range_colours: tuple      # (tint, edge) for each of the 10 selection slots
-    fonts: dict               # candidate font families, best first, for "heading", "body" and "mono"
+    fonts: dict               # candidate font families, best first, for "heading", "body", "strong" and "mono"
+    layout: Layout
     bundled_fonts: bool       # register the fonts shipped in assets/fonts before the window opens
     ttk_base: str             # ttk theme to start from; "" keeps the native Windows one
     configure_styles: Callable   # (style, px, fonts) -> None
     apply_palette: Callable      # (root, fonts) -> None, defaults for classic Tk widgets and dialogs
+
+
+def strong_font(fonts, size):
+    """
+    A font tuple for emphasised text. The bundled Roboto is a variable font with no bold of its own on
+    Windows, so bold text in it looks regular; a "Semibold" family is used as it is, any other is made bold.
+    """
+    family = fonts["strong"]
+    return (family, size) if "semibold" in family.casefold() else (family, size, "bold")
 
 
 # ---------------------------------------------------------------- modern: light industrial
@@ -58,7 +90,12 @@ def _modern_palette(root, fonts):
     root.option_add("*Dialog.msg.foreground", c["TEXT"])
     root.option_add("*Dialog.button.background", c["SURFACE"])
     root.option_add("*Dialog.button.foreground", c["TEXT"])
-    root.option_add("*Font", (fonts["body"], 11))
+    # Not "*Font": that also reaches the ttk labels, whose own font option then beats the font a style gives
+    # them, so page titles and counters would never get their large fonts.
+    for widget in ("Label", "Button", "Checkbutton", "Radiobutton", "Entry", "Text", "Listbox", "Spinbox",
+                   "TEntry", "TCombobox", "TSpinbox"):  # ttk fields have a font of their own, not the style's
+        root.option_add(f"*{widget}.font", (fonts["body"], 11))
+    root.option_add("*TCombobox*Listbox.font", (fonts["body"], 11))
     root.option_add("*Menu.font", (fonts["body"], 11))
     root.option_add("*Dialog.msg.font", (fonts["body"], 11))
     root.option_add("*Dialog.button.font", (fonts["body"], 11))
@@ -73,12 +110,13 @@ def _modern_styles(style, px, fonts):
     ACCENT, ACCENT_HOVER, ACCENT_TINT, FOCUS, WHITE = (c[k] for k in (
         "ACCENT", "ACCENT_HOVER", "ACCENT_TINT", "FOCUS", "WHITE"))
     body, heading, mono = fonts["body"], fonts["heading"], fonts["mono"]
+    layout = MODERN.layout
     style.configure(".", font=(body, 11), foreground=TEXT)
     style.configure("TFrame", background=BACKGROUND)
     style.configure("TLabel", background=BACKGROUND, foreground=TEXT)
     style.configure("Small.TLabel", background=BACKGROUND, foreground=MUTED)
     style.configure("PageTitle.TLabel", background=BACKGROUND, foreground=TEXT,
-                    font=(heading, 19, "bold"))
+                    font=(heading, 15, "bold"))
     style.configure("PageHint.TLabel", background=BACKGROUND, foreground=MUTED, font=(body, 11))
     style.configure("EmptyState.TLabel", background=SURFACE, foreground=MUTED,
                     font=(body, 12), justify="center", padding=(20, 14))
@@ -87,17 +125,17 @@ def _modern_styles(style, px, fonts):
     style.configure("CardSmall.TLabel", background=BACKGROUND, foreground=MUTED)
     style.configure("MetricSmall.TLabel", background=SURFACE, foreground=MUTED)
     style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT,
-                    font=(body, 16, "bold"))
+                    font=strong_font(fonts, layout.counter_size))
     style.configure("TLabelframe", background=BACKGROUND, bordercolor=BORDER, relief="solid", borderwidth=1)
     style.configure("TLabelframe.Label", background=BACKGROUND, foreground=TEXT,
                     font=(heading, 12, "bold"))
-    style.configure("Count.TLabel", background=BACKGROUND, foreground=TEXT, font=(body, 16, "bold"))
+    style.configure("Count.TLabel", background=BACKGROUND, foreground=TEXT, font=strong_font(fonts, 16))
     style.configure("Metric.TFrame", background=SURFACE, relief="solid", borderwidth=1)
     style.configure("TButton", padding=(px(11), px(6)), background=SURFACE,
                     bordercolor=BORDER, focuscolor=FOCUS)
     style.map("TButton", background=[("active", HOVER_SURFACE), ("disabled", DISABLED_SURFACE)],
               foreground=[("disabled", DISABLED_TEXT)], bordercolor=[("focus", FOCUS), ("active", ACCENT)])
-    style.configure("Go.TButton", font=(body, 11, "bold"), background=ACCENT,
+    style.configure("Go.TButton", font=strong_font(fonts, 11), background=ACCENT,
                     foreground=WHITE, bordercolor=ACCENT)
     style.map("Go.TButton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
               foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
@@ -105,7 +143,7 @@ def _modern_styles(style, px, fonts):
                     bordercolor=BORDER, focuscolor=FOCUS)
     style.map("Toolbutton", background=[("active", HOVER_SURFACE)], bordercolor=[("focus", FOCUS),
                                                                                ("active", ACCENT)])
-    style.configure("Go.Toolbutton", font=(body, 11, "bold"), background=ACCENT,
+    style.configure("Go.Toolbutton", font=strong_font(fonts, 11), background=ACCENT,
                     foreground=WHITE, bordercolor=ACCENT)
     style.map("Go.Toolbutton", background=[("active", ACCENT_HOVER), ("disabled", DISABLED_ACCENT)],
               foreground=[("disabled", WHITE)], bordercolor=[("focus", FOCUS)])
@@ -120,11 +158,15 @@ def _modern_styles(style, px, fonts):
               bordercolor=[("focus", ACCENT), ("active", ACCENT)],
               foreground=[("disabled", DISABLED_TEXT)], arrowcolor=[("disabled", MUTED)])
     style.configure("TCheckbutton", background=BACKGROUND, foreground=TEXT, padding=(0, px(3)),
-                    focuscolor=FOCUS)
+                    focuscolor=FOCUS, indicatorsize=px(15), indicatorbackground=SURFACE, indicatorcolor=SURFACE,
+                    indicatorforeground=ACCENT, upperbordercolor=MUTED, lowerbordercolor=MUTED)
+    style.map("TCheckbutton", indicatorcolor=[("selected", ACCENT), ("pressed", ACCENT_TINT), ("disabled", SURFACE_ALT)])
     style.map("TCheckbutton", background=[("active", BACKGROUND), ("disabled", BACKGROUND)],
               foreground=[("disabled", MUTED)])
     style.configure("TRadiobutton", background=BACKGROUND, foreground=TEXT, padding=(0, px(4)),
-                    focuscolor=FOCUS)
+                    focuscolor=FOCUS, indicatorsize=px(15), indicatorbackground=SURFACE, indicatorcolor=SURFACE,
+                    indicatorforeground=ACCENT, upperbordercolor=MUTED, lowerbordercolor=MUTED)
+    style.map("TRadiobutton", indicatorcolor=[("selected", ACCENT), ("pressed", ACCENT_TINT), ("disabled", SURFACE_ALT)])
     style.map("TRadiobutton", background=[("active", BACKGROUND), ("disabled", BACKGROUND)],
               foreground=[("disabled", MUTED)])
     style.configure("TScrollbar", background=SURFACE_ALT, troughcolor=BACKGROUND,
@@ -135,7 +177,7 @@ def _modern_styles(style, px, fonts):
     style.configure("Sash", background=BORDER, sashthickness=px(5))
     style.configure("TNotebook", background=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
     style.configure("TNotebook.Tab", background=BACKGROUND, foreground=MUTED,
-                    padding=(px(15), px(9)), font=(body, 11, "bold"))
+                    padding=(px(15), px(9)), font=strong_font(fonts, 11))
     style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", SURFACE_ALT)],
               foreground=[("selected", ACCENT), ("active", TEXT)], bordercolor=[("focus", FOCUS)])
     style.configure("Treeview", rowheight=px(30), background=SURFACE, fieldbackground=SURFACE,
@@ -143,9 +185,9 @@ def _modern_styles(style, px, fonts):
     style.configure("History.Treeview", rowheight=px(30), background=SURFACE,
                     fieldbackground=SURFACE, foreground=TEXT, bordercolor=BORDER, font=(mono, 11))
     style.configure("Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
-                    font=(body, 10, "bold"), padding=(px(8), px(8)))
+                    font=strong_font(fonts, 10), padding=(px(8), px(8)))
     style.configure("History.Treeview.Heading", background=SURFACE_ALT, foreground=TEXT,
-                    font=(body, 10, "bold"), padding=(px(8), px(8)))
+                    font=strong_font(fonts, 10), padding=(px(8), px(8)))
     style.map("Treeview", background=[("selected", ACCENT_TINT), ("focus", FOCUS_SURFACE)],
               foreground=[("selected", TEXT)])
     style.map("Treeview.Heading", background=[("active", ACTIVE_HEADER)],
@@ -172,7 +214,12 @@ MODERN = Theme(
     fonts=dict(
         heading=("Josefin Sans", "Avenir Next", "Avenir", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
         body=("Roboto", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
+        strong=("Segoe UI Semibold", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
         mono=("Roboto Mono", "Menlo", "Monaco", "Consolas", "Courier New", "DejaVu Sans Mono")),
+    layout=Layout(
+        window=(1240, 790, 1020, 660), page_intros=True, intro_inline=True, metric_cards=True,
+        tab_pad=(16, 12), box_pad=(12, 8), box_gap=10, row=4, range_size=11, text_mono=11, code_mono=True,
+        counter_size=16, state=(15, 12), check_text="Yes", grid_font=11, grid_badge=9, grid_empty=(13, 11)),
     bundled_fonts=True,
     ttk_base="clam",
     configure_styles=_modern_styles,
@@ -186,35 +233,32 @@ def _legacy_palette(root, fonts):
 
 
 def _legacy_styles(style, px, fonts):
-    """Native Windows controls with a few tweaks, as in version 1.0. Colours come from the Legacy palette."""
+    """Version 1.0: native Windows controls, Segoe UI 9, a few tweaks. Colours come from the Legacy palette."""
     c = LEGACY.colours
-    body, heading, mono = fonts["body"], fonts["heading"], fonts["mono"]
-    style.configure(".", font=(body, 10))
+    body = fonts["body"]
+    style.configure(".", font=(body, 9))
     style.configure("Small.TLabel", foreground=c["MUTED"])
     style.configure("CardSmall.TLabel", foreground=c["MUTED"])
     style.configure("MetricSmall.TLabel", foreground=c["MUTED"])
-    style.configure("PageTitle.TLabel", font=(heading, 16, "bold"))
+    style.configure("PageTitle.TLabel", font=(fonts["heading"], 14, "bold"))
     style.configure("PageHint.TLabel", foreground=c["MUTED"])
-    style.configure("EmptyState.TLabel", foreground=c["MUTED"], font=(body, 11), justify="center", padding=(20, 14))
-    style.configure("MetricValue.TLabel", font=(body, 15, "bold"))
-    style.configure("Count.TLabel", font=(body, 15, "bold"))
-    style.configure("TLabelframe.Label", font=(body, 10, "bold"))
+    style.configure("EmptyState.TLabel", foreground=c["MUTED"], font=(body, 10), justify="center", padding=(20, 14))
+    style.configure("MetricValue.TLabel", font=strong_font(fonts, LEGACY.layout.counter_size))
+    style.configure("Count.TLabel", font=strong_font(fonts, LEGACY.layout.counter_size))
+    style.configure("TLabelframe.Label", font=(body, 9))
     style.configure("Metric.TFrame", relief="solid", borderwidth=1)
     style.configure("TButton", padding=(px(8), px(2)))
-    style.configure("Go.TButton", font=(body, 10, "bold"))
+    style.configure("Go.TButton", font=strong_font(fonts, 9))
     style.configure("Toolbutton", padding=(px(8), px(4)))
-    style.configure("Go.Toolbutton", font=(body, 10, "bold"))
-    style.configure("TNotebook.Tab", padding=(px(12), px(5)))
-    style.configure("Treeview", rowheight=px(24), font=(body, 10))
-    style.configure("History.Treeview", rowheight=px(24), font=(mono, 10))
-    style.configure("Treeview.Heading", font=(body, 9, "bold"))
-    style.configure("History.Treeview.Heading", font=(body, 9, "bold"))
+    style.configure("Go.Toolbutton", font=strong_font(fonts, 9))
+    style.configure("Treeview", rowheight=px(22))
+    style.configure("History.Treeview", rowheight=px(22))
 
 
 LEGACY = Theme(
     key="legacy",
     label="Legacy",
-    description="The original look: native Windows controls, Segoe UI and Consolas, grey and blue.",
+    description="The look of version 1.0: native Windows controls, Segoe UI and Consolas, grey and blue, compact spacing and no page titles.",
     colours=dict(
         BACKGROUND="#f0f0f0", SURFACE="#ffffff", SURFACE_ALT="#f1f1f1", TEXT="#000000", MUTED="#6b6b6b",
         BORDER="#adadad", DISABLED_SURFACE="#f0f0f0", DISABLED_TEXT="#a0a0a0", DISABLED_ACCENT="#a0a0a0",
@@ -230,7 +274,12 @@ LEGACY = Theme(
     fonts=dict(
         heading=("Segoe UI", "Helvetica", "Arial"),
         body=("Segoe UI", "Helvetica", "Arial"),
+        strong=("Segoe UI", "Helvetica", "Arial"),
         mono=("Consolas", "Courier New", "DejaVu Sans Mono")),
+    layout=Layout(
+        window=(1180, 740, 980, 620), page_intros=False, intro_inline=False, metric_cards=False,
+        tab_pad=(10, 10), box_pad=(10, 10), box_gap=10, row=3, range_size=10, text_mono=9, code_mono=False,
+        counter_size=15, state=(14, 11), check_text="", grid_font=10, grid_badge=7, grid_empty=(10, 10)),
     bundled_fonts=False,
     ttk_base="",
     configure_styles=_legacy_styles,
@@ -272,6 +321,7 @@ def resolve_font_families(root, theme=None):
 
     return {"heading": choose(theme.fonts["heading"], default),
             "body": choose(theme.fonts["body"], default),
+            "strong": choose(theme.fonts["strong"], default),
             "mono": choose(theme.fonts["mono"], fixed)}
 
 

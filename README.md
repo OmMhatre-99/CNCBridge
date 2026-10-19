@@ -285,9 +285,12 @@ off (the default).
 
 **Setup tab, box 5 "Appearance"** chooses the look of the window. Two themes come with the program:
 
-- **Modern** (default): flat controls, light industrial colours and the bundled Roboto fonts.
-- **Legacy**: the original look: native Windows controls, Segoe UI and Consolas, grey and blue.
-  It restores the earlier controls, fonts and colours, but keeps today's layout and all new features.
+- **Modern** (default): flat controls, light industrial colours and the bundled Roboto fonts. Titles, counters
+  and buttons use a real semibold font, large counters, clear tick boxes and radio buttons, a one-line page
+  heading on each tab, and the scrollbar appears only when a tab is taller than the window.
+- **Legacy**: the look of version 1.0: native Windows controls, Segoe UI and Consolas, grey and blue, compact
+  spacing, bare counters and no page headings, in the same 1180 x 740 window. Everything added since version 1.0
+  (alerts, Appearance, operator view, history actions and so on) is there too, drawn in the same style.
 
 Pick a theme, press **Save settings**, then **Restart now**. The window saves, closes and opens
 again by itself with the new look; if monitoring was running it starts again at once. A theme
@@ -296,8 +299,8 @@ The choice is the `theme` setting in `config.json` (`modern` or `legacy`); an un
 back to Modern. It is also part of Export/Import settings.
 
 Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every
-name in `COLOUR_NAMES`, ten range colours, candidate fonts and a function that styles the ttk
-widgets, then add it to `THEMES`. It appears in the Appearance box on its own; nothing else changes.
+name in `COLOUR_NAMES`, ten range colours, candidate fonts and a `Layout` (sizes and
+spacing) and a function that styles the ttk widgets, then add it to `THEMES`. It appears in the Appearance box on its own; nothing else changes.
 
 ## Automatic clean-up
 

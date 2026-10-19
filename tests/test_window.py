@@ -844,6 +844,62 @@ class LegacyWindow(WindowTest):
         self.run_steps(steps)
 
 
+def page_titles(widget):
+    """The page-title labels (one at the top of each tab in themes that have them), found anywhere in the window."""
+    found = [widget] if str(widget.winfo_class()) == "TLabel" and widget.cget("style") == "PageTitle.TLabel" else []
+    for child in widget.winfo_children():
+        found += page_titles(child)
+    return found
+
+
+class LegacyLayout(WindowTest):
+    def make_window(self):
+        data = self.tmp / "data"
+        data.mkdir()
+        (data / "config.json").write_text(json.dumps({"theme": "legacy"}), encoding="utf-8")
+        return app.App(data)
+
+    def test_version_1_layout(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(page_titles(w), [])  # version 1.0 had no page titles
+            self.assertEqual(w.counts["ok"].cget("style"), "Count.TLabel")  # a bare number, not a card
+            self.assertEqual(str(w.field_widgets["selection_header_0"].cget("text")), "")
+            self.assertEqual(w.code_font, {})  # short codes in the normal font
+            self.assertEqual(w.grid_view.font.cget("size"), 10)  # Consolas 10, as in version 1.0
+            self.assertEqual(w.L.window, (1180, 740, 980, 620))
+            yield 100
+        self.run_steps(steps)
+
+
+class ModernLayout(WindowTest):
+    def test_titles_cards_and_scrollbar(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(len(page_titles(w)), 6)  # Setup, Delivery, Typed values, Pick, History, Log
+            self.assertEqual(w.counts["ok"].cget("style"), "MetricValue.TLabel")
+            self.assertEqual(str(w.field_widgets["selection_header_0"].cget("text")), "Yes")
+            self.assertIn("font", w.code_font)
+            # the counters really are larger than the captions: a style font is not overridden by the defaults
+            self.assertGreater(w.counts["ok"].winfo_reqheight(), 30)
+            # the scrollbar shows only while the tabs are taller than the window
+            real = w.tabs_frame.winfo_reqheight
+            w.tabs_frame.winfo_reqheight = lambda: 50
+            w._tabs_content_changed()
+            w.update()
+            self.assertFalse(w.tabs_scrollbar.winfo_ismapped())
+            w.tabs_frame.winfo_reqheight = real
+            w._tabs_content_changed()
+            w.update()
+            self.assertTrue(w.tabs_scrollbar.winfo_ismapped())
+            # and the tabs are never wider than the window, however wide a tab wants to be
+            self.assertEqual(w.tabs_frame.winfo_width(), w.tabs_canvas.winfo_width())
+            yield 100
+        self.run_steps(steps)
+
+
 class UnknownTheme(WindowTest):
     def make_window(self):
         data = self.tmp / "data"
