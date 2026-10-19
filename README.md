@@ -415,12 +415,18 @@ cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
-cncbridge/app.py         main window, menu bar, Options, activity log and help windows
+cncbridge/app.py         the main window: puts the pieces below together, and run()
+cncbridge/ui/            the pieces of the window, one mixin each: layout (frame, toolbar, header), menus
+                         (menu bar, shortcuts), setup_tab (Setup, Delivery), pick_tab, history_tab, options
+                         (Options window, Appearance), access (password, operator view, shifts), windows
+                         (log, Help), tooltips, form (settings <-> form, settings files), control (start/stop,
+                         save, background, closing), status (live refresh), common, dialogs
 cncbridge/help.py        the text of the Help window
 cncbridge/grid.py        spreadsheet view with drag selection
 cncbridge/theme.py       themes (Modern, Legacy): colours, fonts and widget styles
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
+tests/test_structure.py  the window's pieces fit together; no method is defined twice
 tests/test_theme.py      every theme is complete; unknown names fall back
 tests/test_window.py     drives the real window: set CNCBRIDGE_WINDOW_TESTS=1 first
 demo/                    test data, stand-in MES, Demo control window (CNCBridgeDemo.pyw starts it)

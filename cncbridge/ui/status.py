@@ -1,0 +1,141 @@
+"""Live status: the statistics thread and the periodic refresh of the window."""
+import queue
+import re
+import time
+
+from .. import alerts, background, engine, theme
+from .common import log
+
+
+class StatusMixin:
+    # ================================================================ live status
+    def _stats_loop(self):
+        """Runs on its own thread so a slow network folder can never freeze the window."""
+        while not self.closing.is_set():
+            try:
+                cfg = self.cfg
+                stats = self.ledger.stats()
+                self.snapshot = {
+                    "ok": stats.get("ok", 0), "failed": stats.get("failed", 0),
+                    "waiting": engine.count_waiting(cfg) if cfg["source_folder"] else 0,
+                    "queued": sum(engine.count_queued(self.data_dir).values()),
+                    "rejected": engine.count_rejected(self.data_dir),
+                    "history": self.ledger.recent(200),
+                    "alerts": alerts.read_state(self.data_dir)}
+                if self.connected:
+                    self.bg_running = background.is_running(self.data_dir)
+                    self._read_background_log()
+            except Exception as e:
+                log.debug("status refresh failed: %s", e)
+            self.closing.wait(1.5)
+
+    _LOG_LINE = re.compile(r"^\d{4}-\d\d-\d\d (\d\d:\d\d:\d\d),\d+ (\w+)\s+(.*)$")
+
+    def _read_background_log(self):
+        """Show the background process's new log lines in the Log tab."""
+        path = self.data_dir / "logs" / "cncbridge.log"
+        try:
+            size = path.stat().st_size
+        except OSError:
+            return
+        if self._log_pos is None or size < self._log_pos:  # first look, or the log was rotated
+            self._log_pos = size if self._log_pos is None else 0
+            if self._log_pos:
+                return
+        with open(path, "rb") as f:
+            f.seek(self._log_pos)
+            chunk = f.read()
+        self._log_pos += len(chunk)
+        for line in chunk.decode("utf-8", errors="replace").splitlines():
+            m = self._LOG_LINE.match(line)
+            if m:
+                self.log_q.put((m.group(2), f"{m.group(1)}  {m.group(2):<7}  [background] {m.group(3)}"))
+
+    def _tick(self):
+        while True:
+            try:
+                self.ui_q.get_nowait()()
+            except queue.Empty:
+                break
+        lines = []
+        while len(lines) < 500:
+            try:
+                lines.append(self.log_q.get_nowait())
+            except queue.Empty:
+                break
+        if lines:
+            at_end = self.log_text.yview()[1] > 0.999
+            self.log_text.configure(state="normal")
+            for level, line in lines:
+                self.log_text.insert("end", line + "\n", level)
+            if int(self.log_text.index("end-1c").split(".")[0]) > 3000:
+                self.log_text.delete("1.0", "1000.0")
+            self.log_text.configure(state="disabled")
+            self.log_empty.place_forget()
+            if at_end:
+                self.log_text.see("end")
+
+        running = self.processing
+        if self.connected:
+            text, colour = ("In background", theme.SUCCESS) if running else ("Background off", theme.IDLE)
+            if self.take_over_when_stopped and not running:
+                self._become_normal()
+        else:
+            text, colour = ("Monitoring", theme.SUCCESS) if running else ("Working...", theme.WARNING) if self.busy else (
+                "Stopped", theme.IDLE)
+        self.state_label.configure(text=text, width=max(11, len(text)))
+        self.state_label.configure(foreground=colour)
+        self.state_dot.configure(fg=colour)
+        idle = not running and not self.busy
+        self.start_btn.configure(state="normal" if idle else "disabled")
+        self.once_btn.configure(state="normal" if idle and not self.connected else "disabled")
+        self.stop_btn.configure(state="normal" if running else "disabled")
+        self._set_menu("start", idle)
+        self._set_menu("process_now", idle and not self.connected)
+        self._set_menu("stop", running)
+        if not running and self.status_msg.get().startswith("Stopping"):
+            self.status_msg.set("Monitoring stopped.")
+
+        if time.monotonic() - self._shift_checked > 15:  # cheap, but once every few seconds is plenty
+            self._shift_checked = time.monotonic()
+            self._check_shift()
+
+        snap = self.snapshot
+        if snap:
+            self._show_alerts(snap.get("alerts") or {})
+            for key, label in self.counts.items():
+                colour = (theme.ERROR if snap[key] else theme.TEXT) if key in ("failed", "rejected") else (
+                    theme.WARNING if snap[key] else theme.TEXT) if key == "queued" else (
+                    theme.SUCCESS if snap[key] else theme.TEXT) if key == "ok" else theme.ACCENT if snap[key] else theme.TEXT
+                label.configure(text=str(snap[key]), foreground=colour)
+            if snap["history"] != self.shown_history:
+                self.shown_history = snap["history"]
+                selected = set(self.history.selection())
+                self.history.delete(*self.history.get_children())
+                for row in self.shown_history:
+                    pending = "queued" in (row["shared"], row["api"]) or "rejected" in (row["api"] or "")
+                    tag = row["status"] if row["status"] != "ok" else "pending" if pending else ""
+                    self.history.insert("", "end", iid=str(row["id"]), tags=(tag,), values=[
+                        (row["processed_at"] or "").replace("T", "  "), row["source"], row["status"],
+                        row["output"] or "", row["shared"] or "", row["api"] or "", row["message"] or ""])
+                keep = [iid for iid in selected if self.history.exists(iid)]
+                if keep:
+                    self.history.selection_set(keep)
+                self._update_history_buttons()
+                if self.shown_history:
+                    self.history_empty.place_forget()
+                else:
+                    self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
+        self._tick_job = self.after(300, self._tick)
+
+    def _show_alerts(self, open_alerts):
+        """A red banner under the counters while a problem is open; gone when it is resolved."""
+        if open_alerts:
+            lines = [f"⚠  {item['text']}  (since {item['since'][11:16]})" for item in open_alerts.values()]
+            self.alert_banner.configure(text="\n".join(lines), wraplength=max(self.winfo_width() - 40, 400))
+            if not self.alert_banner_shown:
+                self.alert_banner.pack(fill="x", after=self.header_sep)
+                self.alert_banner_shown = True
+        elif self.alert_banner_shown:
+            self.alert_banner.pack_forget()
+            self.alert_banner_shown = False
