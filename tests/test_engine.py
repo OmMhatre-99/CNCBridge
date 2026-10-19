@@ -833,6 +833,106 @@ class Alerting(unittest.TestCase):
         self.assertNotIn("mail-secret", exported.read_text(encoding="utf-8"))
 
 
+class Health(unittest.TestCase):
+    """The facts line (last file, queue age, back-up drive) and the alert for a back-up drive that fills up."""
+
+    GB = 1024 ** 3
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        (self.tmp / "machine").mkdir()
+        self.sent = []
+        for name in ("notify", "webhook", "email"):
+            original = alerts.SENDERS[name]
+            self.addCleanup(alerts.SENDERS.__setitem__, name, original)
+            alerts.SENDERS[name] = lambda *a, _n=name, **k: self.sent.append((_n, a))
+        self.api = Receiver()
+        self.addCleanup(self.api.close)
+        self.cfg = {"station_name": "Line 7", "source_folder": str(self.tmp / "machine"),
+                    "backup_folder": str(self.tmp / "backup"), "selections": [sel("A12:I*"), sel("B6")],
+                    "api_enabled": True, "api_url": self.api.url, "stable_seconds": 0, "alert_after_minutes": 0}
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def engine(self, **overrides):
+        return engine.Engine(dict(self.cfg, **overrides), self.tmp / "data")
+
+    def drop(self, name, serial):
+        (self.tmp / "machine" / name).write_bytes(SAMPLE.read_bytes().replace(b"B240001", serial.encode()))
+
+    def messages(self, eng):
+        eng.alerts.flush()
+        return [a for name, a in self.sent if name == "notify"]
+
+    def space(self, free_gb, total_gb=100):
+        return lambda folder: (int(free_gb * self.GB), total_gb * self.GB)
+
+    def test_levels(self):
+        for free, total, expected in ((50, 100, "ok"), (1.5, 100, "low"), (0.5, 100, "critical"), (10, 1000, "low"),
+                                      (2.5, 20, "ok"), (2.5, 100, "low"), (1.9, 20, "low")):
+            self.assertEqual(engine.disk_level(int(free * self.GB), int(total * self.GB)), expected, (free, total))
+
+    def test_disk_space_uses_the_nearest_existing_folder(self):
+        free, total = engine.disk_space(self.tmp / "does" / "not" / "exist")
+        self.assertGreater(total, free)
+        self.assertIsNone(engine.disk_space(""))
+
+    def test_health_of_an_idle_installation(self):
+        eng = self.engine()
+        h = engine.health(eng.cfg, self.tmp / "data", eng.ledger)
+        self.assertEqual((h["last_file"], h["last_file_age"], h["oldest_queued_age"]), (None, None, None))
+        self.assertTrue(h["source_reachable"])
+        self.assertEqual(h["disk_level"], "ok")
+
+    def test_health_reports_the_last_file_and_the_oldest_queued_file(self):
+        eng = self.engine()
+        self.api.status = 503  # nothing can be delivered, so the output stays queued
+        self.drop("a.csv", "S1")
+        eng.scan_once()
+        now = time.time()
+        h = engine.health(eng.cfg, self.tmp / "data", eng.ledger, now=now + 90)
+        self.assertIsNotNone(h["last_file"])
+        self.assertGreater(h["last_file_age"], 85)
+        self.assertLess(h["last_file_age"], 100)
+        self.assertGreater(h["oldest_queued_age"], 85)
+        queued = next((self.tmp / "data" / "outbox" / "api").glob("*"))
+        os.utime(queued, (now - 3000, now - 3000))
+        h = engine.health(eng.cfg, self.tmp / "data", eng.ledger, now=now)
+        self.assertAlmostEqual(h["oldest_queued_age"], 3000, delta=5)
+        self.assertFalse(engine.health(dict(eng.cfg, source_folder=str(self.tmp / "gone")), self.tmp / "data",
+                                       eng.ledger)["source_reachable"])
+
+    def test_a_filling_back_up_drive_alerts_once_and_its_end_too(self):
+        eng = self.engine()
+        original = engine.disk_space
+        self.addCleanup(setattr, engine, "disk_space", original)
+        engine.disk_space = self.space(0.4)
+        eng.scan_once()
+        eng.scan_once()  # the check runs once a minute, and a standing fault alerts once
+        eng._last_disk_check = 0
+        eng.scan_once()
+        titles = [t for t, *_ in self.messages(eng)]
+        self.assertEqual(titles, ["CNCBridge needs attention - Line 7"])
+        self.assertIn("disk", alerts.read_state(self.tmp / "data"))
+        engine.disk_space = self.space(50)
+        eng._last_disk_check = 0
+        eng.scan_once()
+        titles = [t for t, *_ in self.messages(eng)]
+        self.assertEqual(titles[-1], "CNCBridge is working again - Line 7")
+        self.assertEqual(alerts.read_state(self.tmp / "data"), {})
+
+    def test_the_disk_is_checked_at_most_once_a_minute(self):
+        eng = self.engine()
+        calls = []
+        original = engine.disk_space
+        self.addCleanup(setattr, engine, "disk_space", original)
+        engine.disk_space = lambda folder: calls.append(1) or (50 * self.GB, 100 * self.GB)
+        for _ in range(5):
+            eng.scan_once()
+        self.assertEqual(len(calls), 1)
+
+
 class SecondChances(unittest.TestCase):
     """Send a refused file again, and process a set-aside machine file again."""
 

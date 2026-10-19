@@ -520,6 +520,12 @@ class Ledger:
             return c.execute("DELETE FROM files WHERE processed_at < ?",
                              (cutoff.isoformat(timespec="seconds"),)).rowcount
 
+    def last_processed(self):
+        """When the latest file was handled (ISO text), or None."""
+        with self._db() as c:
+            row = c.execute("SELECT processed_at FROM files ORDER BY id DESC LIMIT 1").fetchone()
+            return row[0] if row else None
+
     def recent(self, n=200):
         with self._db() as c:
             c.row_factory = sqlite3.Row
@@ -686,6 +692,69 @@ def count_rejected(data_dir):
     return sum(len(_visible(Path(data_dir) / "rejected" / k)) for k in DESTINATIONS)
 
 
+# =============================================================== health
+LOW_DISK_BYTES = 2 * 1024 ** 3       # the back-up drive is "low" under this, or under LOW_DISK_FRACTION of its size
+LOW_DISK_FRACTION = 0.05
+CRITICAL_DISK_BYTES = 1024 ** 3      # ... and "critical" under this
+
+
+def disk_space(folder):
+    """(free, total) bytes of the drive holding this folder, or its nearest existing parent; None if unknown."""
+    path = Path(folder) if folder else None
+    try:
+        while path is not None:
+            if path.exists():
+                usage = shutil.disk_usage(path)
+                return usage.free, usage.total
+            if path.parent == path:
+                return None
+            path = path.parent
+    except OSError:
+        pass
+    return None
+
+
+def disk_level(free, total):
+    """'ok', 'low' or 'critical'."""
+    if free < CRITICAL_DISK_BYTES:
+        return "critical"
+    if free < LOW_DISK_BYTES or (total and free / total < LOW_DISK_FRACTION):
+        return "low"
+    return "ok"
+
+
+def oldest_queued_age(data_dir, now=None):
+    """Seconds since the oldest file waiting in any send queue was put there; None when the queues are empty."""
+    now = time.time() if now is None else now
+    ages = []
+    for kind in DESTINATIONS:
+        for f in _visible(Path(data_dir) / "outbox" / kind):
+            try:
+                ages.append(now - f.stat().st_mtime)
+            except OSError:
+                pass
+    return max(ages) if ages else None
+
+
+def health(cfg, data_dir, ledger, now=None):
+    """What an operator wants to know at a glance: is it alive, is anything stuck, is there room to keep going."""
+    now = time.time() if now is None else now
+    last = ledger.last_processed()
+    last_age = None
+    if last:
+        try:
+            last_age = max(0.0, now - datetime.fromisoformat(last).timestamp())
+        except ValueError:
+            pass
+    space = disk_space(cfg["backup_folder"]) if cfg.get("backup_folder") else None
+    return {
+        "last_file": last, "last_file_age": last_age,
+        "oldest_queued_age": oldest_queued_age(data_dir, now),
+        "backup_free": space[0] if space else None, "backup_total": space[1] if space else None,
+        "disk_level": disk_level(*space) if space else None,
+        "source_reachable": Path(cfg["source_folder"]).is_dir() if cfg.get("source_folder") else None}
+
+
 # =============================================================== second chances
 ALLOW_ONCE = "allow_once.json"  # fingerprints that may pass the duplicate check one more time
 
@@ -798,6 +867,7 @@ def clean_up(cfg, ledger, now=None):
 
 class Engine:
     CLEAN_UP_EVERY = 3600  # seconds
+    DISK_CHECK_EVERY = 60  # seconds
 
     def __init__(self, cfg, data_dir, config_path=None):
         self.cfg = normalize_config(cfg)  # may be replaced while running; each file uses the current one
@@ -810,6 +880,7 @@ class Engine:
         self.alerts = Alerts(self.data)
         self._stop = threading.Event()
         self._last_clean_up = 0.0
+        self._last_disk_check = 0.0
         self._waiting_marker = set()  # files seen without the complete-marker, by name
         self._reported = {}  # last problem logged per subject, so a standing fault is logged once, not every cycle
         self._since = {}     # when each standing fault was first seen, for alert_after_minutes
@@ -836,6 +907,22 @@ class Engine:
             return False
         log.info("Settings reloaded")
         return True
+
+    def _check_disk(self):
+        """A back-up drive that fills up stops everything: say so early, through the usual alerts."""
+        if time.time() - self._last_disk_check < self.DISK_CHECK_EVERY:
+            return
+        self._last_disk_check = time.time()
+        space = disk_space(self.cfg["backup_folder"])
+        if space is None:
+            return
+        level = disk_level(*space)
+        if level == "ok":
+            self._report("disk", None)
+        else:
+            self._report("disk", f"The back-up drive is nearly full: {space[0] / 1024 ** 3:.1f} GB free of "
+                                 f"{space[1] / 1024 ** 3:.0f} GB.",
+                         logging.ERROR if level == "critical" else logging.WARNING)
 
     def outbox(self, kind):
         d = self.data / "outbox" / kind
@@ -994,6 +1081,7 @@ class Engine:
             except Exception as e:  # folder or disk trouble, not the file's fault: leave it and retry
                 self._report(f.name, f"Could not process {f.name} yet, will retry: {e}", logging.ERROR)
         self.drain_outbox()
+        self._check_disk()
         if time.time() - self._last_clean_up >= self.CLEAN_UP_EVERY:
             self._last_clean_up = time.time()
             clean_up(self.cfg, self.ledger)

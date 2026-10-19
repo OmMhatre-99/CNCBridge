@@ -119,6 +119,11 @@ class LayoutMixin:
                                          else "Count.TLabel", anchor="e")
             self.counts[key].pack(anchor="e")
             ttk.Label(box, text=caption, style="CardSmall.TLabel").pack(anchor="e")
+        # a line of facts under the counters: last file, queue age, back-up drive (see _show_health)
+        self.health_bar = ttk.Frame(self, padding=(18, 0, 18, 8))
+        self.health_bar.pack(fill="x")
+        self.health_labels = {key: ttk.Label(self.health_bar, text="", style="CardSmall.TLabel")
+                              for key in ("last", "queue", "disk", "source")}
         self.header_sep = ttk.Separator(self)
         self.header_sep.pack(fill="x")
         # shown only while an alert is open (see _tick)

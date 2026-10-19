@@ -21,7 +21,8 @@ class StatusMixin:
                     "queued": sum(engine.count_queued(self.data_dir).values()),
                     "rejected": engine.count_rejected(self.data_dir),
                     "history": self.ledger.recent(200),
-                    "alerts": alerts.read_state(self.data_dir)}
+                    "alerts": alerts.read_state(self.data_dir),
+                    "health": engine.health(cfg, self.data_dir, self.ledger)}
                 if self.connected:
                     self.bg_running = background.is_running(self.data_dir)
                     self._read_background_log()
@@ -103,6 +104,7 @@ class StatusMixin:
         snap = self.snapshot
         if snap:
             self._show_alerts(snap.get("alerts") or {})
+            self._show_health(snap.get("health") or {})
             for key, label in self.counts.items():
                 colour = (theme.ERROR if snap[key] else theme.TEXT) if key in ("failed", "rejected") else (
                     theme.WARNING if snap[key] else theme.TEXT) if key == "queued" else (
@@ -127,6 +129,57 @@ class StatusMixin:
                 else:
                     self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
         self._tick_job = self.after(300, self._tick)
+
+    @staticmethod
+    def _ago(seconds):
+        """'just now', '5 min ago', '3 h ago', '2 days ago'."""
+        if seconds < 60:
+            return "just now"
+        if seconds < 3600:
+            return f"{int(seconds // 60)} min ago"
+        if seconds < 86400:
+            return f"{int(seconds // 3600)} h ago"
+        return f"{int(seconds // 86400)} days ago"
+
+    @staticmethod
+    def _span(seconds):
+        """'5 min', '3 h', '2 days'."""
+        if seconds < 60:
+            return "under a minute"
+        if seconds < 3600:
+            return f"{int(seconds // 60)} min"
+        if seconds < 86400:
+            return f"{int(seconds // 3600)} h"
+        return f"{int(seconds // 86400)} days"
+
+    def _show_health(self, h):
+        """The facts line under the counters; an item turns amber or red when it needs attention."""
+        limit = self.cfg["alert_after_minutes"] * 60
+        parts = {}
+        last, age = h.get("last_file"), h.get("last_file_age")
+        parts["last"] = (f"Last file {last[11:16]} ({self._ago(age)})" if last and age is not None else "No files yet",
+                         theme.MUTED)
+        queued = h.get("oldest_queued_age")
+        if queued is None:
+            parts["queue"] = ("Queue empty", theme.MUTED)
+        else:
+            parts["queue"] = (f"Oldest in queue: {self._span(queued)}",
+                              theme.ERROR if limit and queued > 3 * limit else theme.WARNING if limit and queued > limit
+                              else theme.MUTED)
+        free, level = h.get("backup_free"), h.get("disk_level")
+        if free is not None:
+            parts["disk"] = (f"Back-up drive {free / 1024 ** 3:.1f} GB free",
+                             theme.ERROR if level == "critical" else theme.WARNING if level == "low" else theme.MUTED)
+        if h.get("source_reachable") is False:
+            parts["source"] = ("Machine folder not reachable", theme.ERROR)
+        shown = False
+        for key, label in self.health_labels.items():
+            label.pack_forget()  # packed again in order, so the items never swap places
+            if key in parts:
+                text, colour = parts[key]
+                label.configure(text=("   ·   " if shown else "") + text, foreground=colour)
+                label.pack(side="left")
+                shown = True
 
     def _show_alerts(self, open_alerts):
         """A red banner under the counters while a problem is open; gone when it is resolved."""

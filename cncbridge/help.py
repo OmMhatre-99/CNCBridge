@@ -168,6 +168,12 @@ or for a touch screen.
 - Queued to send: outputs waiting for a destination. Failed files: machine files set aside (back-up\\_failed).
 - Refused by API: outputs the receiving site rejected.
 
+## The line under the counters
+- Last file: when the latest machine file was handled, and how long ago. A long time with a busy machine means something is stuck.
+- Oldest in queue: how long the oldest output has waited to be delivered. Amber when it passes the alert time (Options > Alerts), red at three times that.
+- Back-up drive: free space where the back-up folder is. Amber under 2 GB or 5%, red under 1 GB; an alert is sent when it stays low, because a full drive stops processing.
+- "Machine folder not reachable" appears in red when the machine's folder cannot be opened.
+
 ## Common situations
 - Nothing happens after Start: check Setup (folders, at least one range) and Delivery (a destination turned on). \
 Save settings reports what is missing.

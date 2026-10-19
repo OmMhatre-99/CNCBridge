@@ -201,6 +201,15 @@ fixed), or **Process again** to put machine files that were set aside back in th
 so CNCBridge asks first. The activity log (**View > Activity log**) and
 `logs\cncbridge.log` in the data folder hold the details.
 
+## The health line
+
+Under the counters, one line shows the facts an operator checks first: **Last file** (time and how long
+ago), **Oldest in queue** (how long the oldest output has waited to be delivered, or *Queue empty*) and
+**Back-up drive** (free space). An item turns amber or red when it needs attention: a queued file older than the
+alert time (red at three times it), a back-up drive under 2 GB or 5% free (red under 1 GB), or a machine folder
+that cannot be reached. A back-up drive that stays low also raises an alert through the usual channels, once, with
+a "working again" message when space is back, because a full drive stops processing.
+
 ## Alerts
 
 CNCBridge tells someone when it needs attention, instead of only writing it to the log:

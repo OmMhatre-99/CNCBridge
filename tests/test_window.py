@@ -159,8 +159,8 @@ class RangePicker(WindowTest):
             self.assertEqual((w.sample_name, len(w.sample_rows)), (SAMPLE.name, 50))
             w.slot_box.current(0)
             w._slot_chosen()
-            drag(w, 0, 11, 8, 23)
-            self.assertEqual(w.pick_range.get(), "A12:I24")
+            drag(w, 0, 11, 8, 15)  # inside the visible rows: a drag past the edge scrolls, which is another test
+            self.assertEqual(w.pick_range.get(), "A12:I16")
             w.pick_open.set(True)
             w._update_pick_range()
             self.assertEqual(w.pick_range.get(), "A12:I*")
@@ -1378,6 +1378,50 @@ class MenuNavigation(WindowTest):
             w.after(50, lambda: ticks.append(1))
             yield lambda: ticks  # the event loop keeps running while the menu is open
             w._close_menus()
+        self.run_steps(steps)
+
+
+class HealthLine(WindowTest):
+    def test_the_line_under_the_counters_follows_the_facts(self):
+        w = self.window
+
+        def steps():
+            day = 86400
+            w._show_health({"last_file": "2026-10-19T10:42:05", "last_file_age": 180, "oldest_queued_age": None,
+                            "backup_free": 120 * 1024 ** 3, "disk_level": "ok", "source_reachable": True})
+            texts = [w.health_labels[k].cget("text") for k in ("last", "queue", "disk", "source")]
+            self.assertEqual(texts[0], "Last file 10:42 (3 min ago)")
+            self.assertIn("Queue empty", texts[1])
+            self.assertIn("Back-up drive 120.0 GB free", texts[2])
+            self.assertEqual(w.health_labels["source"].winfo_manager(), "")  # only shown when there is a problem
+            self.assertEqual(str(w.health_labels["queue"].cget("foreground")), app.theme.MUTED)
+
+            w.cfg = dict(w.cfg, alert_after_minutes=10)
+            w._show_health({"last_file": None, "last_file_age": None, "oldest_queued_age": 700, "backup_free": 1.5 * 1024 ** 3,
+                            "disk_level": "low", "source_reachable": False})
+            self.assertEqual(w.health_labels["last"].cget("text"), "No files yet")
+            self.assertEqual(str(w.health_labels["queue"].cget("foreground")), app.theme.WARNING)  # past 10 minutes
+            self.assertEqual(str(w.health_labels["disk"].cget("foreground")), app.theme.WARNING)
+            self.assertEqual(str(w.health_labels["source"].cget("foreground")), app.theme.ERROR)
+            self.assertIn("not reachable", w.health_labels["source"].cget("text"))
+            w._show_health({"oldest_queued_age": 2 * day, "backup_free": 0.3 * 1024 ** 3, "disk_level": "critical"})
+            self.assertEqual(str(w.health_labels["queue"].cget("foreground")), app.theme.ERROR)
+            self.assertIn("2 days", w.health_labels["queue"].cget("text"))
+            self.assertEqual(str(w.health_labels["disk"].cget("foreground")), app.theme.ERROR)
+            order = [str(c) for c in w.health_bar.pack_slaves()]
+            self.assertEqual(order, [str(w.health_labels[k]) for k in ("last", "queue", "disk")])  # in order, no source
+            yield 100
+        self.run_steps(steps)
+
+    def test_the_stats_thread_delivers_it(self):
+        w = self.window
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            yield lambda: (w.snapshot or {}).get("health") is not None
+            self.assertTrue(w.snapshot["health"]["source_reachable"] in (True, None))
+            yield lambda: "Last file" in w.health_labels["last"].cget("text") or "No files" in w.health_labels["last"].cget("text")
         self.run_steps(steps)
 
 
