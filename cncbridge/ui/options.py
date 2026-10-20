@@ -6,8 +6,9 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import messagebox, ttk
 
-from .. import config, i18n, theme
+from .. import config, i18n, permissions, theme
 from ..config import APP_NAME
+from .scrollframe import ScrollFrame
 from .common import ENCODINGS, DEFAULT_FONT_LABEL, FONT_SIZE_LABELS, UI_SCALE_LABELS, APPEARANCE_KEYS, DELIMITER_CHOICES
 from ..i18n import tr
 
@@ -35,10 +36,10 @@ class OptionsMixin:
                                   ("heartbeat", tr("Heartbeat"), self._build_heartbeat),
                                   ("access", tr("Operators & access"), self._build_access),
                                   ("appearance", tr("Appearance"), self._build_appearance)):
-            page = ttk.Frame(notebook, padding=self.L.tab_pad)
+            page = ScrollFrame(notebook, theme.BACKGROUND, padding=self.L.tab_pad)  # scrolls when it does not fit
             notebook.add(page, text=f"  {title}  ")
             self.option_pages[key] = page
-            build(page)
+            build(page.body)
         bar = ttk.Frame(win, padding=(14, 10))
         bar.pack(fill="x")
         ttk.Label(bar, textvariable=self.status_msg, style="Small.TLabel", wraplength=self.px(430),
@@ -324,6 +325,55 @@ class OptionsMixin:
         self.closing.set()
         self.destroy()
 
+    def restart_as_administrator(self):
+        """Replace this window with one that has administrator rights. Windows asks the person first."""
+        if self.busy:
+            return messagebox.showinfo(APP_NAME, tr("Process now is running. Restart when it has finished."), parent=self)
+        if permissions.is_elevated():
+            return messagebox.showinfo(APP_NAME, tr("CNCBridge already has administrator rights."), parent=self)
+        resume = self.running
+        if not permissions.run_as_administrator(self._restart_command(resume), config.program_dir()):
+            return messagebox.showinfo(APP_NAME, tr("CNCBridge was not restarted: administrator rights were not "
+                                                    "given."), parent=self)
+        if self.running:
+            self.engine.stop()
+            self.thread.join(20)
+        self.closing.set()
+        self.destroy()
+
+    def _need_administrator(self):
+        """The settings cannot be changed by this Windows account: offer to restart with administrator rights."""
+        if permissions.is_elevated():
+            return messagebox.showerror(APP_NAME, tr("The settings file cannot be changed, even with administrator "
+                                                     "rights:\n{file}", file=self.cfg_path), parent=self)
+        if messagebox.askokcancel(APP_NAME, tr("Changing the setup needs administrator rights.\n\nRestart CNCBridge "
+                                               "as administrator? Windows will ask for permission. Settings you "
+                                               "changed but have not saved are lost."), parent=self):
+            self.restart_as_administrator()
+
+    def _update_protection_state(self):
+        """The Protection box: what it says, and whether this session may change it."""
+        elevated = permissions.is_elevated()
+        applied = permissions.settings_protected(self.data_dir)
+        if applied:
+            text = tr("Protected: only administrators can change the settings or read the saved passwords.")
+        elif self.cfg["protect_settings"]:
+            text = tr("Switched on, but not applied yet: save the settings as administrator.")
+        else:
+            text = tr("Not protected: every Windows user of this PC can change the settings file.")
+        if not elevated:
+            text += "  " + tr("Changing this needs administrator rights.")
+        self.protection_state.set(text)
+        for key in ("protect_settings", "password_accounts"):
+            widget = self.field_widgets.get(key)
+            if widget is not None:
+                widget.configure(state="normal" if elevated else "disabled")
+        button = self.field_widgets.get("restart_admin")
+        if button is not None:
+            button.configure(state="disabled" if elevated else "normal")
+        if "restart_admin" in self.menu_items:
+            self._set_menu("restart_admin", not elevated)
+
     def _build_access(self, parent):
         box = ttk.LabelFrame(parent, text=tr(" Operators & access "), padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
@@ -351,3 +401,26 @@ class OptionsMixin:
                               "does not protect against someone who can open this PC's files."))
         note.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         self._fit_wrap(note, self.px(420))
+
+        guard = ttk.LabelFrame(parent, text=tr(" Protection "), padding=self.L.box_pad)
+        guard.pack(fill="x", pady=(self.L.box_gap, 0))
+        protect = ttk.Checkbutton(guard, text=tr("Only administrators can change the settings or read the saved "
+                                                 "passwords"), variable=self.b["protect_settings"])
+        protect.pack(anchor="w")
+        self.field_widgets["protect_settings"] = protect
+        ttk.Label(guard, text=tr("Windows accounts that run the processing and may read the saved passwords, one per "
+                                 "line (the account that saves is always included):"), style="CardSmall.TLabel",
+                  wraplength=self.px(500), justify="left").pack(anchor="w", pady=(6, 3))
+        self.accounts_text = tk.Text(guard, height=3, width=34, font=(self._font_mono, self.L.text_mono), relief="solid",
+                                     borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT,
+                                     insertbackground=theme.TEXT, highlightthickness=1, highlightbackground=theme.BORDER,
+                                     highlightcolor=theme.ACCENT, padx=7, pady=5, wrap="none", undo=True)
+        self.accounts_text.pack(fill="x")
+        self.field_widgets["password_accounts"] = self.accounts_text
+        state = ttk.Label(guard, textvariable=self.protection_state, style="CardSmall.TLabel", wraplength=self.px(500),
+                          justify="left")
+        state.pack(anchor="w", fill="x", pady=(8, 0))
+        self._fit_wrap(state, self.px(500))
+        admin = ttk.Button(guard, text=tr("Restart as administrator"), command=self.restart_as_administrator)
+        admin.pack(anchor="w", pady=(6, 0))
+        self.field_widgets["restart_admin"] = admin

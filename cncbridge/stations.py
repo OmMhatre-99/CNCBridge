@@ -165,7 +165,7 @@ def snapshot(folder, this_folder=None, now=None):
     if not row["exists"]:
         return row
     try:
-        cfg = config.load_config(folder / "config.json")
+        cfg = config.load_config(folder / "config.json", quiet=True)
     except (OSError, ValueError):
         cfg = config.normalize_config({})
     row["name"], row["source_folder"] = cfg["station_name"], cfg["source_folder"]

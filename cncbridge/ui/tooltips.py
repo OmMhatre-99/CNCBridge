@@ -63,6 +63,11 @@ class TooltipsMixin:
             "alert_email_from": tr("Sender address; the user name is used when this is empty."),
             "alert_email_to": tr("One or more addresses, separated by commas."),
             "test_alert": tr("Send a test message through every alert channel that is switched on."),
+            "protect_settings": tr("Lock config.json and the saved passwords so that only administrators can change or "
+                                   "read them. Operators can still start and stop, and change the typed values."),
+            "password_accounts": tr("Windows accounts (DOMAIN\\name) that run the processing and need the saved "
+                                    "passwords. Administrators and the saving account can always read them."),
+            "restart_admin": tr("Close this window and open it again with administrator rights; Windows asks first."),
             "heartbeat_enabled": tr("Send a small status message at regular times while monitoring runs, and one "
                                  "last one when it stops on purpose."),
             "heartbeat_url": tr("The address that receives the status message as JSON (a POST), like an alert webhook."),

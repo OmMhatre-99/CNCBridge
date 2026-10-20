@@ -148,6 +148,9 @@ window. Operators then see only Start/Stop, the counters, History and the typed 
 password. The password is stored as a hash and cannot be recovered; if it is lost, remove "setup_password" from \
 config.json in the data folder.
 
+## Protecting the settings (Settings > Operators & access)
+By default every Windows user of this PC can edit the settings file and read the saved passwords. "Only administrators can change the settings or read the saved passwords" locks them: operators can still start and stop, and change the typed values, but anything else needs administrator rights, and the window offers File > Restart as administrator. Switching it on or off needs an administrator session. If an operator account itself runs the processing, list it in the box so that it can read the saved passwords.
+
 ## Settings history (View > Settings history)
 Every change to the settings is recorded: when, by which Windows user, and what changed (old and new value). Passwords and keys are never shown, only that they changed. If the settings file is edited outside CNCBridge, that is recorded too, shown in red, and announced as an alert.
 """),

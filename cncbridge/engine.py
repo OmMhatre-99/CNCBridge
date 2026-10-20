@@ -46,7 +46,7 @@ from pathlib import Path  # noqa: F401
 from . import audit, eventlog, heartbeat
 from .alerts import Alerts
 from .background import stop_requested
-from .config import APP_NAME, VERSION, load_config, normalize_config
+from .config import APP_NAME, OPERATOR_FILE, VERSION, load_config, normalize_config
 # Everything that used to live in this file is still reachable as engine.<name>.
 from .csvread import (  # noqa: F401
     check_range, col_index, col_letter, decode, DELIMITERS, extract, FileError, find_heading,
@@ -103,8 +103,15 @@ class Engine:
         self._stop.set()
 
     def _settings_time(self):
+        """When the settings last changed: the settings file or the typed values, whichever is newer."""
         try:
-            return self.config_path.stat().st_mtime if self.config_path else None
+            if not self.config_path:
+                return None
+            times = [self.config_path.stat().st_mtime]
+            typed = self.config_path.with_name(OPERATOR_FILE)
+            if typed.exists():
+                times.append(typed.stat().st_mtime)
+            return max(times)
         except OSError:
             return None
 

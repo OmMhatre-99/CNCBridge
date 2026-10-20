@@ -2,12 +2,14 @@
 import contextlib
 import ctypes
 import io
+import json
 import os
 import subprocess
 import sys
 import tempfile
 import unittest
 import winreg
+from unittest import mock
 from ctypes import wintypes
 from pathlib import Path
 
@@ -210,6 +212,34 @@ class Install(Base):
         finally:
             release(handle)
         installer.install(False, False)  # and it works again once the program is closed
+
+    def test_protection_is_applied_again_after_an_update(self):
+        from cncbridge import permissions
+        self.installer().install(False, False)
+        calls = []
+        (self.where["data"] / "config.json").write_text(
+            json.dumps({"protect_settings": True, "password_accounts": "DOM" + chr(92) + "op"}), encoding="utf-8")
+        with mock.patch.object(permissions, "lock_down", side_effect=lambda d, r: calls.append((d, r)) or []):
+            self.installer().install(False, False)
+        self.assertEqual(calls, [(self.where["data"], ["DOM" + chr(92) + "op"])])
+        self.assertIn("protected again", chr(10).join(self.said))
+
+    def test_without_protection_an_update_leaves_the_permissions_alone(self):
+        from cncbridge import permissions
+        self.installer().install(False, False)
+        (self.where["data"] / "config.json").write_text('{"protect_settings": false}', encoding="utf-8")
+        with mock.patch.object(permissions, "lock_down") as lock:
+            self.installer().install(False, False)
+        lock.assert_not_called()
+
+    def test_a_problem_with_the_protection_is_reported_but_the_update_goes_on(self):
+        from cncbridge import permissions
+        self.installer().install(False, False)
+        (self.where["data"] / "config.json").write_text('{"protect_settings": true}', encoding="utf-8")
+        with mock.patch.object(permissions, "lock_down", return_value=["config.json: Access is denied."]):
+            self.installer().install(False, False)
+        self.assertIn("  Protecting the settings: config.json: Access is denied.", self.said)
+        self.assertTrue((self.where["program"] / "CNCBridge.exe").exists())
 
     def test_stop_running_finds_nothing_in_an_empty_folder(self):
         self.assertEqual(core.stop_running(self.tmp / "nothing"), 0)

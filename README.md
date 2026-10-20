@@ -396,8 +396,42 @@ Simulation (and the other setup entries in the menus and their shortcuts) are di
 
 The password is kept as a salted hash, never as text. It is not part of an exported settings file,
 and importing a file or restoring an earlier version never changes it. This keeps settings from being
-changed by accident; it does not protect against someone who can open this PC's files and edit
-`config.json`, so use Windows' own file permissions on the data folder if you need that.
+changed by accident. On its own it does not stop someone who can open this PC's files from editing
+`config.json`: for that, switch on **Protect the settings** (next section).
+
+## Protecting the settings
+
+By default every Windows user of the PC can open the data folder, so anybody can edit `config.json` (and
+drop the setup password) or read the saved passwords: they are encrypted for the PC, not for a person.
+**Settings > Operators & access > Protection** locks that down. It needs administrator rights, so open
+CNCBridge with **File > Restart as administrator** first (Windows asks for permission).
+
+Tick **Only administrators can change the settings or read the saved passwords** and press Save settings.
+From then on:
+
+- `config.json` and the `backups` folder can be **read** by everybody but **changed** only by
+  administrators;
+- the passwords and tokens (API token, FTP password, mail password) are kept apart in `secrets.json`,
+  which only administrators, the account that saved, and the accounts listed in the box can read;
+- the typed values (Operator, Work order...) are kept in `operator.json`, which stays open, so an
+  operator can still change them and confirm a shift change without administrator rights;
+- an operator can still start and stop, and press Process now; monitoring then starts with the saved
+  settings. Anything that needs a change of settings (Save settings, setting or removing the password)
+  offers **Restart as administrator** instead, and the title bar says *(administrator)* while it is on.
+
+**Accounts that may read the passwords.** Whoever runs the processing needs the saved passwords. If
+monitoring runs in the background task of an administrator account, nothing else is needed. If an operator
+account runs the window and processes files itself, list that account (one per line, as `DOMAIN\name` or
+`name`); that account can then read the passwords, which is the price of processing as that account.
+
+The status line in the box says whether the files are protected, or switched on but not yet applied (save as
+administrator to apply it). The set-up program locks the files again after an update. Turn the tick off and
+save as administrator to give the files back their ordinary permissions.
+
+What this does not do: an administrator can always change everything, and the settings change log
+(`settings_changes.jsonl`) stays writable for operators, because their typed-value changes are recorded in it;
+the Windows Event Log keeps its own copy of each change that operators cannot edit. A mapped network drive
+letter is not visible to a program started as administrator; use `\\server\share` paths for the folders.
 
 ## Settings history
 
@@ -559,6 +593,7 @@ cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/heartbeat.py   the regular status message; cncbridge/eventlog.py the Windows Event Log
 cncbridge/audit.py       the settings change log
+cncbridge/permissions.py who may change the settings (icacls), asking Windows for administrator rights
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
 cncbridge/i18n.py           tr() and the language files; cncbridge/locales/ holds template.json
@@ -579,6 +614,7 @@ tests/test_engine.py     python -m unittest discover -s tests -v
 tests/test_structure.py  the window's pieces fit together; every engine name is still reachable
 tests/test_ledger.py     the history database and its migration
 tests/test_audit.py      the settings change log and edits made outside CNCBridge
+tests/test_protection.py typed values and passwords in their own files; locking, with real permissions
 tests/test_heartbeat.py  the heartbeat; tests/test_eventlog.py the Event Log handler
 tests/test_config_migrations.py  the settings file version
 tests/test_installer.py  install, update and uninstall into temporary folders and a test registry key

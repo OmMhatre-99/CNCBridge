@@ -14,6 +14,7 @@ import sys
 import tempfile
 import time
 import traceback
+import types
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -27,7 +28,8 @@ if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
 os.environ["CNCBRIDGE_NO_EVENTLOG"] = "1"  # the background process some tests start must not write to this PC's real Event Log
-from cncbridge import alerts, app, audit, config, engine, i18n, shifts, stations  # noqa: E402
+from cncbridge import alerts, app, audit, config, engine, i18n, permissions, shifts, stations  # noqa: E402
+from cncbridge.ui import access as access_ui  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
 # a closed window could be freed on a background thread and crash the process (Tcl_AsyncDelete). The tests
@@ -90,13 +92,33 @@ def drive(window, steps):
 
 
 def focused(window):
-    """True once the window has the keyboard focus (asked for again on each try, since another program may hold it)."""
+    """
+    True once the keyboard focus is in this window itself, not in another window of the program such as a Help
+    window that was just closed (asked for again on each try, since another program may hold the focus).
+    """
     try:
         window.focus_force()
         window.update()
-        return window.focus_get() is not None
+        widget = window.focus_get()
+        return widget is not None and widget.winfo_toplevel() is window
     except Exception:
         return False
+
+
+def press(window, sequence, done, tries=10):
+    """
+    Send a key press and wait for its effect. Tk drops a key press when the program does not have the keyboard
+    focus at that moment, and another program (or a window left over from a test) can take it away, so a press
+    that had no effect is sent again. Only for presses that are harmless to repeat.
+    """
+    for _ in range(tries):
+        focused(window)
+        window.event_generate(sequence)
+        window.update()
+        if done():
+            return True
+        time.sleep(0.1)
+    return False
 
 
 def drag(window, c1, r1, c2, r2):
@@ -984,7 +1006,7 @@ class MenuBar(WindowTest):
             for key in ("autostart", "skip_duplicates", "poll_seconds", "encoding", "delimiter", "complete_marker",
                         "run_in_background", "keep_backup_days", "json_numbers", "csv_flat", "time_zone",
                         "rename_columns", "alert_notify", "alert_email_to", "test_alert", "heartbeat_url", "test_heartbeat",
-                        "shift_times",
+                        "protect_settings", "password_accounts", "restart_admin", "shift_times",
                         "set_password", "theme_modern", "theme_legacy", "restart_now"):
                 widget = w.field_widgets[key]
                 self.assertTrue(str(widget).startswith(str(w.options_win)), key)  # in Options, not in a tab
@@ -1093,10 +1115,7 @@ class LogAndHelp(WindowTest):
             self.assertIn("F5", shown)  # the last topic is the shortcut list
             self.assertIn("Ctrl+S", shown)
             w.help_win.withdraw()
-            yield lambda: focused(w)
-            w.update()
-            w.event_generate("<F1>")
-            w.update()
+            self.assertTrue(press(w, "<F1>", lambda: w.help_win.state() == "normal"))
             self.assertEqual(w.help_win.state(), "normal")
             self.assertTrue(w.help_body.get("1.0", "end").startswith("Getting started"))
             menu, index = w.menu_items["help_ranges"]
@@ -1603,6 +1622,250 @@ class EditedOutsideInWindow(WindowTest):
             self.assertEqual(tree.item(tree.get_children()[0], "values")[2], "Outside CNCBridge")
             self.assertIn("Shared folder: (empty) → C:/by-hand", tree.item(tree.get_children()[0], "values")[3])
             yield 100
+        self.run_steps(steps)
+
+
+class ProtectionInWindow(WindowTest):
+    """Settings that only an administrator may change; the typed values stay open to operators."""
+
+    def make_window(self):
+        data = self.tmp / "data"
+        config.save_config(config.normalize_config({
+            "station_name": "Line 5", "source_folder": str(self.machine), "backup_folder": str(self.backup),
+            "shared_enabled": True, "shared_folder": str(self.shared),
+            "selections": [{"name": "Summary", "range": "L1:M8", "header": True}],
+            "manual_inputs": [{"name": "Operator", "value": "OP-1"}, {"name": "Work order", "value": "WO-7"}]}),
+            data / "config.json")
+        return app.App(data)
+
+    def settings_bytes(self):
+        return (self.tmp / "data" / "config.json").read_bytes()
+
+    def read_typed(self):
+        return json.loads((self.tmp / "data" / "operator.json").read_text(encoding="utf-8"))["manual_inputs"]
+
+    def without_rights(self, elevated=False):
+        self._patch(permissions, "is_elevated", lambda: elevated)
+        self._patch(permissions, "can_write", lambda path: False)
+        self.restarts = []
+        self.window.restart_as_administrator = lambda: self.restarts.append(1)
+
+    def test_typed_values_are_saved_without_touching_the_settings(self):
+        w = self.window
+        before = self.settings_bytes()
+
+        def steps():
+            w.man_vars[0][1].set("OP-5")
+            w.apply_operator_values()
+            self.assertEqual(self.settings_bytes(), before)
+            self.assertEqual(self.read_typed(), ["OP-5", "WO-7"])
+            self.assertEqual(w.cfg["manual_inputs"][0]["value"], "OP-5")
+            self.assertIn("Typed values applied", w.status_msg.get())
+            self.assertTrue(w.finish_shift(["OP-6", "WO-8"]))  # the shift-change confirmation saves them the same way
+            self.assertEqual(self.read_typed(), ["OP-6", "WO-8"])
+            self.assertEqual(self.settings_bytes(), before)
+            self.assertEqual(audit.read(w.data_dir, 1)[0]["how"], "operator")
+            yield 100
+        self.run_steps(steps)
+
+    def test_saving_without_the_rights_offers_to_restart_as_administrator(self):
+        w = self.window
+        self.without_rights()
+        asked = []
+        self._patch(messagebox, "askokcancel", lambda *a, **k: asked.append(a) or True)
+        before = self.settings_bytes()
+
+        def steps():
+            w.v["station_name"].set("Changed")
+            self.assertFalse(w.save())
+            self.assertEqual(len(asked), 1)
+            self.assertIn("needs administrator rights", asked[0][1])
+            self.assertEqual(self.restarts, [1])
+            self.assertEqual(self.settings_bytes(), before)
+            self._patch(messagebox, "askokcancel", lambda *a, **k: False)  # the person says no
+            self.assertFalse(w.save())
+            self.assertEqual(self.restarts, [1])
+            yield 100
+        self.run_steps(steps)
+
+    def test_a_refusal_even_with_administrator_rights_is_explained(self):
+        w = self.window
+        self.without_rights(elevated=True)
+
+        def steps():
+            self.assertFalse(w.save())
+            self.assertEqual(self.dialogs[-1][0], "showerror")
+            self.assertIn("cannot be changed, even with administrator rights", self.dialogs[-1][1][1])
+            self.assertEqual(self.restarts, [])
+            yield 100
+        self.run_steps(steps)
+
+    def test_setting_the_password_without_the_rights_offers_the_restart(self):
+        w = self.window
+        self.without_rights()
+
+        def refused(*args, **kwargs):
+            raise PermissionError("denied")
+        self._patch(access_ui, "save_config", refused)
+
+        def steps():
+            w._store_password(config.hash_password("opensesame"))
+            self.assertEqual(self.restarts, [1])
+            self.assertEqual(w.cfg["setup_password"], "")  # nothing changed
+            yield 100
+        self.run_steps(steps)
+
+    def test_monitoring_starts_with_the_saved_settings_when_they_are_protected(self):
+        w = self.window
+        self.without_rights()
+        before = self.settings_bytes()
+
+        def steps():
+            w.v["station_name"].set("Edited, not saved")
+            cfg = w._ready(quiet=True)
+            self.assertEqual(cfg["station_name"], "Line 5")
+            self.assertEqual(self.settings_bytes(), before)
+            w.cfg = dict(w.cfg, source_folder="")  # the saved settings are not usable
+            w.v["source_folder"].set(str(self.machine))
+            self.assertIsNone(w._ready(quiet=True))
+            self.assertEqual(self.dialogs[-1][0], "showerror")
+            yield 100
+        self.run_steps(steps)
+
+    def test_the_protection_box_follows_the_session_and_the_files(self):
+        w = self.window
+        protect, accounts, button = (w.field_widgets[k] for k in ("protect_settings", "password_accounts", "restart_admin"))
+
+        def steps():
+            self.assertEqual((self.menu_label("restart_admin"), self.menu_state("restart_admin")),
+                             ("Restart as administrator", "normal"))
+            self._patch(permissions, "is_elevated", lambda: False)
+            self._patch(permissions, "settings_protected", lambda folder: False)
+            w._update_protection_state()
+            self.assertTrue(w.protection_state.get().startswith("Not protected"))
+            self.assertIn("needs administrator rights", w.protection_state.get())
+            self.assertEqual((str(protect.cget("state")), str(accounts.cget("state")), str(button.cget("state"))),
+                             ("disabled", "disabled", "normal"))
+            self.assertEqual(self.menu_state("restart_admin"), "normal")
+            self._patch(permissions, "settings_protected", lambda folder: True)
+            w._update_protection_state()
+            self.assertTrue(w.protection_state.get().startswith("Protected: only administrators"))
+            self._patch(permissions, "settings_protected", lambda folder: False)
+            w.cfg = dict(w.cfg, protect_settings=True)
+            w._update_protection_state()
+            self.assertTrue(w.protection_state.get().startswith("Switched on, but not applied"))
+            self._patch(permissions, "is_elevated", lambda: True)
+            w._update_protection_state()
+            self.assertEqual((str(protect.cget("state")), str(accounts.cget("state")), str(button.cget("state"))),
+                             ("normal", "normal", "disabled"))
+            self.assertEqual(self.menu_state("restart_admin"), "disabled")
+            self.assertNotIn("needs administrator rights", w.protection_state.get())
+            yield 100
+        self.run_steps(steps)
+
+    def test_restart_as_administrator_asks_windows_and_closes_this_window(self):
+        w = self.window
+        self._patch(permissions, "is_elevated", lambda: False)
+        started, destroyed = [], []
+        answers = iter([True, False])
+        self._patch(permissions, "run_as_administrator", lambda command, cwd=None: started.append(command) or next(answers))
+        w.destroy = lambda: destroyed.append(1)
+
+        def steps():
+            w.restart_as_administrator()
+            self.assertIn("--restarted", started[0])
+            self.assertEqual(started[0][started[0].index("--data") + 1], str(w.data_dir))
+            self.assertEqual(destroyed, [1])
+            self.assertTrue(w.closing.is_set())
+            w.closing.clear()
+            w.restart_as_administrator()  # Windows' question was answered with no
+            self.assertEqual(destroyed, [1])
+            self.assertEqual(self.dialogs[-1][0], "showinfo")
+            del w.destroy
+            yield 100
+        self.run_steps(steps)
+
+
+class AdministratorWindow(WindowTest):
+    def make_window(self):
+        self._patch(permissions, "is_elevated", lambda: True)
+        return app.App(self.tmp / "data")
+
+    def test_the_window_says_so_and_the_protection_can_be_switched(self):
+        w = self.window
+        calls = []
+        self._patch(permissions, "lock_down", lambda folder, readers: calls.append(("lock", folder, readers)) or [])
+        self._patch(permissions, "unlock", lambda folder: calls.append(("unlock", folder)) or [])
+
+        def steps():
+            self.assertTrue(w.title().endswith("(administrator)"))
+            self.assertEqual(self.menu_state("restart_admin"), "disabled")
+            self.assertEqual(str(w.field_widgets["protect_settings"].cget("state")), "normal")
+            w.b["protect_settings"].set(True)
+            w.accounts_text.insert("1.0", "DOM" + chr(92) + "op\nline-pc")
+            self.assertTrue(w.save())
+            self.assertEqual(calls, [("lock", w.data_dir, ["DOM" + chr(92) + "op", "line-pc"])])
+            saved = config.load_config(w.data_dir / "config.json")
+            self.assertEqual((saved["protect_settings"], saved["password_accounts"]),
+                             (True, "DOM" + chr(92) + "op\nline-pc"))
+            w.b["protect_settings"].set(False)
+            self.assertTrue(w.save())
+            self.assertEqual(calls[-1], ("unlock", w.data_dir))
+            yield 100
+        self.run_steps(steps)
+
+
+class OptionsScrolling(WindowTest):
+    def test_a_page_taller_than_the_window_scrolls_and_otherwise_does_not(self):
+        w = self.window
+        page = w.option_pages["access"]
+        last = w.field_widgets["restart_admin"]  # the bottom of the page
+
+        def steps():
+            w.options_win.minsize(300, 300)  # the real minimum is larger; a small screen is simulated here
+            w.options_win.geometry("780x900")
+            w.open_options("access")
+            w.update()
+            yield lambda: page.canvas.winfo_height() > 700
+            w.update()
+            self.assertFalse(page.scrolls)
+            self.assertEqual(page.canvas.yview(), (0.0, 1.0))
+            w.options_win.geometry("780x420")
+            yield lambda: page.canvas.winfo_height() < 400
+            w.update()
+            self.assertTrue(page.scrolls)
+            self.assertGreater(page.canvas.yview()[1] - page.canvas.yview()[0], 0)
+            self.assertLess(page.canvas.yview()[1], 1.0)
+            bottom = page.canvas.winfo_rooty() + page.canvas.winfo_height()
+            self.assertGreater(last.winfo_rooty() + last.winfo_height(), bottom)  # cut off until it is scrolled to
+            page.canvas.yview_moveto(1.0)
+            w.update()
+            self.assertLessEqual(last.winfo_rooty() + last.winfo_height(), bottom + 1)
+            page.canvas.yview_moveto(0)
+            w.update()
+            page.scroll(3)
+            w.update()
+            self.assertGreater(page.canvas.yview()[0], 0)
+            page.scroll(-30)
+            w.update()
+            self.assertEqual(page.canvas.yview()[0], 0)
+            # the wheel scrolls the page the pointer is over: here the pointer is said to be over its last widget ...
+            wheel = types.SimpleNamespace(delta=-120, x_root=0, y_root=0)
+            page.winfo_containing = lambda x, y: last
+            page._wheel(wheel)
+            w.update()
+            self.assertGreater(page.canvas.yview()[0], 0)
+            page.canvas.yview_moveto(0)
+            page.winfo_containing = lambda x, y: w.field_widgets["station_name"]  # ... and not when it is over the form
+            page._wheel(wheel)
+            w.update()
+            self.assertEqual(page.canvas.yview()[0], 0)
+            del page.winfo_containing
+            w.options_win.geometry("780x900")
+            yield lambda: page.canvas.winfo_height() > 700
+            w.update()
+            self.assertFalse(page.scrolls)  # room again: the scrollbar goes
+            self.assertEqual(page.canvas.yview(), (0.0, 1.0))
         self.run_steps(steps)
 
 

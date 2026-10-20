@@ -6,6 +6,7 @@ Every place it touches is a parameter, so the tests install into a temporary fol
 test registry key; the real set-up uses the all-users locations (see locations()).
 """
 import ctypes
+import json
 import os
 import shutil
 import subprocess
@@ -173,6 +174,24 @@ class Installer:
                                 text=True, creationflags=NO_WINDOW)
         return result.returncode == 0
 
+    def _reapply_protection(self):
+        """An update or a move of the data can drop the permissions of the settings files: lock them again."""
+        try:
+            doc = json.loads((self.data / "config.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            return
+        if not isinstance(doc, dict) or not doc.get("protect_settings"):
+            return
+        try:
+            from cncbridge import permissions
+            problems = permissions.lock_down(self.data, permissions.account_list(doc.get("password_accounts", "")))
+        except Exception as e:  # the program is installed either way
+            problems = [str(e)]
+        for problem in problems:
+            self.say(f"  Protecting the settings: {problem}")
+        if not problems:
+            self.say("  The settings are protected again (administrators only).")
+
     def _register(self, size_kb):
         uninstall = f'"{self.program / UNINSTALLER}"'
         values = {"DisplayName": (winreg.REG_SZ, f"{APP_NAME} {self.version}"),
@@ -245,6 +264,7 @@ class Installer:
         if not self._grant_users(self.data):
             self.say("  Could not change the permissions of the folder; ordinary users may not be able to save "
                      "settings.")
+        self._reapply_protection()
 
         if menu_shortcuts or desktop_shortcut:
             self.say("Creating shortcuts...")

@@ -13,7 +13,9 @@ from pathlib import Path
 
 APP_NAME = "CNCBridge"
 VERSION = "1.2.0"
-SETTINGS_VERSION = 2  # the layout of config.json; MIGRATIONS bring an older file up to it
+SETTINGS_VERSION = 3  # the layout of config.json; MIGRATIONS bring an older file up to it
+OPERATOR_FILE = "operator.json"   # the typed values: what an operator may change without the setup rights
+SECRETS_FILE = "secrets.json"     # the encrypted passwords and tokens, apart so that they can be locked away
 
 MAX_SELECTIONS = 10
 MAX_MANUAL = 2
@@ -89,6 +91,9 @@ DEFAULT_CONFIG = {
     "heartbeat_url": "",                  # a JSON POST to this address ...
     "heartbeat_folder": "",               # ... and/or <station>.status.json written into this folder
     "heartbeat_minutes": 5,
+    # protection: with it on, an administrator locks config.json and the passwords away (see permissions.py)
+    "protect_settings": False,
+    "password_accounts": "",                # Windows accounts that may read the saved passwords, one per line
 }
 SECRET_KEYS = ("api_token", "alert_email_password", "ftp_password")  # encrypted on disk, never exported
 
@@ -123,6 +128,7 @@ def normalize_config(cfg):
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
     base["api_headers"] = str(base["api_headers"] or "")
+    base["password_accounts"] = str(base["password_accounts"] or "")
     base["theme"] = str(base["theme"] or "").strip().lower() or "modern"  # an unknown name falls back when used
     base["color_mode"] = str(base["color_mode"] or "").strip().lower()
     if base["color_mode"] not in COLOR_MODES:
@@ -139,7 +145,7 @@ def normalize_config(cfg):
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",
                 "time_zone", "alert_notify",
                 "alert_webhook_enabled", "alert_email_enabled", "alert_email_starttls", "ftp_enabled", "ftp_tls",
-                "ftp_passive", "heartbeat_enabled"):
+                "ftp_passive", "heartbeat_enabled", "protect_settings"):
         base[key] = bool(base[key])
     base["file_pattern"] = base["file_pattern"] or "*.csv"
     base["encoding"] = base["encoding"] or "auto"
@@ -173,7 +179,13 @@ def _v1_to_v2(raw):
 
 
 # MIGRATIONS[n] turns a version-n file into version n+1. A file without a version is version 1.
-MIGRATIONS = {1: _v1_to_v2}
+def _v2_to_v3(raw):
+    # 3 keeps the typed values in operator.json and the passwords in secrets.json. Nothing is moved here: a
+    # file without those two is read as before, and the next save writes the new layout.
+    return raw
+
+
+MIGRATIONS = {1: _v1_to_v2, 2: _v2_to_v3}
 
 
 def file_version(raw):
@@ -233,7 +245,36 @@ def unprotect(stored):
 
 
 # ---------------------------------------------------------------- load / save
-def load_config(path):
+def _read_json(path):
+    """A small JSON file as a dict; {} when there is none or it is not readable; None when access is denied."""
+    try:
+        doc = json.loads(Path(path).read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return {}
+    except PermissionError:
+        return None
+    except (OSError, ValueError) as e:
+        log.warning("%s could not be read: %s", path, e)
+        return {}
+    return doc if isinstance(doc, dict) else {}
+
+
+def _write_json(path, doc):
+    path = Path(path)
+    tmp = path.with_name(path.name + ".part")
+    try:
+        tmp.write_text(json.dumps(doc, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        tmp.unlink(missing_ok=True)  # e.g. the file is protected: nothing may be left behind
+        raise
+
+
+def load_config(path, quiet=False):
+    """
+    The settings: config.json, the passwords from secrets.json and the typed values from operator.json.
+    A file from before those two existed still carries them itself, and is read as it is.
+    """
     p = Path(path)
     raw = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
     try:
@@ -241,12 +282,23 @@ def load_config(path):
     except SettingsTooNew as e:  # use what can be understood, but save_config will not overwrite the file
         log.warning("%s: %s", p, e)
     cfg = normalize_config(raw)
+    stored = _read_json(p.parent / SECRETS_FILE)
+    if stored is None:
+        if not quiet:
+            log.warning("This Windows account may not read the saved passwords (%s). Run CNCBridge as administrator, "
+                        "or ask an administrator to add this account under Operators & access.", p.parent / SECRETS_FILE)
+        stored = {}
     for key in SECRET_KEYS:
         try:
-            cfg[key] = unprotect(cfg[key])
+            cfg[key] = unprotect(stored[key] if key in stored else cfg[key])
         except (OSError, ValueError):
             log.warning("The saved %s cannot be read on this PC - enter it again", key.replace("_", " "))
             cfg[key] = ""
+    typed = _read_json(p.parent / OPERATOR_FILE) or {}
+    values = typed.get("manual_inputs")
+    if isinstance(values, list):
+        for slot, value in zip(cfg["manual_inputs"], values):
+            slot["value"] = str(value)
     return cfg
 
 
@@ -262,22 +314,58 @@ def check_not_newer(path):
 
 def save_config(cfg, path, how="save", detail=""):
     """
-    Write the settings. how says what led to it (save, import, restore, password, operator), for the
-    settings change log (audit.py), which also notices a file that was edited outside CNCBridge.
+    Write the settings: config.json (without passwords or typed values), secrets.json (the passwords, encrypted)
+    and operator.json (the typed values). how says what led to it (save, import, restore, password, operator),
+    for the settings change log (audit.py), which also notices a file that was edited outside CNCBridge.
+    With protect_settings on, the files are locked afterwards (permissions.py).
     """
     p = Path(path)
     check_not_newer(p)
     out = normalize_config(cfg)
     now = normalize_config(cfg)  # with the secrets readable, for the change log
+    secrets = {key: protect(out[key]) for key in SECRET_KEYS}
     for key in SECRET_KEYS:
-        out[key] = protect(out[key])
+        out[key] = ""
+    values = [m["value"] for m in out["manual_inputs"]]
+    for slot in out["manual_inputs"]:
+        slot["value"] = ""
     previous = _audit_before(p)
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + ".part")
-    tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
-    os.replace(tmp, p)
+    _write_json(p.parent / SECRETS_FILE, secrets)
+    _write_json(p.parent / OPERATOR_FILE, {"manual_inputs": values})
+    _write_json(p, out)
     _keep_backup(p)
+    _protect(p.parent, now, previous)
     _audit_after(p, previous, now, how, detail)
+
+
+def save_operator_values(data_dir, values, how="operator"):
+    """
+    Write only the typed values (operator.json). This is all an operator without the setup rights may change.
+    Returns the settings as they are now.
+    """
+    folder = Path(data_dir)
+    path = folder / "config.json"
+    previous = load_config(path)
+    _write_json(folder / OPERATOR_FILE, {"manual_inputs": [str(v) for v in list(values)[:MAX_MANUAL]]})
+    now = load_config(path)
+    _audit_after(path, previous, now, how, "")
+    return now
+
+
+def _protect(folder, now, previous):
+    """Lock the settings files when protection is on; give them back their permissions when it was just switched off."""
+    try:
+        from . import permissions
+        if now["protect_settings"]:
+            problems = permissions.lock_down(folder, permissions.account_list(now["password_accounts"]))
+            for problem in problems:
+                log.warning("Protecting the settings: %s", problem)
+        elif previous and previous.get("protect_settings"):
+            for problem in permissions.unlock(folder):
+                log.warning("Removing the protection of the settings: %s", problem)
+    except Exception as e:  # saving must work even when the permissions cannot be changed
+        log.warning("Could not change the permissions of the settings files: %s", e)
 
 
 def _audit_before(p):
@@ -341,6 +429,8 @@ def import_settings(path, current):
             secret = ""
         cfg[key] = secret or current.get(key, "")
     cfg["setup_password"] = current.get("setup_password", "")  # importing or restoring never changes the password
+    for slot, now in zip(cfg["manual_inputs"], current.get("manual_inputs") or []):
+        slot["value"] = slot["value"] or now.get("value", "")  # a backup copy has none: the current ones stay
     return cfg
 
 

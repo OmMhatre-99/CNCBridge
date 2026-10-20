@@ -27,7 +27,7 @@ class FormMixin:
                                                     "json_numbers", "csv_flat", "time_zone",
                                                     "alert_notify", "alert_webhook_enabled", "alert_email_enabled",
                                                     "alert_email_starttls", "ftp_enabled", "ftp_tls",
-                                                    "ftp_passive", "heartbeat_enabled")}
+                                                    "ftp_passive", "heartbeat_enabled", "protect_settings")}
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
@@ -40,6 +40,7 @@ class FormMixin:
         self.unlocked = False        # the setup password was entered in this session
         self._pending_how = None     # ("import" | "restore", file name) until the loaded settings are saved
         self.password_state = tk.StringVar(self)
+        self.protection_state = tk.StringVar(self)
         self.theme_note = tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
         self.pick_heading = tk.BooleanVar(self)
@@ -68,7 +69,17 @@ class FormMixin:
         self.headers_text.insert("1.0", cfg["api_headers"])
         self.rename_text.delete("1.0", "end")
         self.rename_text.insert("1.0", cfg["rename_columns"])
+        self._set_text(self.accounts_text, cfg["password_accounts"])
         self._update_theme_note()
+
+    @staticmethod
+    def _set_text(widget, text):
+        """Fill a text box that may be switched off (disabled boxes cannot be written to)."""
+        state = str(widget.cget("state"))
+        widget.configure(state="normal")
+        widget.delete("1.0", "end")
+        widget.insert("1.0", text)
+        widget.configure(state=state)
 
     def collect(self):
         """The settings as currently shown in the window (saved or not)."""
@@ -79,6 +90,7 @@ class FormMixin:
         cfg.update(self._chosen_appearance())
         cfg["api_headers"] = self.headers_text.get("1.0", "end").strip()
         cfg["rename_columns"] = self.rename_text.get("1.0", "end").strip()
+        cfg["password_accounts"] = self.accounts_text.get("1.0", "end").strip()
         cfg["selections"] = []
         for name, rng, header in self.sel_vars:
             text = rng.get().strip()

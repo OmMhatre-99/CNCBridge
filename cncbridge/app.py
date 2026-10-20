@@ -19,7 +19,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
-from . import alerts, background, config, engine, i18n, shifts, theme
+from . import alerts, background, config, engine, i18n, permissions, shifts, theme
 from . import help as help_text
 from .config import (APP_NAME, FORMATS, MAX_MANUAL, MAX_SELECTIONS, VERSION, export_settings, import_settings,
                      load_config, normalize_config, save_config)
@@ -100,7 +100,7 @@ class App(LayoutMixin,
         log.addHandler(handler)
         log.setLevel(logging.INFO)
 
-        self.title(f"{APP_NAME} {VERSION}")
+        self.title(f"{APP_NAME} {VERSION}" + (" (administrator)" if permissions.is_elevated() else ""))
         self.scale = dpi_scale * window_scale  # fonts grow with the Windows display scale; sizes must follow
         # never taller or wider than the screen (minus taskbar and title bar), or the Save button ends up off-screen
         self.L = self.theme.layout
@@ -142,12 +142,13 @@ class App(LayoutMixin,
         self._add_tooltips()
         self._bind_shortcuts()
         self._apply_lock()
+        self._update_protection_state()
         self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._stats_loop, daemon=True).start()
         self._tick_job = self.after(200, self._tick)
-        self.after(700, self._check_settings_edit)
+        self._edit_check_job = self.after(700, self._check_settings_edit)
         if notice:  # e.g. the one-time move of the data folder
             self.after(600, lambda: messagebox.showinfo(APP_NAME, notice, parent=self))
         if self.cfg["autostart"] or resume:

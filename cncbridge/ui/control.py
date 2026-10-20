@@ -7,7 +7,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import messagebox
 
-from .. import background, config, engine, shifts
+from .. import background, config, engine, permissions, shifts
 from ..config import APP_NAME, SettingsTooNew, save_config
 from .common import log
 from ..i18n import tr
@@ -69,8 +69,14 @@ class ControlMixin:
             messagebox.showerror(APP_NAME, shift_problem, parent=self)
             return False
         times_changed = cfg["shift_times"] != self.cfg["shift_times"]
+        if not permissions.can_write(self.cfg_path):
+            self._need_administrator()
+            return False
         try:
             self._apply(cfg, how)
+        except PermissionError:
+            self._need_administrator()
+            return False
         except SettingsTooNew as e:
             messagebox.showerror(APP_NAME, tr("The settings were not saved:\n{e}\n\nUse the newer CNCBridge, or restore an "
                                               "earlier version from the File menu.", e=e), parent=self)
@@ -82,6 +88,7 @@ class ControlMixin:
         if self.running:
             self.engine.cfg = cfg
         log.info("Settings saved")
+        self._update_protection_state()
         self.status_msg.set(tr("Settings saved.") if not problems else tr("Settings saved. Before starting: ") + problems[0])
         self._apply_background_choice()  # the background process reads the saved settings by itself
         return True
@@ -160,7 +167,15 @@ class ControlMixin:
                 messagebox.showerror(APP_NAME, tr("Please complete the settings first.\n\n- ") + "\n- ".join(problems),
                                      parent=self)
             return None
-        self._apply(cfg)
+        if permissions.can_write(self.cfg_path):
+            self._apply(cfg)
+        else:  # protected settings: an operator starts with the saved ones
+            log.info("The settings are protected; monitoring starts with the saved ones")
+            cfg = self.cfg
+            if engine.validate(cfg):
+                messagebox.showerror(APP_NAME, tr("The saved settings are not complete, and changing them needs "
+                                                  "administrator rights."), parent=self)
+                return None
         return cfg
 
     def start(self, quiet=False):
@@ -215,10 +230,11 @@ class ControlMixin:
         if self.lock:  # let the data folder go, for a background task or the next window
             self.lock.close()
             self.lock = None
-        try:
-            self.after_cancel(self._tick_job)  # no refresh may run after the window is gone
-        except (AttributeError, tk.TclError):
-            pass
+        for job in ("_tick_job", "_edit_check_job"):
+            try:
+                self.after_cancel(getattr(self, job))  # no refresh may run after the window is gone
+            except (AttributeError, tk.TclError):
+                pass
         try:
             super().destroy()
         except tk.TclError:  # already destroyed: a restart closes the window, then a close may follow

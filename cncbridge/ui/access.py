@@ -1,8 +1,9 @@
 """The operator view, the setup password and the shift-change confirmation."""
 from tkinter import messagebox, simpledialog, ttk
 
-from .. import config, shifts
+from .. import config, permissions, shifts
 from ..config import APP_NAME, SettingsTooNew, normalize_config, save_config
+from .common import log
 from .dialogs import ShiftDialog
 from ..i18n import tr
 
@@ -95,6 +96,8 @@ class AccessMixin:
         cfg = dict(self.cfg, setup_password=stored)
         try:
             save_config(cfg, self.cfg_path, how="password")
+        except PermissionError:
+            return self._need_administrator()
         except SettingsTooNew as e:
             return messagebox.showerror(APP_NAME, tr("The password was not changed:\n{e}", e=e), parent=self)
         self.cfg = normalize_config(cfg)
@@ -143,7 +146,7 @@ class AccessMixin:
         if values is not None and values != [var.get() for _, var in self.man_vars]:
             for (_, var), text in zip(self.man_vars, values):
                 var.set(text)
-            if not self.save(how="operator"):
+            if not self._save_typed_values():
                 return False
         self.shift_confirmed = self._now()
         shifts.write_confirmed(self.data_dir, self.shift_confirmed)
@@ -151,7 +154,24 @@ class AccessMixin:
         self.status_msg.set(tr("Shift change confirmed."))
         return True
 
+    def _save_typed_values(self):
+        """
+        Save only the typed values (operator.json). Operators may do this even when the settings are protected;
+        nothing else in the form is saved. Returns False if it failed.
+        """
+        values = [var.get() for _, var in self.man_vars]
+        try:
+            cfg = config.save_operator_values(self.data_dir, values)
+        except OSError as e:
+            messagebox.showerror(APP_NAME, tr("The typed values could not be saved:\n{e}", e=e), parent=self)
+            return False
+        self.cfg = dict(self.cfg, manual_inputs=cfg["manual_inputs"])
+        if self.running:
+            self.engine.cfg = dict(self.engine.cfg, manual_inputs=cfg["manual_inputs"])
+        log.info("Typed values saved")
+        return True
+
     def apply_operator_values(self):
-        """The Operator tab: the typed values are the only thing that can have changed, so Save is enough."""
-        if self.save(how="operator"):
+        """The Operator tab: the typed values are the only thing that can have changed."""
+        if self._save_typed_values():
             self.status_msg.set(tr("Typed values applied. They are used from the next file."))

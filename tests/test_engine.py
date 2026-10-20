@@ -446,11 +446,24 @@ class Settings(unittest.TestCase):
                              ("Line 7", "current-token", 9))
             self.assertEqual(cfg["selections"][0]["range"], "L1:M8")
 
-    def test_restoring_a_backup_brings_back_its_token(self):
+    def test_a_backup_holds_no_passwords_and_restoring_it_keeps_the_current_ones(self):
         with tempfile.TemporaryDirectory() as d:
-            config.save_config({"station_name": "Line 7", "api_token": "old-token"}, Path(d) / "config.json")
+            config.save_config({"station_name": "Line 7", "api_token": "old-token",
+                                "manual_inputs": [{"name": "Operator", "value": "OP-1"}]}, Path(d) / "config.json")
             backup = next((Path(d) / "backups").glob("config-*.json"))
-            cfg = config.import_settings(backup, {"api_token": "current-token"})
+            self.assertNotIn("old-token", backup.read_text(encoding="utf-8"))
+            self.assertNotIn("dpapi", backup.read_text(encoding="utf-8"))
+            cfg = config.import_settings(backup, {"api_token": "current-token",
+                                                  "manual_inputs": [{"name": "Operator", "value": "OP-9"}]})
+            self.assertEqual((cfg["station_name"], cfg["api_token"]), ("Line 7", "current-token"))
+            self.assertEqual(cfg["manual_inputs"][0], {"name": "Operator", "value": "OP-9"})  # the work order is today's
+
+    def test_a_backup_made_before_the_split_still_brings_back_its_token(self):
+        with tempfile.TemporaryDirectory() as d:
+            old = Path(d) / "config-20260101-000000.json"
+            old.write_text(json.dumps({"station_name": "Line 7", "api_token": config.protect("old-token")}),
+                           encoding="utf-8")
+            cfg = config.import_settings(old, {"api_token": "current-token"})
             self.assertEqual(cfg["api_token"], "old-token")
 
     def test_password_hash(self):

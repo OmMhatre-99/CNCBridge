@@ -56,7 +56,8 @@ LABELS = {
     "alert_email_password": "Alerts: mail password", "alert_email_from": "Alerts: from address",
     "alert_email_to": "Alerts: to address(es)", "heartbeat_enabled": "Heartbeat: on",
     "heartbeat_url": "Heartbeat address", "heartbeat_folder": "Heartbeat folder",
-    "heartbeat_minutes": "Heartbeat every (minutes)",
+    "heartbeat_minutes": "Heartbeat every (minutes)", "protect_settings": "Protect the settings",
+    "password_accounts": "Accounts that may read the passwords",
 }
 
 
