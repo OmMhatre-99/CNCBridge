@@ -489,7 +489,12 @@ Python 3.11 (the version it is built and tested with), standard library only.
 
 ```
 CNCBridge.pyw            double-click to run from source
-cncbridge/engine.py      read, cell ranges, render, queue, deliver, back up, clean up, ledger
+cncbridge/engine.py      the Engine: the loop that reads, renders, queues, delivers and backs up
+cncbridge/csvread.py     read a machine file, cell ranges
+cncbridge/output.py      render JSON / CSV / TXT, check the settings (validate)
+cncbridge/ledger.py      the history database (one row per file, one per file and destination)
+cncbridge/delivery.py    shared folder, API link, FTP server, and their tests
+cncbridge/housekeeping.py  queues, back-up drive, health, second chances, clean-up
 cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/background.py  background task, single-copy lock, connected window
@@ -509,7 +514,9 @@ cncbridge/grid.py        spreadsheet view with drag selection
 cncbridge/theme.py       themes (Modern, Legacy): colours, fonts and widget styles
 assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
-tests/test_structure.py  the window's pieces fit together; no method is defined twice
+tests/test_structure.py  the window's pieces fit together; every engine name is still reachable
+tests/test_ledger.py     the history database and its migration
+tests/test_config_migrations.py  the settings file version
 tests/test_installer.py  install, update and uninstall into temporary folders and a test registry key
 tests/test_ftp.py        FTP / FTPS delivery against a small FTP server written for the tests
 tests/test_theme.py      every theme is complete; unknown names fall back

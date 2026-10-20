@@ -87,7 +87,7 @@ def notify_windows(title, text, kind="warning", seconds=15):
 
 
 def post_webhook(url, payload, timeout=15):
-    from .engine import _opener  # the opener that refuses redirects, so a POST is never silently dropped
+    from .delivery import _opener  # the opener that refuses redirects, so a POST is never silently dropped
     req = urllib.request.Request(url, data=json.dumps(payload).encode("utf-8"), method="POST", headers={
         "Content-Type": "application/json", "User-Agent": f"{APP_NAME}/{VERSION}"})
     with _opener.open(req, timeout=timeout) as resp:

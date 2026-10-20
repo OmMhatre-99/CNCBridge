@@ -5,7 +5,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from cncbridge import app  # noqa: E402
+from cncbridge import app, engine  # noqa: E402
 
 
 def mixins():
@@ -36,6 +36,54 @@ class Structure(unittest.TestCase):
 
     def test_the_main_module_stays_small(self):
         self.assertLess(len((Path(app.__file__)).read_text(encoding="utf-8").splitlines()), 250)
+
+
+if __name__ == "__main__":
+    unittest.main()
+
+
+# Every name that engine.py offered before it was split into modules. The window, the demo, the tests and
+# anything written against it use them as engine.<name>, so they all have to stay reachable there.
+ENGINE_NAMES = (
+    "ALLOW_ONCE", "APP_NAME", "Alerts", "CONTENT_TYPES", "CRITICAL_DISK_BYTES", "DAY_FOLDER", "DELIMITERS",
+    "DESTINATIONS", "Engine", "FileError", "LOW_DISK_BYTES", "LOW_DISK_FRACTION", "Ledger", "NUMBER",
+    "PERMANENT_FTP", "PERMANENT_HTTP", "Path", "RANGE_RE", "Rejected", "VERSION", "_NoRedirect", "_aligned",
+    "_allowed", "_flat_csv", "_ftp_connect", "_ftp_enter", "_ftp_free_name", "_ftp_quit", "_header",
+    "_header_safe", "_kept_copy", "_multipart", "_opener", "_resolve_heading", "_same_folder", "_unique",
+    "_visible", "allow_once", "as_number", "atomic_write", "build_output", "check_range", "clean_up",
+    "col_index", "col_letter", "copy_shared", "count_queued", "count_rejected", "count_waiting", "datetime",
+    "decode", "disk_level", "disk_space", "extract", "find_heading", "format_range", "has_marker", "health",
+    "is_heading", "is_ready", "load_config", "log", "manual_dict", "normalize_config", "normalize_range",
+    "oldest_queued_age", "parse_headers", "parse_range", "parse_renames", "read_rows", "render", "reprocess",
+    "resend_rejected", "resolve_range", "send_api", "send_ftp", "sha256_file", "sniff_delimiter",
+    "stop_requested", "take_allowance", "test_api", "test_ftp", "test_shared", "timedelta", "validate",
+)
+MODULES = ("csvread", "output", "ledger", "delivery", "housekeeping")
+
+
+class EngineModules(unittest.TestCase):
+    def test_every_name_engine_used_to_have_is_still_there(self):
+        self.assertEqual([n for n in ENGINE_NAMES if not hasattr(engine, n)], [])
+
+    def test_the_pieces_do_not_import_the_engine(self):
+        """They are the layers below it; an import of engine from one of them would make a loop."""
+        for name in MODULES:
+            text = (Path(engine.__file__).parent / f"{name}.py").read_text(encoding="utf-8")
+            self.assertNotIn("from .engine", text, name)
+            self.assertNotIn("import engine", text, name)
+
+    def test_engine_py_stays_small(self):
+        self.assertLess(len(Path(engine.__file__).read_text(encoding="utf-8").splitlines()), 400)
+
+    def test_a_name_has_one_home(self):
+        import importlib
+        homes = {}
+        for name in MODULES:
+            module = importlib.import_module(f"cncbridge.{name}")
+            for attribute, value in vars(module).items():
+                if getattr(value, "__module__", None) == module.__name__ and not attribute.startswith("__"):
+                    self.assertNotIn(attribute, homes, f"{attribute} is in {homes.get(attribute)} and {name}")
+                    homes[attribute] = name
 
 
 if __name__ == "__main__":
