@@ -13,6 +13,7 @@ from pathlib import Path
 
 APP_NAME = "CNCBridge"
 VERSION = "1.2.0"
+SETTINGS_VERSION = 2  # the layout of config.json; MIGRATIONS bring an older file up to it
 
 MAX_SELECTIONS = 10
 MAX_MANUAL = 2
@@ -24,6 +25,7 @@ UI_SCALES = (90, 100, 110, 125, 150)
 BACKUPS_KEPT = 20  # copies of the settings file kept in <data folder>\backups
 
 DEFAULT_CONFIG = {
+    "config_version": SETTINGS_VERSION,   # which layout of this file the program wrote; see MIGRATIONS
     "station_name": "",
     "source_folder": "",                  # where the machine drops its CSV files
     "file_pattern": "*.csv",
@@ -151,7 +153,42 @@ def normalize_config(cfg):
     base["ftp_port"] = int(_number(base["ftp_port"], 21, 1))
     if base["ftp_port"] > 65535:
         base["ftp_port"] = 21
+    base["config_version"] = SETTINGS_VERSION
     return base
+
+
+# ---------------------------------------------------------------- settings versions
+class SettingsTooNew(ValueError):
+    """The settings file was written by a newer CNCBridge than this one."""
+
+
+def _v1_to_v2(raw):
+    return raw  # 1.2.0 files carried no version; the layout itself did not change
+
+
+# MIGRATIONS[n] turns a version-n file into version n+1. A file without a version is version 1.
+MIGRATIONS = {1: _v1_to_v2}
+
+
+def file_version(raw):
+    try:
+        return max(1, int(raw.get("config_version", 1)))
+    except (AttributeError, TypeError, ValueError):
+        return 1
+
+
+def migrate(raw):
+    """A settings dict from any older layout, brought up to the current one. Newer layouts raise SettingsTooNew."""
+    version = file_version(raw)
+    if version > SETTINGS_VERSION:
+        raise SettingsTooNew(f"these settings were saved by a newer {APP_NAME} (settings version {version}; "
+                             f"this program understands up to {SETTINGS_VERSION})")
+    raw = dict(raw)
+    while version < SETTINGS_VERSION:
+        raw = MIGRATIONS[version](raw)
+        version += 1
+    raw["config_version"] = SETTINGS_VERSION
+    return raw
 
 
 # ---------------------------------------------------------------- token protection
@@ -193,6 +230,10 @@ def unprotect(stored):
 def load_config(path):
     p = Path(path)
     raw = json.loads(p.read_text(encoding="utf-8")) if p.exists() else {}
+    try:
+        raw = migrate(raw)
+    except SettingsTooNew as e:  # use what can be understood, but save_config will not overwrite the file
+        log.warning("%s: %s", p, e)
     cfg = normalize_config(raw)
     for key in SECRET_KEYS:
         try:
@@ -203,8 +244,19 @@ def load_config(path):
     return cfg
 
 
+def check_not_newer(path):
+    """Raise SettingsTooNew when the file on disk was written by a newer program, so it is not overwritten."""
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return
+    if file_version(raw) > SETTINGS_VERSION:
+        migrate(raw)  # raises with the message
+
+
 def save_config(cfg, path):
     p = Path(path)
+    check_not_newer(p)
     out = normalize_config(cfg)
     for key in SECRET_KEYS:
         out[key] = protect(out[key])
@@ -249,7 +301,7 @@ def import_settings(path, current):
     raw = json.loads(Path(path).read_text(encoding="utf-8"))
     if not isinstance(raw, dict) or not set(raw) & set(DEFAULT_CONFIG):
         raise ValueError("this is not a CNCBridge settings file")
-    cfg = normalize_config(raw)
+    cfg = normalize_config(migrate(raw))  # a file from a newer program is refused, not half-read
     for key in SECRET_KEYS:
         try:
             secret = unprotect(cfg[key])

@@ -8,7 +8,7 @@ from pathlib import Path
 from tkinter import messagebox
 
 from .. import background, config, engine, shifts
-from ..config import APP_NAME, save_config
+from ..config import APP_NAME, SettingsTooNew, save_config
 from .common import log
 from ..i18n import tr
 
@@ -66,7 +66,12 @@ class ControlMixin:
             messagebox.showerror(APP_NAME, shift_problem, parent=self)
             return False
         times_changed = cfg["shift_times"] != self.cfg["shift_times"]
-        self._apply(cfg)
+        try:
+            self._apply(cfg)
+        except SettingsTooNew as e:
+            messagebox.showerror(APP_NAME, tr("The settings were not saved:\n{e}\n\nUse the newer CNCBridge, or restore an "
+                                              "earlier version from the File menu.", e=e), parent=self)
+            return False
         if times_changed and cfg["shift_times"]:  # do not ask for a shift that started before they were set
             self.shift_confirmed = self._now()
             shifts.write_confirmed(self.data_dir, self.shift_confirmed)

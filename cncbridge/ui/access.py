@@ -2,7 +2,7 @@
 from tkinter import messagebox, simpledialog, ttk
 
 from .. import config, shifts
-from ..config import APP_NAME, normalize_config, save_config
+from ..config import APP_NAME, SettingsTooNew, normalize_config, save_config
 from .dialogs import ShiftDialog
 from ..i18n import tr
 
@@ -93,7 +93,10 @@ class AccessMixin:
     def _store_password(self, stored):
         """Save only the password; unsaved edits in the form stay unsaved."""
         cfg = dict(self.cfg, setup_password=stored)
-        save_config(cfg, self.cfg_path)
+        try:
+            save_config(cfg, self.cfg_path)
+        except SettingsTooNew as e:
+            return messagebox.showerror(APP_NAME, tr("The password was not changed:\n{e}", e=e), parent=self)
         self.cfg = normalize_config(cfg)
         self.unlocked = True  # whoever just set or removed it is in setup
         self._apply_lock()
