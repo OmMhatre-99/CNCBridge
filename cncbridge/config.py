@@ -84,6 +84,11 @@ DEFAULT_CONFIG = {
     "alert_email_password": "",           # encrypted on disk, like the API token
     "alert_email_from": "",
     "alert_email_to": "",                 # one or more addresses, separated by commas
+    # heartbeat: a regular sign of life for a monitoring tool or the MES (see heartbeat.py)
+    "heartbeat_enabled": False,
+    "heartbeat_url": "",                  # a JSON POST to this address ...
+    "heartbeat_folder": "",               # ... and/or <station>.status.json written into this folder
+    "heartbeat_minutes": 5,
 }
 SECRET_KEYS = ("api_token", "alert_email_password", "ftp_password")  # encrypted on disk, never exported
 
@@ -113,7 +118,7 @@ def normalize_config(cfg):
 
     for key in ("station_name", "source_folder", "file_pattern", "backup_folder", "shared_folder",
                 "api_url", "api_token", "encoding", "delimiter", "complete_marker", "setup_password", "shift_times",
-                "alert_webhook_url", "ftp_host", "ftp_user", "ftp_folder",
+                "alert_webhook_url", "ftp_host", "ftp_user", "ftp_folder", "heartbeat_url", "heartbeat_folder",
                 "alert_email_server",
                 "alert_email_user", "alert_email_from", "alert_email_to"):
         base[key] = str(base[key] or "").strip()
@@ -134,7 +139,7 @@ def normalize_config(cfg):
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",
                 "time_zone", "alert_notify",
                 "alert_webhook_enabled", "alert_email_enabled", "alert_email_starttls", "ftp_enabled", "ftp_tls",
-                "ftp_passive"):
+                "ftp_passive", "heartbeat_enabled"):
         base[key] = bool(base[key])
     base["file_pattern"] = base["file_pattern"] or "*.csv"
     base["encoding"] = base["encoding"] or "auto"
@@ -149,6 +154,7 @@ def normalize_config(cfg):
     base["keep_backup_days"] = int(_number(base["keep_backup_days"], 0, 0))
     base["keep_history_days"] = int(_number(base["keep_history_days"], 0, 0))
     base["alert_after_minutes"] = _number(base["alert_after_minutes"], 10, 0)
+    base["heartbeat_minutes"] = _number(base["heartbeat_minutes"], 5, 1)
     base["alert_email_port"] = int(_number(base["alert_email_port"], 587, 1))
     base["ftp_port"] = int(_number(base["ftp_port"], 21, 1))
     if base["ftp_port"] > 65535:

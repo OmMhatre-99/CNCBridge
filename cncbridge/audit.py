@@ -20,6 +20,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .config import SECRET_KEYS, normalize_config
+from .eventlog import SETTINGS_CHANGED, SETTINGS_OUTSIDE
 
 log = logging.getLogger("cncbridge")
 
@@ -29,7 +30,7 @@ TIDY_ABOVE_BYTES = 2_000_000
 NL = chr(10)
 
 HIDDEN = set(SECRET_KEYS) | {"api_headers", "setup_password"}  # only "set" / "changed" is ever written
-URL_KEYS = ("api_url", "alert_webhook_url")
+URL_KEYS = ("api_url", "alert_webhook_url", "heartbeat_url")
 SKIPPED = {"config_version", "selections", "manual_inputs"}     # the last two are compared slot by slot
 OUTSIDE = "(edited outside CNCBridge)"
 
@@ -53,7 +54,9 @@ LABELS = {
     "alert_email_server": "Alerts: mail server", "alert_email_port": "Alerts: mail port",
     "alert_email_starttls": "Alerts: encrypted mail", "alert_email_user": "Alerts: mail user",
     "alert_email_password": "Alerts: mail password", "alert_email_from": "Alerts: from address",
-    "alert_email_to": "Alerts: to address(es)",
+    "alert_email_to": "Alerts: to address(es)", "heartbeat_enabled": "Heartbeat: on",
+    "heartbeat_url": "Heartbeat address", "heartbeat_folder": "Heartbeat folder",
+    "heartbeat_minutes": "Heartbeat every (minutes)",
 }
 
 
@@ -194,7 +197,7 @@ def record(data_dir, old, new, how="save", detail="", sha256=None):
         return None
     entry = _entry(how, detail, diff, sha256)
     _append(data_dir, entry)
-    log.info("Settings changed (%s) by %s: %s", how, entry["user"], summary(entry))
+    log.info("Settings changed (%s) by %s: %s", how, entry["user"], summary(entry), extra={"event": SETTINGS_CHANGED})
     return entry
 
 
@@ -236,7 +239,7 @@ def check_outside_edit(data_dir):
     entry["user"] = OUTSIDE
     _append(data_dir, entry)
     log.warning("The settings file was changed outside CNCBridge (%s)%s", stamp,
-                f": {summary(entry)}" if diff else "")
+                f": {summary(entry)}" if diff else "", extra={"event": SETTINGS_OUTSIDE})
     return entry
 
 

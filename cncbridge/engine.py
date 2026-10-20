@@ -43,7 +43,7 @@ import uuid  # noqa: F401
 from datetime import datetime, timedelta  # noqa: F401
 from pathlib import Path  # noqa: F401
 
-from . import audit
+from . import audit, eventlog, heartbeat
 from .alerts import Alerts
 from .background import stop_requested
 from .config import APP_NAME, VERSION, load_config, normalize_config
@@ -95,6 +95,9 @@ class Engine:
         self._waiting_marker = set()  # files seen without the complete-marker, by name
         self._reported = {}  # last problem logged per subject, so a standing fault is logged once, not every cycle
         self._since = {}     # when each standing fault was first seen, for alert_after_minutes
+        self._last_beat = 0.0
+        self._beat_thread = None
+        self._beat_error = None   # why the last heartbeat could not be sent; set by its thread
 
     def stop(self):
         self._stop.set()
@@ -151,10 +154,11 @@ class Engine:
         d.mkdir(parents=True, exist_ok=True)
         return d
 
-    def _report(self, subject, problem, level=logging.WARNING):
+    def _report(self, subject, problem, level=logging.WARNING, event=None):
         """
         Log a fault when it appears or changes; pass problem=None when the subject is healthy again.
         A fault that lasts alert_after_minutes raises an alert, and its end is announced too.
+        event: the Event Log number to log it under (see eventlog.py).
         """
         if problem is None:
             self._since.pop(subject, None)
@@ -162,11 +166,49 @@ class Engine:
             return self._reported.pop(subject, None) is not None
         if self._reported.get(subject) != problem:
             self._reported[subject] = problem
-            log.log(level, "%s", problem)
+            log.log(level, "%s", problem, extra={"event": event} if event else None)
         since = self._since.setdefault(subject, time.time())
         if time.time() - since >= self.cfg["alert_after_minutes"] * 60:
             self.alerts.problem(subject, problem, self.cfg)
         return False
+
+    def _heartbeat(self, state=None):
+        """
+        Send the heartbeat (see heartbeat.py) when it is due. state=None: by the clock, and "ok" or "problem" by
+        what is open; "stopped": now, once, as monitoring ends. Sending is done on a thread, so that a slow
+        receiver never holds up the files; a failure is reported on the next cycle.
+        """
+        try:
+            cfg = self.cfg
+            if not cfg["heartbeat_enabled"]:
+                self._beat_error = None
+                self._report("heartbeat", None)
+                return
+            self._report("heartbeat", f"The heartbeat could not be sent: {self._beat_error}" if self._beat_error
+                         else None, event=eventlog.HEARTBEAT_FAILING)
+            if state is None and (time.time() - self._last_beat < cfg["heartbeat_minutes"] * 60
+                                  or (self._beat_thread and self._beat_thread.is_alive())):
+                return
+            self._last_beat = time.time()
+            problems = [dict(subject=k, **v) for k, v in dict(self.alerts.open).items()]
+            payload = heartbeat.snapshot(cfg, self.data, self.ledger, state or ("problem" if problems else "ok"),
+                                         problems)
+
+            def work():
+                try:
+                    heartbeat.send(cfg, payload)
+                    self._beat_error = None
+                except Exception as e:
+                    self._beat_error = str(e)
+
+            thread = threading.Thread(target=work, name="heartbeat", daemon=True)
+            thread.start()
+            if state == "stopped":
+                thread.join(10)
+            else:
+                self._beat_thread = thread
+        except Exception as e:  # the heartbeat must never stop the processing
+            log.debug("Heartbeat: %s", e)
 
     # ---- delivery
     def drain_outbox(self):
@@ -312,7 +354,7 @@ class Engine:
     def run_forever(self):
         self._stop.clear()
         stop_requested(self.data)  # an old request must not stop this new run
-        log.info("Monitoring %s", self.cfg["source_folder"])
+        log.info("Monitoring %s", self.cfg["source_folder"], extra={"event": eventlog.STARTED})
         while not self._stop.is_set():
             if stop_requested(self.data):
                 log.info("Stop requested from the window")
@@ -320,8 +362,11 @@ class Engine:
             try:
                 self.reload_settings()
                 self.scan_once()
+                self._heartbeat()
             except Exception as e:  # never let the watcher die on the shop floor
                 self._report("scan", f"Scan error: {e}", logging.ERROR)
             self._stop.wait(self.cfg["poll_seconds"])
+        log.info("Monitoring stopped", extra={"event": eventlog.STOPPED})
+        self._heartbeat("stopped")
         self.alerts.reset()
         log.info("Monitoring stopped")

@@ -216,6 +216,11 @@ def validate(cfg):
             parse_headers(cfg["api_headers"])
         except ValueError as e:
             p.append(f"API: {e}")
+    if cfg["heartbeat_enabled"]:
+        if not cfg["heartbeat_url"] and not cfg["heartbeat_folder"]:
+            p.append("The heartbeat is on: enter its web address or its folder (Options > Alerts).")
+        elif cfg["heartbeat_url"] and not re.fullmatch(r"https?://[^ ]+", cfg["heartbeat_url"], re.I):
+            p.append("The heartbeat address must start with http:// or https://.")
     if cfg["encoding"] != "auto":
         try:
             codecs.lookup(cfg["encoding"])

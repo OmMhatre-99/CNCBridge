@@ -50,7 +50,7 @@ def parts_for(options):
     base = Path(getattr(sys, "_MEIPASS", ROOT))
     return {"payload": base / "payload" if frozen else ROOT / "dist", "program": where["program"],
             "data": where["data"], "menu": where["menu"], "desktop": where["desktop"],
-            "registry": where["registry"], "setup_exe": sys.executable if frozen else None,
+            "registry": where["registry"], "eventlog": where["eventlog"], "setup_exe": sys.executable if frozen else None,
             "running_exe": sys.executable if frozen else None}
 
 
@@ -61,7 +61,7 @@ def run_silent(options, parts):
         program = found[0] if found else program
     installer = core.Installer(parts["payload"], program, parts["data"], parts["menu"], parts["desktop"],
                                setup_exe=parts["setup_exe"], registry=parts["registry"], report=print,
-                               running_exe=parts["running_exe"])
+                               running_exe=parts["running_exe"], eventlog=parts.get("eventlog"))
     try:
         if options["uninstall"]:
             installer.uninstall(keep_data=not options["delete_data"])

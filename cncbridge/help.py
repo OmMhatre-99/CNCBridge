@@ -120,6 +120,12 @@ message follows.
 Use "Send test alert" (also Tools > Send test alert) to try every channel that is switched on. While a problem is \
 open, a red banner under the counters shows it.
 
+## Heartbeat (Settings > Heartbeat)
+While monitoring runs, CNCBridge can send a small status message every few minutes to a web address (a JSON POST) and/or write it as <station>.status.json into a folder: who this is, whether all is well or what is wrong, the counters, the last file, the oldest waiting file and the free space on the back-up drive. When monitoring is stopped on purpose, one last message says "stopped". A monitoring tool or the MES that stops hearing from this copy without such a message knows that the PC or the program is down. Use "Send test heartbeat" (also Tools menu) to try it.
+
+## Windows Event Log
+Warnings and errors, and the main events (monitoring started or stopped, settings changed, an alert raised or cleared), are also written to the Windows Event Log (Application, source CNCBridge), where IT tools that already watch the PCs can see them. The same message is written at most once every ten minutes. The set-up program registers the source; a copy that was not installed still writes the events.
+
 ## Background processing (Options > Processing)
 Tick "Process in the background" and Save settings. Processing then runs as a Windows background task for your \
 user: it goes on after this window is closed and starts by itself when you log on. The window then opens in a \

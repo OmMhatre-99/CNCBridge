@@ -68,6 +68,7 @@ class MenusMixin:
         for key, page, label in (("opt_processing", "processing", tr("Processing...")),
                                  ("opt_output", "output", tr("Output...")),
                                  ("opt_alerts", "alerts", tr("Alerts...")),
+                                 ("opt_heartbeat", "heartbeat", tr("Heartbeat...")),
                                  ("opt_access", "access", tr("Operators & access...")),
                                  ("opt_appearance", "appearance", tr("Appearance..."))):
             item(settings, key, label, lambda page=page: self.open_options(page))
@@ -79,6 +80,7 @@ class MenusMixin:
         item(tools, "test_api", tr("Test API connection"), self.test_api)
         item(tools, "test_ftp", tr("Test FTP connection"), self.test_ftp)
         item(tools, "test_alert", tr("Send test alert"), self.test_alert)
+        item(tools, "test_heartbeat", tr("Send test heartbeat"), self.test_heartbeat)
         tools.add_separator()
         item(tools, "simulation", tr("Simulation..."), self.open_simulation)
 
@@ -146,8 +148,8 @@ class MenusMixin:
 
     # entries that need the setup rights: they are disabled while the setup is locked
     LOCKED_ENTRIES = ("open_csv", "open_newest", "save", "export", "import", "restore", "options", "opt_processing",
-                      "opt_output", "opt_alerts", "opt_access", "opt_appearance", "test_shared", "test_api", "test_ftp",
-                      "test_alert", "simulation", "view_setup", "view_delivery", "view_pick")
+                      "opt_output", "opt_alerts", "opt_heartbeat", "opt_access", "opt_appearance", "test_shared", "test_api",
+                      "test_ftp", "test_alert", "test_heartbeat", "simulation", "view_setup", "view_delivery", "view_pick")
 
     def _set_menu(self, key, enabled):
         menu, index = self.menu_items[key]

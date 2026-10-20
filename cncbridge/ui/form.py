@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
-from .. import alerts, background, engine, i18n, shifts
+from .. import alerts, background, engine, heartbeat, i18n, shifts
 from ..config import APP_NAME, MAX_MANUAL, MAX_SELECTIONS, export_settings, import_settings, normalize_config
 from .common import BODY_LABELS, DEFAULT_FONT_LABEL, FONT_SIZE_LABELS, UI_SCALE_LABELS, log
 from ..i18n import tr
@@ -22,12 +22,12 @@ class FormMixin:
             "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days", "language", "ftp_host", "ftp_port", "ftp_user", "ftp_password",
-            "ftp_folder")}
+            "ftp_folder", "heartbeat_url", "heartbeat_folder", "heartbeat_minutes")}
         self.b = {k: tk.BooleanVar(self) for k in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart",
                                                     "json_numbers", "csv_flat", "time_zone",
                                                     "alert_notify", "alert_webhook_enabled", "alert_email_enabled",
                                                     "alert_email_starttls", "ftp_enabled", "ftp_tls",
-                                                    "ftp_passive")}
+                                                    "ftp_passive", "heartbeat_enabled")}
         self.sel_vars = [(tk.StringVar(self), tk.StringVar(self), tk.BooleanVar(self)) for _ in range(MAX_SELECTIONS)]
         self.man_vars = [(tk.StringVar(self), tk.StringVar(self)) for _ in range(MAX_MANUAL)]
         self.pick_range, self.pick_name = tk.StringVar(self), tk.StringVar(self)
@@ -52,7 +52,7 @@ class FormMixin:
 
     def fill(self, cfg):
         numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port", "keep_backup_days",
-                   "keep_history_days", "ftp_port")
+                   "keep_history_days", "ftp_port", "heartbeat_minutes")
         for k, var in self.v.items():
             var.set(BODY_LABELS[cfg[k]] if k == "api_body" else f"{cfg[k]:g}" if k in numbers
                     else FONT_SIZE_LABELS[cfg[k]] if k == "font_size" else UI_SCALE_LABELS[cfg[k]] if k == "ui_scale"
@@ -93,6 +93,14 @@ class FormMixin:
     def test_alert(self):
         cfg = self.collect()
         self._in_background(tr("Test alert"), lambda: alerts.send_test(cfg))
+
+    def test_heartbeat(self):
+        cfg = self.collect()
+        if not cfg["heartbeat_url"] and not cfg["heartbeat_folder"]:
+            return messagebox.showerror(tr("Heartbeat"), tr("Enter the heartbeat address or folder first."), parent=self)
+        self._in_background(tr("Heartbeat"), lambda: tr("A test heartbeat was sent to:\n{where}",
+                                                         where="\n".join(heartbeat.send_test(cfg, self.data_dir,
+                                                                                              self.ledger))))
 
     # ================================================================ tests for the two destinations
     def _in_background(self, title, work):

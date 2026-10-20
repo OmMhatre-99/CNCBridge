@@ -86,7 +86,7 @@ class Base(unittest.TestCase):
         parts = dict(payload=self.payload, program_dir=self.where["program"], data_dir=self.where["data"],
                      menu_dir=self.where["menu"], desktop_dir=self.where["desktop"], setup_exe=self.setup_exe,
                      registry=self.where["registry"], report=self.said.append,
-                     remove_tasks=self.removed_tasks.append)
+                     remove_tasks=self.removed_tasks.append, eventlog=self.where["eventlog"])
         parts.update(overrides)
         return core.Installer(**parts)
 
@@ -109,7 +109,8 @@ class FullInstall(Base):
         cls.said = []
         cls.installer_ = core.Installer(cls.payload, cls.where["program"], cls.where["data"], cls.where["menu"],
                                         cls.where["desktop"], setup_exe=cls.setup_exe, registry=cls.where["registry"],
-                                        report=cls.said.append, remove_tasks=lambda d: None, version="9.9.9")
+                                        report=cls.said.append, remove_tasks=lambda d: None, version="9.9.9",
+                                        eventlog=cls.where["eventlog"])
         cls.exe = cls.installer_.install()
 
     @classmethod
@@ -149,6 +150,14 @@ class FullInstall(Base):
             self.assertGreater(value("EstimatedSize"), 0)
             self.assertEqual((value("NoModify"), value("NoRepair")), (1, 1))
         self.assertEqual(core.installed_location(self.where["registry"]), (program, "9.9.9"))
+
+    def test_the_windows_event_log_knows_the_program(self):
+        with winreg.OpenKey(*self.where["eventlog"]) as key:
+            self.assertEqual(winreg.QueryValueEx(key, "TypesSupported")[0], 7)
+            message_file = winreg.QueryValueEx(key, "EventMessageFile")
+        self.assertTrue(message_file[0].endswith("EventLogMessages.dll"))
+        self.assertEqual(message_file[1], winreg.REG_EXPAND_SZ)  # %SystemRoot% is expanded by Windows
+        self.assertTrue(Path(os.path.expandvars(message_file[0])).is_file())
 
     def test_ordinary_users_may_write_the_data_folder(self):
         listing = subprocess.run(["icacls", str(self.where["data"])], capture_output=True, text=True).stdout
@@ -232,6 +241,17 @@ class Uninstall(Base):
         self.assertEqual((self.where["data"] / "config.json").read_text(), "{}")
         self.assertEqual(self.removed_tasks, [self.where["data"]])  # the background task is removed first
         self.assertIn("kept", "\n".join(self.said))
+
+    def test_the_event_log_entry_goes_with_the_program(self):
+        installer = self.install_all()
+        winreg.OpenKey(*self.where["eventlog"]).Close()  # there after the install
+        installer.uninstall()
+        with self.assertRaises(FileNotFoundError):
+            winreg.OpenKey(*self.where["eventlog"])
+
+    def test_a_set_up_without_an_event_log_key_still_installs(self):
+        self.installer(eventlog=None).install(False, False)
+        self.assertTrue((self.where["program"] / "CNCBridge.exe").exists())
 
     def test_the_data_can_go_too(self):
         installer = self.install_all()
@@ -327,7 +347,7 @@ class CommandLine(Base):
     def parts(self):
         return {"payload": self.payload, "program": self.where["program"], "data": self.where["data"],
                 "menu": self.where["menu"], "desktop": self.where["desktop"], "registry": self.where["registry"],
-                "setup_exe": self.setup_exe, "running_exe": None}
+                "eventlog": self.where["eventlog"], "setup_exe": self.setup_exe, "running_exe": None}
 
     def test_a_silent_install_and_uninstall(self):
         options = cli.parse(["/S", "/NOMENU", "/NODESKTOP"])

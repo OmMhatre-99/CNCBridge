@@ -27,6 +27,7 @@ from datetime import datetime
 from email.message import EmailMessage
 from pathlib import Path
 
+from . import eventlog
 from .config import APP_NAME, VERSION
 
 log = logging.getLogger("cncbridge")
@@ -168,6 +169,7 @@ class Alerts:
                 return
             self.open[subject] = {"text": text, "since": datetime.now().isoformat(timespec="seconds")}
             self._save()
+        log.warning("Alert raised: %s", text, extra={"event": eventlog.PROBLEM})
         self._send(cfg, "problem", f"{APP_NAME} needs attention", text)
 
     def resolved(self, subject, cfg):
@@ -176,6 +178,7 @@ class Alerts:
             if item is None:
                 return
             self._save()
+        log.info("Alert resolved: %s", item["text"], extra={"event": eventlog.RESOLVED})
         self._send(cfg, "resolved", f"{APP_NAME} is working again", f"Resolved: {item['text']}")
 
     def event(self, text, cfg, title=None):

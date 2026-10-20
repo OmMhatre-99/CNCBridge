@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
+os.environ["CNCBRIDGE_NO_EVENTLOG"] = "1"  # the background process some tests start must not write to this PC's real Event Log
 from cncbridge import alerts, app, audit, config, engine, i18n, shifts, stations  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
@@ -979,10 +980,11 @@ class MenuBar(WindowTest):
 
         def steps():
             pages = {key: str(page) for key, page in w.option_pages.items()}
-            self.assertEqual(list(pages), ["processing", "output", "alerts", "access", "appearance"])
+            self.assertEqual(list(pages), ["processing", "output", "alerts", "heartbeat", "access", "appearance"])
             for key in ("autostart", "skip_duplicates", "poll_seconds", "encoding", "delimiter", "complete_marker",
                         "run_in_background", "keep_backup_days", "json_numbers", "csv_flat", "time_zone",
-                        "rename_columns", "alert_notify", "alert_email_to", "test_alert", "shift_times",
+                        "rename_columns", "alert_notify", "alert_email_to", "test_alert", "heartbeat_url", "test_heartbeat",
+                        "shift_times",
                         "set_password", "theme_modern", "theme_legacy", "restart_now"):
                 widget = w.field_widgets[key]
                 self.assertTrue(str(widget).startswith(str(w.options_win)), key)  # in Options, not in a tab
@@ -1600,6 +1602,52 @@ class EditedOutsideInWindow(WindowTest):
             tree = w.history_tree
             self.assertEqual(tree.item(tree.get_children()[0], "values")[2], "Outside CNCBridge")
             self.assertIn("Shared folder: (empty) → C:/by-hand", tree.item(tree.get_children()[0], "values")[3])
+            yield 100
+        self.run_steps(steps)
+
+
+class HeartbeatInWindow(WindowTest):
+    def test_settings_page_test_button_and_menu(self):
+        w = self.window
+        status = self.tmp / "status"
+
+        def steps():
+            self.assertEqual((self.menu_label("opt_heartbeat"), self.menu_state("opt_heartbeat")),
+                             ("Heartbeat...", "normal"))
+            self.assertEqual((self.menu_label("test_heartbeat"), self.menu_state("test_heartbeat")),
+                             ("Send test heartbeat", "normal"))
+            w.open_options("heartbeat")
+            w.update()
+            self.assertEqual(w.options_tabs.select(), str(w.option_pages["heartbeat"]))
+            w.test_heartbeat()  # nowhere to send it yet
+            self.assertEqual(self.dialogs[-1][0], "showerror")
+            w.b["heartbeat_enabled"].set(True)
+            w.v["heartbeat_folder"].set(str(status))
+            w.v["heartbeat_minutes"].set("2")
+            w.test_heartbeat()
+            yield lambda: self.dialogs and self.dialogs[-1][0] == "showinfo"
+            self.assertIn("A test heartbeat was sent to:", self.dialogs[-1][1][1])
+            sent = json.loads(next(status.glob("*.status.json")).read_text(encoding="utf-8"))
+            self.assertEqual((sent["state"], sent["kind"]), ("test", "heartbeat"))
+            self.assertTrue(w.save())
+            saved = config.load_config(self.tmp / "data" / "config.json")
+            self.assertEqual((saved["heartbeat_enabled"], saved["heartbeat_folder"], saved["heartbeat_minutes"]),
+                             (True, str(status), 2))
+        self.run_steps(steps)
+
+    def test_a_heartbeat_with_nowhere_to_go_blocks_starting_with_a_clear_reason(self):
+        w = self.window
+
+        def steps():
+            w.v["source_folder"].set(str(self.machine))
+            w.v["backup_folder"].set(str(self.backup))
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            w.sel_vars[0][1].set("A1:B2")
+            w.b["heartbeat_enabled"].set(True)
+            w.start()
+            self.assertEqual(self.dialogs[-1][0], "showerror")
+            self.assertIn("The heartbeat is on", self.dialogs[-1][1][1])
             yield 100
         self.run_steps(steps)
 

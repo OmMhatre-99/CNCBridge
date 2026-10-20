@@ -32,6 +32,7 @@ class OptionsMixin:
         for key, title, build in (("processing", tr("Processing"), self._build_processing),
                                   ("output", tr("Output"), self._build_output_options),
                                   ("alerts", tr("Alerts"), self._build_alerts),
+                                  ("heartbeat", tr("Heartbeat"), self._build_heartbeat),
                                   ("access", tr("Operators & access"), self._build_access),
                                   ("appearance", tr("Appearance"), self._build_appearance)):
             page = ttk.Frame(notebook, padding=self.L.tab_pad)
@@ -184,6 +185,36 @@ class OptionsMixin:
         test = ttk.Button(box, text=tr("Send test alert"), command=self.test_alert)
         test.grid(row=11, column=0, columnspan=4, sticky="w", pady=(8, 2))
         self.field_widgets["test_alert"] = test
+
+    def _build_heartbeat(self, parent):
+        """A regular sign of life for a monitoring tool or the MES (see heartbeat.py)."""
+        box = ttk.LabelFrame(parent, text=tr(" Heartbeat "), padding=self.L.box_pad)
+        box.pack(fill="x")
+        box.columnconfigure(1, weight=1)
+        note = ttk.Label(box, style="CardSmall.TLabel", justify="left", wraplength=self.px(620), text=tr(
+            "While monitoring runs, a small message is sent at regular times: who this is, whether all is well, the "
+            "counters and the health facts. When monitoring stops on purpose, one last message says so. A system "
+            "that stops hearing from this copy without such a message knows that the PC or the program is down."))
+        note.grid(row=0, column=0, columnspan=3, sticky="ew", pady=(0, 8))
+        self._fit_wrap(note, self.px(620))
+        on = ttk.Checkbutton(box, text=tr("Send the heartbeat"), variable=self.b["heartbeat_enabled"])
+        on.grid(row=1, column=0, columnspan=3, sticky="w", pady=(0, 4))
+        self.field_widgets["heartbeat_enabled"] = on
+        ttk.Label(box, text=tr("Web address"), style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=self.L.row)
+        address = ttk.Entry(box, textvariable=self.v["heartbeat_url"])
+        address.grid(row=2, column=1, columnspan=2, sticky="ew", padx=8, pady=self.L.row)
+        self.field_widgets["heartbeat_url"] = address
+        self._folder_row(box, 3, tr("Folder"), "heartbeat_folder")
+        every = ttk.Frame(box)
+        every.grid(row=4, column=0, columnspan=3, sticky="w", pady=(6, 2))
+        ttk.Label(every, text=tr("Send every"), style="Card.TLabel").pack(side="left")
+        minutes = ttk.Entry(every, textvariable=self.v["heartbeat_minutes"], width=5, **self.code_font)
+        minutes.pack(side="left", padx=6)
+        ttk.Label(every, text=tr("minutes"), style="Card.TLabel").pack(side="left")
+        self.field_widgets["heartbeat_minutes"] = minutes
+        test = ttk.Button(box, text=tr("Send test heartbeat"), command=self.test_heartbeat)
+        test.grid(row=5, column=0, columnspan=3, sticky="w", pady=(10, 2))
+        self.field_widgets["test_heartbeat"] = test
 
     def _build_appearance(self, parent):
         """How the window looks: theme, colour mode, font, text size, scale. They apply when the window restarts."""

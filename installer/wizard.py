@@ -107,7 +107,8 @@ class Wizard(tk.Tk):
         parts["program_dir"] = Path(self.folder.get())
         return core.Installer(parts["payload"], parts["program_dir"], parts["data"], parts["menu"], parts["desktop"],
                               setup_exe=parts.get("setup_exe"), registry=parts["registry"], report=self.say,
-                              remove_tasks=parts.get("remove_tasks"), running_exe=parts.get("running_exe"))
+                              remove_tasks=parts.get("remove_tasks"), running_exe=parts.get("running_exe"),
+                              eventlog=parts.get("eventlog"))
 
     def go(self):
         self.go_button.configure(state="disabled")

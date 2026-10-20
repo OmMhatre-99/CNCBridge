@@ -256,6 +256,54 @@ alert time (red at three times it), a back-up drive under 2 GB or 5% free (red u
 that cannot be reached. A back-up drive that stays low also raises an alert through the usual channels, once, with
 a "working again" message when space is back, because a full drive stops processing.
 
+## Heartbeat
+
+An alert tells you when something is wrong; the heartbeat tells a monitoring tool or the MES that the
+program is still alive. **Settings > Heartbeat...** switches it on and takes a web address, a folder, or both.
+While monitoring runs, every few minutes (default 5) one small JSON message goes to the address (a POST,
+like an alert webhook) and is written to `<station>.status.json` in the folder (written whole, so a reader
+never sees half a file):
+
+```json
+{"app": "CNCBridge", "version": "1.2.0", "kind": "heartbeat", "state": "ok", "station": "Line 7",
+ "computer": "LINE7-PC", "time": "2026-10-21T10:15:00", "every_minutes": 5, "problems": [],
+ "counts": {"processed": 412, "failed": 1, "duplicate": 3, "waiting": 0, "queued": 0, "refused": 0},
+ "health": {"last_file": "2026-10-21T10:14:12", "last_file_age": 48, "oldest_queued_age": null,
+            "backup_free": 123456789012, "disk_level": "ok", "source_reachable": true}}
+```
+
+`state` is `ok`, `problem` (an alert is open; `problems` lists them), `stopped` (monitoring was stopped on
+purpose, sent once as it ends) or `test` (the **Send test heartbeat** button). A copy that stops sending
+**without** a `stopped` message is down: the PC is off or the program was killed. Deciding "no message for
+three intervals means down" is the receiver's job. A heartbeat that cannot be sent is logged and, after the
+usual alert time, announced like any other problem. It is sent on a thread of its own, so a slow receiver
+never delays the files.
+
+## Windows Event Log
+
+Warnings and errors, and a few named events, are also written to the Windows Event Log (Application log,
+source `CNCBridge`), so tools that already watch the Event Log see them without any setup:
+
+| Event | Meaning |
+|---|---|
+| 1000 / 1001 | monitoring started / stopped |
+| 1100 | settings changed (who and what, from the settings history) |
+| 1101 | settings file edited outside CNCBridge |
+| 2000 / 2001 | an alert was raised / cleared |
+| 2100 | the heartbeat cannot be sent |
+| 3000 / 3001 | any other warning / error |
+
+The same text is written at most once every ten minutes. The set-up program registers the source (under
+`HKLM\SYSTEM\CurrentControlSet\Services\EventLog\Application`) so that Windows shows the text as it is
+and the uninstall removes it again. A copy that was not installed still writes the events; Windows then
+adds a line saying it cannot find the description, and the text follows. In Event Viewer, look in
+Windows Logs > Application for the source CNCBridge. In PowerShell:
+
+```
+Get-WinEvent -LogName Application -MaxEvents 500 | Where-Object ProviderName -eq 'CNCBridge' |
+    Select-Object TimeCreated, Id, @{n='Text'; e={$_.Properties[0].Value}}
+```
+
 ## Alerts
 
 CNCBridge tells someone when it needs attention, instead of only writing it to the log:
@@ -509,6 +557,8 @@ cncbridge/delivery.py    shared folder, API link, FTP server, and their tests
 cncbridge/housekeeping.py  queues, back-up drive, health, second chances, clean-up
 cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
+cncbridge/heartbeat.py   the regular status message; cncbridge/eventlog.py the Windows Event Log
+cncbridge/audit.py       the settings change log
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
 cncbridge/i18n.py           tr() and the language files; cncbridge/locales/ holds template.json
@@ -528,6 +578,8 @@ assets/fonts/            bundled Roboto/Roboto Mono fonts and OFL licenses
 tests/test_engine.py     python -m unittest discover -s tests -v
 tests/test_structure.py  the window's pieces fit together; every engine name is still reachable
 tests/test_ledger.py     the history database and its migration
+tests/test_audit.py      the settings change log and edits made outside CNCBridge
+tests/test_heartbeat.py  the heartbeat; tests/test_eventlog.py the Event Log handler
 tests/test_config_migrations.py  the settings file version
 tests/test_installer.py  install, update and uninstall into temporary folders and a test registry key
 tests/test_ftp.py        FTP / FTPS delivery against a small FTP server written for the tests

@@ -14,7 +14,7 @@ import time
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from . import background, engine, stations
+from . import background, engine, eventlog, stations
 from .background import acquire_lock  # noqa: F401  (also used by the demo and the tests)
 from .config import APP_NAME, default_data_dir, has_data, legacy_data_dir, load_config, move_data
 
@@ -74,6 +74,11 @@ def setup_logging(data_dir, console, filename="cncbridge.log"):
     for h in handlers:
         h.setFormatter(fmt)
         log.addHandler(h)
+    try:
+        station = load_config(Path(data_dir) / "config.json")["station_name"]
+    except Exception:  # a damaged settings file is reported elsewhere; the log must still start
+        station = ""
+    eventlog.attach(log, station)  # warnings, errors and the named events also go to the Windows Event Log
 
 
 def remember_station(data_dir):

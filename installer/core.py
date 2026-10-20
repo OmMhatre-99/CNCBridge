@@ -17,6 +17,7 @@ from pathlib import Path
 
 APP_NAME = "CNCBridge"
 UNINSTALL_KEY = r"Software\Microsoft\Windows\CurrentVersion\Uninstall\CNCBridge"
+EVENT_SOURCE_KEY = r"SYSTEM\CurrentControlSet\Services\EventLog\Application\CNCBridge"
 PAYLOAD_FILES = ("CNCBridge.exe", "CNCBridgeDemo.exe", "README.md")
 UNINSTALLER = "CNCBridgeSetup.exe"
 USERS = "*S-1-5-32-545"          # the Users group, whatever the language of Windows
@@ -48,19 +49,33 @@ def program_version():
         return "1.0"
 
 
+def event_message_file():
+    """
+    Windows' own file of generic event messages, each just "%1". Registering it for our source makes the
+    Event Log show our text as it is. Returns None when this Windows does not have it.
+    """
+    root = os.environ.get("SystemRoot", r"C:\Windows")
+    for folder in ("Framework64", "Framework"):
+        if (Path(root) / "Microsoft.NET" / folder / "v4.0.30319" / "EventLogMessages.dll").is_file():
+            return "%SystemRoot%\\Microsoft.NET\\" + folder + "\\v4.0.30319\\EventLogMessages.dll"
+    return None
+
+
 def locations(test_root=None):
     """Where things go. With test_root, everything goes under that folder and a test key in the registry."""
     if test_root:
         root = Path(test_root)
         return {"program": root / "Program Files" / APP_NAME, "data": root / "ProgramData" / APP_NAME,
                 "menu": root / "Start Menu" / "Programs", "desktop": root / "Desktop",
-                "registry": (winreg.HKEY_CURRENT_USER, r"Software\CNCBridgeTest\Uninstall\CNCBridge")}
+                "registry": (winreg.HKEY_CURRENT_USER, r"Software\CNCBridgeTest\Uninstall\CNCBridge"),
+                "eventlog": (winreg.HKEY_CURRENT_USER, r"Software\CNCBridgeTest\EventLog\CNCBridge")}
     program_data = Path(os.environ.get("ProgramData", r"C:\ProgramData"))
     return {"program": Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / APP_NAME,
             "data": program_data / APP_NAME,
             "menu": program_data / "Microsoft" / "Windows" / "Start Menu" / "Programs",
             "desktop": Path(os.environ.get("PUBLIC", r"C:\Users\Public")) / "Desktop",
-            "registry": (winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY)}
+            "registry": (winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY),
+            "eventlog": (winreg.HKEY_LOCAL_MACHINE, EVENT_SOURCE_KEY)}
 
 
 def installed_location(registry=(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY)):
@@ -109,11 +124,12 @@ def _default_remove_tasks(data_dir):
 class Installer:
     def __init__(self, payload, program_dir, data_dir, menu_dir, desktop_dir, setup_exe=None,
                  registry=(winreg.HKEY_LOCAL_MACHINE, UNINSTALL_KEY), version=None, report=None, remove_tasks=None,
-                 running_exe=None):
+                 running_exe=None, eventlog=None):
         self.payload, self.program, self.data = Path(payload), Path(program_dir), Path(data_dir)
         self.menu, self.desktop = Path(menu_dir), Path(desktop_dir)
         self.setup_exe = Path(setup_exe) if setup_exe else None
         self.registry = registry
+        self.eventlog = eventlog   # (root, key) of the Event Log source; None = do not register one
         self.version = version or program_version()
         self.report = report or (lambda text: None)
         self.remove_tasks = remove_tasks or _default_remove_tasks
@@ -176,6 +192,27 @@ class Installer:
         except OSError as e:
             raise InstallError(f"Could not register CNCBridge in Windows' list of apps: {e}") from None
 
+    def _register_event_source(self):
+        """Let the Windows Event Log show CNCBridge's events with their text. Not essential: events are written anyway."""
+        if not self.eventlog:
+            return
+        try:
+            with winreg.CreateKeyEx(self.eventlog[0], self.eventlog[1], 0, winreg.KEY_WRITE) as key:
+                message_file = event_message_file()
+                if message_file:
+                    winreg.SetValueEx(key, "EventMessageFile", 0, winreg.REG_EXPAND_SZ, message_file)
+                winreg.SetValueEx(key, "TypesSupported", 0, winreg.REG_DWORD, 7)   # error, warning, information
+        except OSError as e:
+            self.say(f"  Could not register CNCBridge in the Windows event log ({e}); events are still written.")
+
+    def _remove_event_source(self):
+        if not self.eventlog:
+            return
+        try:
+            winreg.DeleteKey(self.eventlog[0], self.eventlog[1])
+        except OSError:
+            pass  # not registered, or not allowed: nothing depends on it
+
     def is_installed(self):
         return installed_location(self.registry) is not None
 
@@ -225,6 +262,7 @@ class Installer:
 
         self.say("Adding CNCBridge to the list of installed apps...")
         self._register(size / 1024)
+        self._register_event_source()
         self.say(f"CNCBridge {self.version} is installed in {self.program}.")
         return self.program / "CNCBridge.exe"
 
@@ -256,6 +294,7 @@ class Installer:
             pass
         except OSError as e:
             raise InstallError(f"Could not remove the entry in the list of apps: {e}") from None
+        self._remove_event_source()
         if keep_data:
             self.say(f"Your settings and history were kept in {self.data}.")
         else:

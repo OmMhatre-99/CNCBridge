@@ -63,6 +63,12 @@ class TooltipsMixin:
             "alert_email_from": tr("Sender address; the user name is used when this is empty."),
             "alert_email_to": tr("One or more addresses, separated by commas."),
             "test_alert": tr("Send a test message through every alert channel that is switched on."),
+            "heartbeat_enabled": tr("Send a small status message at regular times while monitoring runs, and one "
+                                 "last one when it stops on purpose."),
+            "heartbeat_url": tr("The address that receives the status message as JSON (a POST), like an alert webhook."),
+            "heartbeat_folder": tr("A folder to write <station>.status.json into, for an MES or tool that reads files."),
+            "heartbeat_minutes": tr("How often the heartbeat is sent. A receiver can treat several missed ones as down."),
+            "test_heartbeat": tr("Send one heartbeat marked as a test, to check the address or folder."),
             "keep_backup_days": tr("Back-up day folders and set-aside files older than this are deleted, checked "
                                 "once an hour. 0 keeps everything. The send queue is never touched."),
             "keep_history_days": tr("History rows older than this are deleted. 0 keeps the whole history."),
