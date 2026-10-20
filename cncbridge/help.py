@@ -141,6 +141,9 @@ With a password set, Lock setup (Settings menu) hides Setup, Delivery, Pick rang
 window. Operators then see only Start/Stop, the counters, History and the typed values. Unlock setup asks for the \
 password. The password is stored as a hash and cannot be recovered; if it is lost, remove "setup_password" from \
 config.json in the data folder.
+
+## Settings history (View > Settings history)
+Every change to the settings is recorded: when, by which Windows user, and what changed (old and new value). Passwords and keys are never shown, only that they changed. If the settings file is edited outside CNCBridge, that is recorded too, shown in red, and announced as an alert.
 """),
 
     ("stations", "Several machines: Stations", """One copy of CNCBridge looks after one machine folder, with its own settings, history and queue. To run two lines on one PC, start a second copy with its own data folder (a shortcut to CNCBridge.exe --data C:\\CNCBridge\\line2).

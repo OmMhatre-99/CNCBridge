@@ -41,6 +41,7 @@ from .ui.windows import WindowsMixin
 from .ui.tooltips import TooltipsMixin
 from .ui.control import ControlMixin
 from .ui.stations_window import StationsMixin
+from .ui.audit_window import SettingsHistoryMixin
 from .ui.status import StatusMixin
 
 
@@ -57,6 +58,7 @@ class App(LayoutMixin,
           ControlMixin,
           StatusMixin,
           StationsMixin,
+          SettingsHistoryMixin,
           tk.Tk):
     def __init__(self, data_dir, notice=None, lock=None, connected=False, resume=False):
         """
@@ -145,6 +147,7 @@ class App(LayoutMixin,
 
         threading.Thread(target=self._stats_loop, daemon=True).start()
         self._tick_job = self.after(200, self._tick)
+        self.after(700, self._check_settings_edit)
         if notice:  # e.g. the one-time move of the data folder
             self.after(600, lambda: messagebox.showinfo(APP_NAME, notice, parent=self))
         if self.cfg["autostart"] or resume:

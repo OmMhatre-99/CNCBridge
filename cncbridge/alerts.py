@@ -178,8 +178,8 @@ class Alerts:
             self._save()
         self._send(cfg, "resolved", f"{APP_NAME} is working again", f"Resolved: {item['text']}")
 
-    def event(self, text, cfg):
-        self._send(cfg, "event", f"{APP_NAME}: a file was set aside", text)
+    def event(self, text, cfg, title=None):
+        self._send(cfg, "event", title or f"{APP_NAME}: a file was set aside", text)
 
     def reset(self):
         """Monitoring stopped: nothing is watched any more, so nothing is open."""
@@ -220,6 +220,12 @@ class Alerts:
             os.replace(tmp, self.state_file)
         except OSError as e:
             log.debug("Could not write %s: %s", self.state_file, e)
+
+
+def announce(cfg, title, text):
+    """Send one message now, on its own thread, for a window that has no alert queue of its own."""
+    if enabled_channels(cfg):
+        threading.Thread(target=deliver, args=(dict(cfg), "event", title, text), name="alert", daemon=True).start()
 
 
 def send_test(cfg):

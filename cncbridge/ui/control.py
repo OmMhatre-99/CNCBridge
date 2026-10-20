@@ -49,12 +49,15 @@ class ControlMixin:
         """Files are being processed, by this window or by the background process it is connected to."""
         return self.running or (self.connected and self.bg_running)
 
-    def _apply(self, cfg):
-        save_config(cfg, self.cfg_path)
+    def _apply(self, cfg, how=None):
+        """Save the settings. how: what led to it (save, operator, ...); else what the window remembers (import, restore)."""
+        reason = (how, "") if how else self._pending_how or ("save", "")
+        save_config(cfg, self.cfg_path, *reason)
+        self._pending_how = None
         self.cfg = cfg
         self.fill(cfg)
 
-    def save(self):
+    def save(self, how=None):
         cfg = self.collect()
         problems = engine.validate(cfg)
         if self.processing and problems:
@@ -67,7 +70,7 @@ class ControlMixin:
             return False
         times_changed = cfg["shift_times"] != self.cfg["shift_times"]
         try:
-            self._apply(cfg)
+            self._apply(cfg, how)
         except SettingsTooNew as e:
             messagebox.showerror(APP_NAME, tr("The settings were not saved:\n{e}\n\nUse the newer CNCBridge, or restore an "
                                               "earlier version from the File menu.", e=e), parent=self)

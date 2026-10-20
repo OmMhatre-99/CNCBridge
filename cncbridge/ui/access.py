@@ -94,7 +94,7 @@ class AccessMixin:
         """Save only the password; unsaved edits in the form stay unsaved."""
         cfg = dict(self.cfg, setup_password=stored)
         try:
-            save_config(cfg, self.cfg_path)
+            save_config(cfg, self.cfg_path, how="password")
         except SettingsTooNew as e:
             return messagebox.showerror(APP_NAME, tr("The password was not changed:\n{e}", e=e), parent=self)
         self.cfg = normalize_config(cfg)
@@ -143,7 +143,7 @@ class AccessMixin:
         if values is not None and values != [var.get() for _, var in self.man_vars]:
             for (_, var), text in zip(self.man_vars, values):
                 var.set(text)
-            if not self.save():
+            if not self.save(how="operator"):
                 return False
         self.shift_confirmed = self._now()
         shifts.write_confirmed(self.data_dir, self.shift_confirmed)
@@ -153,5 +153,5 @@ class AccessMixin:
 
     def apply_operator_values(self):
         """The Operator tab: the typed values are the only thing that can have changed, so Save is enough."""
-        if self.save():
+        if self.save(how="operator"):
             self.status_msg.set(tr("Typed values applied. They are used from the next file."))

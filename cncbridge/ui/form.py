@@ -38,6 +38,7 @@ class FormMixin:
             shifts.write_confirmed(self.data_dir, self.shift_confirmed)
         self.shift_dialog, self._shift_prompted, self._shift_checked = None, None, 0.0
         self.unlocked = False        # the setup password was entered in this session
+        self._pending_how = None     # ("import" | "restore", file name) until the loaded settings are saved
         self.password_state = tk.StringVar(self)
         self.theme_note = tk.StringVar(self)
         self.pick_open = tk.BooleanVar(self)
@@ -153,6 +154,7 @@ class FormMixin:
         # settings without a field in the window would otherwise be lost on the next save
         self.cfg = dict(self.cfg, **{k: cfg[k] for k in ("stable_seconds", "api_timeout")})
         self.fill(cfg)
+        self._pending_how = ("restore" if folder else "import", Path(path).name)
         log.info("Settings loaded from %s (not saved yet)", path)
         self.status_msg.set(tr("Settings loaded from {file}. Check them, then press Save settings to keep them.", file=Path(path).name))
 

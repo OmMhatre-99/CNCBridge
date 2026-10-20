@@ -43,6 +43,7 @@ import uuid  # noqa: F401
 from datetime import datetime, timedelta  # noqa: F401
 from pathlib import Path  # noqa: F401
 
+from . import audit
 from .alerts import Alerts
 from .background import stop_requested
 from .config import APP_NAME, VERSION, load_config, normalize_config
@@ -87,6 +88,7 @@ class Engine:
         self._config_mtime = self._settings_time()
         self.ledger = Ledger(self.data / "ledger.db")
         self.alerts = Alerts(self.data)
+        self._check_settings_file()
         self._stop = threading.Event()
         self._last_clean_up = 0.0
         self._last_disk_check = 0.0
@@ -115,7 +117,18 @@ class Engine:
             log.error("The changed settings could not be read, the previous ones stay in use: %s", e)
             return False
         log.info("Settings reloaded")
+        self._check_settings_file()
         return True
+
+    def _check_settings_file(self):
+        """The settings file was edited outside CNCBridge (see audit.py): log it and tell people."""
+        try:
+            entry = audit.check_outside_edit(self.data)
+        except Exception as e:  # the change log must never stop the processing
+            log.debug("Could not check the settings against the change log: %s", e)
+            return
+        if entry:
+            self.alerts.event(audit.outside_text(entry), self.cfg, title=f"{APP_NAME}: settings changed outside the program")
 
     def _check_disk(self):
         """A back-up drive that fills up stops everything: say so early, through the usual alerts."""

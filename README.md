@@ -351,6 +351,18 @@ and importing a file or restoring an earlier version never changes it. This keep
 changed by accident; it does not protect against someone who can open this PC's files and edit
 `config.json`, so use Windows' own file permissions on the data folder if you need that.
 
+## Settings history
+
+**View > Settings history...** lists every change to the settings: when, which Windows user, how
+(saved, imported, restored, password, typed values) and what changed, with the old and the new
+value. Passwords, tokens and header values are never written, only that they changed; web addresses
+are written without their query part. Select a line for the full list.
+
+The log is `settings_changes.jsonl` in the data folder (the newest 5,000 entries are kept). Each
+entry holds a fingerprint of the settings file as it was saved. If `config.json` no longer matches
+the last entry, it was edited outside CNCBridge: that is added to the log as an entry in red, shown
+in the status line, and sent through the alert channels.
+
 ## Shift-change confirmation
 
 In **Settings > Operators & access...**, enter the times at which shifts start, for example

@@ -254,17 +254,43 @@ def check_not_newer(path):
         migrate(raw)  # raises with the message
 
 
-def save_config(cfg, path):
+def save_config(cfg, path, how="save", detail=""):
+    """
+    Write the settings. how says what led to it (save, import, restore, password, operator), for the
+    settings change log (audit.py), which also notices a file that was edited outside CNCBridge.
+    """
     p = Path(path)
     check_not_newer(p)
     out = normalize_config(cfg)
+    now = normalize_config(cfg)  # with the secrets readable, for the change log
     for key in SECRET_KEYS:
         out[key] = protect(out[key])
+    previous = _audit_before(p)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_name(p.name + ".part")
     tmp.write_text(json.dumps(out, indent=2, ensure_ascii=False), encoding="utf-8")
     os.replace(tmp, p)
     _keep_backup(p)
+    _audit_after(p, previous, now, how, detail)
+
+
+def _audit_before(p):
+    """Log an edit made outside CNCBridge before it is overwritten; the settings as they were, or None."""
+    try:
+        from . import audit
+        audit.check_outside_edit(p.parent)
+        return load_config(p) if p.exists() else None
+    except Exception as e:  # the change log must never stop a save
+        log.warning("Could not read the settings for the change log: %s", e)
+        return None
+
+
+def _audit_after(p, previous, now, how, detail):
+    try:
+        from . import audit
+        audit.record(p.parent, previous, now, how, detail, audit.file_sha(p))
+    except Exception as e:
+        log.warning("Could not write the settings change log: %s", e)
 
 
 def _keep_backup(path):

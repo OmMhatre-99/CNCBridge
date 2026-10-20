@@ -85,6 +85,7 @@ class MenusMixin:
         view = menu("View")
         item(view, "log", tr("Activity log"), self.open_log, "Ctrl+L")
         item(view, "stations", tr("Stations..."), self.open_stations)
+        item(view, "settings_history", tr("Settings history..."), self.open_settings_history)
         view.add_separator()
         for number, (key, attribute, label) in enumerate((("view_setup", "setup_tab", tr("Setup")),
                                                           ("view_delivery", "delivery_tab", tr("Delivery")),

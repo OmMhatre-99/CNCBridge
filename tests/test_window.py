@@ -26,7 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
-from cncbridge import alerts, app, engine, i18n, shifts, stations  # noqa: E402
+from cncbridge import alerts, app, audit, config, engine, i18n, shifts, stations  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
 # a closed window could be freed on a background thread and crash the process (Tcl_AsyncDelete). The tests
@@ -1508,6 +1508,98 @@ class StationsWindow(WindowTest):
             w.add_station()
             self.assertEqual([Path(e["folder"]).name for e in stations.load(registry)], ["LineC"])
             w.close_stations()
+            yield 100
+        self.run_steps(steps)
+
+
+class SettingsHistoryWindow(WindowTest):
+    def test_a_save_appears_in_the_history_and_the_filter_narrows_it(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual((self.menu_label("settings_history"), self.menu_state("settings_history")),
+                             ("Settings history...", "normal"))
+            w.v["station_name"].set("Line 9")
+            w.v["source_folder"].set(str(self.machine))
+            self.assertTrue(w.save())
+            w.open_settings_history()
+            w.update()
+            self.assertEqual(w.history_win.state(), "normal")
+            tree = w.history_tree
+            self.assertEqual(len(tree.get_children()), 1)
+            when, who, how, what = tree.item(tree.get_children()[0], "values")
+            self.assertEqual(how, "Saved")
+            self.assertTrue(who)
+            self.assertIn("Station name: (empty) → Line 9", what)
+            tree.selection_set(tree.get_children()[0])
+            w.update()
+            detail = w.history_detail.get("1.0", "end")
+            self.assertIn("Machine folder: (empty) → " + str(self.machine), detail)
+            w.history_filter.set("nothing like this")
+            w.update()
+            self.assertEqual(len(tree.get_children()), 0)
+            w.history_filter.set("line 9")
+            w.update()
+            self.assertEqual(len(tree.get_children()), 1)
+            w.history_win.withdraw()
+            yield 100
+        self.run_steps(steps)
+
+    def test_a_password_change_is_listed_without_the_password(self):
+        w = self.window
+
+        def steps():
+            w._store_password(config.hash_password("opensesame"))
+            w.open_settings_history()
+            w.update()
+            tree = w.history_tree
+            values = tree.item(tree.get_children()[0], "values")
+            self.assertEqual(values[2], "Password")
+            self.assertIn("Setup password: not set → set", values[3])
+            self.assertNotIn("opensesame", audit.log_path(w.data_dir).read_text(encoding="utf-8"))
+            yield 100
+        self.run_steps(steps)
+
+    def test_importing_settings_is_logged_as_an_import_once_saved(self):
+        w = self.window
+        export = self.tmp / "line2 settings.json"
+        config.export_settings(config.normalize_config({"station_name": "Line 2"}), export)
+        self._patch(filedialog, "askopenfilename", lambda **k: str(export))
+
+        def steps():
+            w.import_settings()
+            self.assertEqual(w.v["station_name"].get(), "Line 2")
+            self.assertTrue(w.save())
+            entry = audit.read(w.data_dir, 1)[0]
+            self.assertEqual((entry["how"], entry["detail"]), ("import", "line2 settings.json"))
+            w.v["station_name"].set("Line 3")
+            self.assertTrue(w.save())
+            self.assertEqual(audit.read(w.data_dir, 1)[0]["how"], "save")  # only the first save after an import
+            yield 100
+        self.run_steps(steps)
+
+
+class EditedOutsideInWindow(WindowTest):
+    def make_window(self):
+        data = self.tmp / "data"
+        config.save_config(config.normalize_config({"station_name": "Line 5"}), data / "config.json")
+        raw = json.loads((data / "config.json").read_text(encoding="utf-8"))
+        raw["shared_folder"] = "C:/by-hand"
+        (data / "config.json").write_text(json.dumps(raw), encoding="utf-8")
+        return app.App(data)
+
+    def test_the_window_says_so_and_sends_an_alert(self):
+        w = self.window
+
+        def steps():
+            yield lambda: "outside CNCBridge" in w.status_msg.get()
+            yield lambda: len(self.notified) == 1
+            self.assertIn("outside", self.notified[0][0])
+            w.open_settings_history()
+            w.update()
+            tree = w.history_tree
+            self.assertEqual(tree.item(tree.get_children()[0], "values")[2], "Outside CNCBridge")
+            self.assertIn("Shared folder: (empty) → C:/by-hand", tree.item(tree.get_children()[0], "values")[3])
             yield 100
         self.run_steps(steps)
 
