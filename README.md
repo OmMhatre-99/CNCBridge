@@ -9,7 +9,7 @@ installed on the machine PC and it needs no internet connection.
 
 ## What it does with each file
 
-1. Watches the machine CSV folder. A file is picked up once the machine has finished with it:
+1. Watches the machine folder. A file is picked up once the machine has finished with it:
    unchanged for 2 seconds and no longer held open.
    For a machine that writes a file in bursts, set *File is complete when it contains* (**Settings > Processing...**) to the text the machine writes last, for example `End_Time`: the file is then taken
    only once it contains that text. A file that never gets it stays in the machine folder, and
@@ -27,7 +27,7 @@ installed on the machine PC and it needs no internet connection.
    Per range you choose a name and whether its first row is a header row.
 
    In the picker, tick **Find by heading** before marking a cell: the range becomes `@` plus the text of that cell. A heading range also reports where it was found (`cells`, for example `A49:D50`) in the output. If the heading is missing from a file, that selection is empty and CNCBridge warns about it; a file where every selection is empty is set aside as failed.
-4. Adds the **2 manual inputs** (for example Operator and Work order) plus the source file
+4. Adds the **2 typed values** (for example Operator and Work order) plus the source file
    name, time and station name.
 5. Writes one output file in the chosen format: **JSON, CSV or TXT**.
 6. Delivers it to the **shared folder**, to the **API link**, or to both.
@@ -48,8 +48,8 @@ folder, `/NOMENU` and `/NODESKTOP` leave out the shortcuts, and `CNCBridgeSetup.
 (`/DELETEDATA` also deletes settings and history). The exit code is 0 when done, 1 for a problem and 2 when CNCBridge
 is running. `build_setup.bat` builds it from `dist\CNCBridge.exe`, so run `build_exe.bat` first; `release.bat` does
 both and puts it in the release zip. The setup is not signed unless `CNCBRIDGE_SIGN_CERT` is set (see *Signing the
-programs*). Settings cannot be made administrator-only: operators save the typed values and shift confirmations in
-`config.json`, so the file has to stay writable for them.
+programs*). The settings can be made administrator-only (*Protecting the settings*): the typed values and shift
+confirmations that operators save are then kept in files of their own, which stay writable for them.
 
 **Or by hand.** Copy `dist\CNCBridge.exe` into a folder of its own on the machine PC, for example
 `C:\CNCBridge\`, and start it. Settings, history, send queue and log are kept in the data
@@ -95,22 +95,22 @@ folder.
 
 **Setup tab**
 
-1. *Folders*: the machine CSV folder and the back-up folder. They must be different folders.
+1. *Folders*: the machine folder and the back-up folder. They must be different folders.
 2. *Output format*: JSON, CSV or TXT.
 3. *Data to extract*: type the ranges, or press **Pick...**, which opens a real machine file
    as a grid with column letters and row numbers. Drag over the cells, choose the slot, give
    it a name, press **Assign**. The right-hand side shows the exact file that will be produced.
-4. *Manual inputs*: two name/value pairs. A changed value applies from the next file after
+4. *Typed values*: two name/value pairs. A changed value applies from the next file after
    **Save settings**; monitoring does not have to be stopped.
 
 **Delivery tab**
 
-5. *Shared folder*: a local or network path such as `\\MES-SERVER\inbox`. **Test folder**
+5. *Shared folder*: a local or network path such as `\\MES-SERVER\inbox`. **Test shared folder**
    checks that it can be written to.
 6. *API link*: the address the files are POSTed to. Optional token (sent as
    `Authorization: Bearer <token>`), optional extra headers (one `Name: value` per line),
    and whether the file is sent as the request body or as a form upload (field `file`, plus
-   `station`). **Test connection** sends a small test file.
+   `station`). **Test API link** sends a small test file.
 
 Press **Save settings**, then **Start monitoring**. **Process now** handles the files that
 are waiting once, without continuing to watch.
@@ -120,6 +120,31 @@ works on this PC), **Import settings...** reads them on another PC, and **Restor
 version...** brings back one of the last 20 saved versions. Every **Save settings** keeps a copy
 in `backups` in the data folder. An imported or restored version only fills the form; press
 **Save settings** to keep it.
+
+## Words used in CNCBridge
+
+The window, Help (**Help > Words used in CNCBridge**), the messages and this guide use the same words:
+
+| Word | Means |
+|---|---|
+| **Machine file** | a CSV file the machine writes. The **machine folder** is where it writes them. |
+| **Back-up folder** | where a machine file is moved once it is handled, with a folder for each day. |
+| **Output file** | the JSON, CSV or TXT file made from a machine file. |
+| **Destination** | where an output file is sent: the **shared folder**, the **API link** or the **FTP server**. |
+| **Typed values** | the two name and value pairs (for example Operator and Work order) written into every file. The engineer chooses the names, the operator changes the values. |
+| **Done** | counter: machine files that were read and handled. |
+| **Waiting to be read** | counter: machine files in the machine folder that have not been taken yet. |
+| **Waiting to be sent** | counter: output files waiting for a destination (the send queue). |
+| **Could not be read** | counter: machine files set aside in the `_failed` folder of the back-up folder. |
+| **Refused** | counter: output files that a destination (API link or FTP server) refused; they are in the data folder's `rejected` folder, and **History > Send again** tries them once more. |
+| **Set aside** | a file moved out of the way instead of handled: could not be read, duplicate, or refused. |
+
+In History the delivery columns say **Delivered**, **Waiting to be sent**, **Refused** or **Off**, and the Result
+column says **Done**, **Could not be read** or **Duplicate**: the same words as the counters. What is stored
+in the history database stays `ok`, `queued`, `rejected (...)`, `off`, `failed`, `duplicate`.
+
+One name is kept from version 1.0 on purpose, because receiving systems read it: a typed value that has no
+name is written to the output files as `Manual input 1` or `Manual input 2`.
 
 ## The window
 
@@ -132,7 +157,7 @@ The **four tabs** hold the daily work: **Setup**, **Delivery**, **Pick ranges & 
 | **File** | Open CSV file, open the newest machine file, Save settings, Export / Import / Restore settings, Open folder (machine, back-up, shared, data), Exit |
 | **Monitoring** | Start monitoring, Stop, Process now |
 | **Settings** | **Options...** and a direct entry for each page of it: Processing, Output, Alerts, Operators & access, Appearance. Lock / Unlock setup |
-| **Tools** | Test shared folder, Test API connection, Send test alert, Simulation |
+| **Tools** | Test shared folder, Test API link, Test FTP server, Send test alert, Send test heartbeat, Simulation |
 | **View** | Activity log (its own window), and the four tabs |
 | **Help** | Getting started and a topic for each part of the program, Keyboard shortcuts, About |
 
@@ -180,7 +205,7 @@ JSON:
 A range with "first row is header" gives `columns` and one object per row; without it, `rows`
 is a list of lists; a single cell gives `value`.
 
-CSV: an `[INFO]` block of `key,value` lines (source file, time, station, manual inputs),
+CSV: an `[INFO]` block of `key,value` lines (source file, time, station, typed values),
 then for each range a line `[name],range` followed by its rows.
 
 TXT: the same content as an aligned, readable report.
@@ -209,7 +234,7 @@ changes). Enter the server and port, a user name (empty = anonymous), the passwo
 exported) and a folder on the server (for example `/incoming/line1`; missing folders are created, empty = the
 login folder). **Encrypt (FTPS)** uses explicit TLS for the login and the data; **Passive mode** is on, as most
 firewalls need. Each file is uploaded under a temporary name starting with `.` and renamed when complete, like
-the shared folder, and a name that is taken gets `_1`, `_2`... **Test FTP** (or Tools > Test FTP connection)
+the shared folder, and a name that is taken gets `_1`, `_2`... **Test FTP server** (or Tools > Test FTP server)
 uploads and removes a small test file.
 
 It uses the same queue as the other destinations: if the server is down the files wait and are sent in order
@@ -248,8 +273,8 @@ so CNCBridge asks first. The activity log (**View > Activity log**) and
 One copy of CNCBridge looks after one machine folder, with its own settings, history and send queue. For two
 lines on one PC, start a second copy with its own data folder, for example a shortcut to
 `CNCBridge.exe --data C:\CNCBridge\line2`. **View > Stations...** shows all the copies on the PC side by side:
-station name, whether it is open in a window, running in the background or stopped, the counters (processed,
-failed, waiting, queued, refused), the last file, the back-up drive's free space and any open problem. Each
+station name, whether it is open in a window, running in the background or stopped, the counters (done,
+could not be read, waiting to be read, waiting to be sent, refused), the last file, the back-up drive's free space and any open problem. Each
 copy adds its data folder to `stations.json` beside the default data folder when it starts. The window only
 reads the other copies (their history is opened read-only, and their lock is never touched), so it cannot disturb
 them. **Open** starts CNCBridge on a copy's data folder, **Open data folder** shows it in Explorer, **Add...**

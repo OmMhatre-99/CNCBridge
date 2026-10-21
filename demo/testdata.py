@@ -160,7 +160,7 @@ def demo_settings(workspace, api_url):
 # ---------------------------------------------------------------- written test script
 LIVE_STEPS = [
     ("Press Start machine in the Demo control window.",
-     "A new board file appears every few seconds. Processed counts up. Each one shows in the customer inbox."),
+     "A new board file appears every few seconds. Done counts up. Each one shows in the customer inbox."),
     ("In CNCBridge open the tab Pick ranges & preview and press Newest machine file.",
      "The file is shown as a grid. The four chosen ranges are tinted and numbered 1 to 4."),
     ("On the Setup tab change Operator to OP-99 and press Save settings. Do not stop monitoring.",
@@ -168,17 +168,17 @@ LIVE_STEPS = [
     ("On the Setup tab choose CSV, press Save settings. Then choose TXT and save again.",
      "New files in the shared folder and the customer inbox end in .csv, then .txt."),
     ("Press Simulate outage in the Demo control window and wait for two or three boards.",
-     "Queued to send goes up. The shared folder still receives every file. Nothing is lost."),
+     "Waiting to be sent goes up. The shared folder still receives every file. Nothing is lost."),
     ("Press Simulate outage again to end it.",
-     "Queued to send returns to 0 within a few seconds. The customer inbox receives the waiting files in order."),
+     "Waiting to be sent returns to 0 within a few seconds. The customer inbox receives the waiting files in order."),
     ("Press Refuse next file.",
-     "Refused by API shows 1. That file is in data\\rejected. The boards after it are delivered."),
+     "Refused shows 1. That file is in data\\rejected. The boards after it are delivered."),
     ("Press Send a duplicate.",
      "History shows duplicate. Nothing new reaches the customer inbox."),
     ("Press Drop a broken file.",
-     "Failed files shows 1 more. The file is in back-up\\_failed. Monitoring continues."),
+     "Could not be read shows 1 more. The file is in back-up\\_failed. Monitoring continues."),
     ("Press Write a file slowly.",
-     "Waiting in folder shows the file for about 12 seconds. It is processed only after it is complete."),
+     "Waiting to be read shows the file for about 12 seconds. It is processed only after it is complete."),
     ("Press Stop in CNCBridge, let two boards arrive, then press Start monitoring.",
      "The two waiting boards are processed straight away."),
     ("Use Open folder > Back-up folder in CNCBridge.",
@@ -202,7 +202,7 @@ def test_script():
                   f"   See: {case.expect}", ""]
         step += 1
     ok = sum(c.status == "ok" for c in CASES)
-    lines += [f"After all {len(CASES)} files: Processed {ok}, Failed files 1, Waiting in folder 0,",
+    lines += [f"After all {len(CASES)} files: Done {ok}, Could not be read 1, Waiting to be read 0,",
               f"and the customer inbox holds {ok} files.", "",
               "## Part 3: live cases", ""]
     for do, see in LIVE_STEPS:

@@ -120,8 +120,9 @@ class StatusMixin:
                         "rejected" in (row[k] or "") for k in ("api", "ftp"))
                     tag = row["status"] if row["status"] != "ok" else "pending" if pending else ""
                     self.history.insert("", "end", iid=str(row["id"]), tags=(tag,), values=[
-                        (row["processed_at"] or "").replace("T", "  "), row["source"], row["status"],
-                        row["output"] or "", row["shared"] or "", row["api"] or "", row["ftp"] or "", row["message"] or ""])
+                        (row["processed_at"] or "").replace("T", "  "), row["source"], self._result_text(row["status"]),
+                        row["output"] or "", self._delivery_text(row["shared"]), self._delivery_text(row["api"]),
+                        self._delivery_text(row["ftp"]), row["message"] or ""])
                 keep = [iid for iid in selected if self.history.exists(iid)]
                 if keep:
                     self.history.selection_set(keep)

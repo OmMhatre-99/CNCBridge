@@ -24,16 +24,16 @@ SHORTCUTS = (
 TOPICS = (
     ("start", "Getting started", """\
 CNCBridge takes the CSV file your machine writes for each board, cuts out the cell ranges you choose, adds the \
-details you type, and delivers the result to a shared folder and/or a web link. The machine file is then moved \
+details you type, and delivers the result to a shared folder, an API link and/or an FTP server. The machine file is then moved \
 to a back-up folder.
 
 ## First set-up, in five steps
 On a new set-up the Setup tab starts with a short guide, "Getting started": four steps with a tick for each one that is done, and a button that takes you to the next. It goes away after the first start; View > Setup checklist shows it again.
 
-- Setup tab, box 1: choose the machine CSV folder and a back-up folder. They must be different folders.
+- Setup tab, box 1: choose the machine folder and a back-up folder. They must be different folders.
 - Setup tab, box 2: choose JSON, CSV or TXT.
 - Setup tab, box 3: say what to extract. Type a range such as L1:M8, or press Pick... and drag over a real file.
-- Delivery tab: turn on the shared folder, the API link, or both, and press the Test buttons.
+- Delivery tab: turn on the shared folder, the API link, the FTP server, or several, and press the Test buttons.
 - Press Save settings (Ctrl+S), then Start monitoring (F5).
 
 ## Day to day
@@ -88,12 +88,12 @@ empty is set aside as failed.
 
     ("delivery", "Delivery, queue and retries", """\
 ## Destinations
-- Shared folder: a local or network path such as \\\\MES-SERVER\\inbox. Test folder checks that it can be written to.
+- Shared folder: a local or network path such as \\\\MES-SERVER\\inbox. Test shared folder checks that it can be written to.
 - API link: the address the files are POSTed to, with an optional token (sent as Authorization: Bearer ...), extra \
-headers and a choice between the file as the request body or as a form upload. Test connection sends a small test \
+headers and a choice between the file as the request body or as a form upload. Test API link sends a small test \
 file.
 
-- FTP server: uploads each output file to an FTP server, optionally encrypted (FTPS). Enter the server, port, login and a folder on the server (missing folders are created). Files go up under a temporary name starting with a dot and are renamed when complete, so nobody reads half a file; a name that is already taken gets a number. Test FTP uploads and removes a small test file.
+- FTP server: uploads each output file to an FTP server, optionally encrypted (FTPS). Enter the server, port, login and a folder on the server (missing folders are created). Files go up under a temporary name starting with a dot and are renamed when complete, so nobody reads half a file; a name that is already taken gets a number. Test FTP server uploads and removes a small test file.
 
 ## When something is not reachable
 - Files wait in the queue and are sent in order once it is back. Machine files are still processed and backed up.
@@ -136,7 +136,7 @@ control the task.
 """),
 
     ("operators", "Operators, shifts and the setup password", """\
-## Details added to every file
+## Typed values
 Setup tab, box 4: two name/value pairs, for example Operator and Work order. A changed value applies from the next \
 file after Save settings; monitoring does not have to be stopped.
 
@@ -193,11 +193,36 @@ systems are never translated.
 or for a touch screen.
 """),
 
+    ("words", "Words used in CNCBridge", """\
+## Files and folders
+- Machine file: a CSV file the machine writes. Machine folder: where the machine writes them.
+- Back-up folder: where a machine file is moved once it is handled, with a folder for each day.
+- Output file: the JSON, CSV or TXT file CNCBridge makes from a machine file.
+- Data folder: the settings, the history, the send queue, the refused files and the logs of this copy.
+
+## Where output files go
+- Destination: where an output file is sent. There are three: the shared folder, the API link and the FTP server.
+- Send queue: output files that are waiting for a destination. They are sent in order when it can be reached again.
+
+## The counters
+- Done, Waiting to be read, Waiting to be sent, Could not be read and Refused: see Troubleshooting.
+- Set aside: a file that CNCBridge moved out of the way instead of handling. A machine file that could not be read, or that is a duplicate, goes to the back-up folder. An output file that was refused goes to the data folder. Each can be tried again from History.
+
+## What is typed
+- Typed values: the two name and value pairs, for example Operator and Work order, that are written into every file. The engineer chooses the names; the operator changes the values.
+- Cell range: part of a machine file, written as in a spreadsheet, for example L1:M8.
+- Setup password: the password that locks the setup for operators. Protect the settings: lets only administrators change the settings.
+
+## Watching from outside
+- Alert: a message to a person when something needs attention. Heartbeat: a regular message that says the program is alive.
+- Stations: the copies of CNCBridge on this PC, side by side.
+"""),
+
     ("trouble", "Troubleshooting", """\
 ## The counters
-- Processed: machine files handled. Waiting in folder: files in the machine folder not yet taken.
-- Queued to send: outputs waiting for a destination. Failed files: machine files set aside (back-up\\_failed).
-- Refused by API: outputs the receiving site rejected.
+- Done: machine files that were read and handled. Waiting to be read: files in the machine folder that have not been taken yet.
+- Waiting to be sent: output files waiting for a destination. Could not be read: machine files that were set aside in the _failed folder inside the back-up folder.
+- Refused: output files that the receiving site (the API link or the FTP server) refused. They are in the rejected folder of the data folder; History > Send again tries them once more.
 
 ## The line under the counters
 - Last file: when the latest machine file was handled, and how long ago. A long time with a busy machine means something is stuck.
@@ -208,7 +233,7 @@ or for a touch screen.
 ## Common situations
 - Nothing happens after Start: check Setup (folders, at least one range) and Delivery (a destination turned on). \
 Save settings reports what is missing.
-- "Queued to send" keeps growing: the destination is unreachable or the token is wrong. Use the Test buttons on \
+- "Waiting to be sent" keeps growing: the destination is unreachable or the token is wrong. Use the Test buttons on \
 the Delivery tab, and check the Activity log (View menu).
 - A file stays in the machine folder: the machine may still be writing it, or "File is complete when it contains" \
 never appears in it.

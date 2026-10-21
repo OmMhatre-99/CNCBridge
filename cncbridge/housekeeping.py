@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .csvread import decode
-from .delivery import DESTINATIONS, atomic_write
+from .delivery import DESTINATIONS, atomic_write, destination_name
 
 log = logging.getLogger("cncbridge")
 
@@ -187,7 +187,7 @@ def resend_rejected(data_dir, row, ledger):
             sent.append(kind)
     if sent:
         ledger.note(row["id"], f"queued to send again at {datetime.now():%H:%M}")
-        log.info("%s queued to send again (%s)", row["output"], ", ".join(sent))
+        log.info("%s queued to send again (%s)", row["output"], ", ".join(destination_name(k) for k in sent))
     return sent
 
 

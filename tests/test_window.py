@@ -653,7 +653,7 @@ class AlertsInWindow(WindowTest):
             api.status = 503
             w.start()
             self.drop("b1.csv", "S1")
-            yield lambda: w.alert_banner_shown and "api delivery not possible" in w.alert_banner["text"]
+            yield lambda: w.alert_banner_shown and "Delivery to the API link is not possible" in w.alert_banner["text"]
             yield lambda: any("needs attention" in title for title, *_ in self.notified)
             api.status = 200
             yield lambda: not w.alert_banner_shown
@@ -1390,7 +1390,7 @@ class MenuNavigation(WindowTest):
             dd.press("Right")
             w.update()
             self.assertIsNotNone(dd.child)
-            self.assertEqual(self.label(dd.child), "Machine CSV folder")
+            self.assertEqual(self.label(dd.child), "Machine folder")
             dd.child.press("Left")  # back to the parent menu, which stays open
             self.assertIsNone(dd.child)
             self.assertIs(w._dropdown, dd)
@@ -2024,6 +2024,82 @@ class SetUpAlreadyInWindow(WindowTest):
         self.run_steps(steps)
 
 
+class WordingInWindow(WindowTest):
+    def test_the_counters_the_menus_and_the_boxes_use_the_agreed_words(self):
+        w = self.window
+
+        def steps():
+            keys = ("ok", "waiting", "queued", "failed", "rejected")
+            self.assertEqual([w.count_captions[k].cget("text") for k in keys],
+                             ["Done", "Waiting to be read", "Waiting to be sent", "Could not be read", "Refused"])
+            for key in keys:  # each counter explains itself when the pointer rests on it
+                for widget in (w.count_boxes[key], w.counts[key], w.count_captions[key]):
+                    self.assertTrue(widget.bind("<Enter>"), key)
+            self.assertEqual(self.menu_label("test_shared"), "Test shared folder")
+            self.assertEqual(self.menu_label("test_api"), "Test API link")
+            self.assertEqual(self.menu_label("test_ftp"), "Test FTP server")
+            boxes = []
+
+            def walk(widget):
+                for child in widget.winfo_children():
+                    if child.winfo_class() == "TLabelframe":
+                        boxes.append(str(child.cget("text")).strip())
+                    walk(child)
+            walk(w.tabs)
+            for expected in ("1  Machine folders", "4  Typed values", "6  API link", "5  Shared folder",
+                             "7  FTP server", "Typed values"):
+                self.assertIn(expected, boxes)
+            labels = []
+
+            def labels_of(widget):
+                for child in widget.winfo_children():
+                    if child.winfo_class() == "TLabel":
+                        labels.append(str(child.cget("text")))
+                    labels_of(child)
+            labels_of(w.tabs)
+            for expected in ("Machine folder", "Typed value 1", "Typed value 2"):
+                self.assertIn(expected, labels)
+            self.assertEqual([w.history.heading(k, "text") for k in w.history["columns"]],
+                             ["Time", "Machine file", "Result", "Output file", "Shared folder", "API link", "FTP server", "Note"])
+            yield 100
+        self.run_steps(steps)
+
+    def test_the_history_says_it_in_the_words_of_the_counters(self):
+        w = self.window
+
+        def steps():
+            w.ledger.add(source="a.csv", output="a.json", status="ok", shared="ok", api="queued", ftp="off")
+            w.ledger.add(source="b.csv", output="b.json", status="ok", shared="ok", api="rejected (HTTP 422)", ftp="off")
+            w.ledger.add(source="c.csv", status="failed", message="not a readable CSV")
+            w.ledger.add(source="d.csv", status="duplicate")
+            yield lambda: len(w.history.get_children()) == 4
+            rows = {w.history.item(i, "values")[1]: w.history.item(i, "values") for i in w.history.get_children()}
+            self.assertEqual(rows["a.csv"][2:], ("Done", "a.json", "Delivered", "Waiting to be sent", "Off", ""))
+            self.assertEqual(rows["b.csv"][5], "Refused (HTTP 422)")
+            self.assertEqual(rows["c.csv"][2], "Could not be read")
+            self.assertEqual(rows["d.csv"][2], "Duplicate")
+            self.assertEqual(rows["c.csv"][7], "not a readable CSV")
+            # what is stored does not change, so Send again still finds a refused file
+            refused = next(r for r in w.shown_history if r["source"] == "b.csv")
+            self.assertEqual(refused["api"], "rejected (HTTP 422)")
+            self.assertTrue(w._refused(refused))
+            self.assertTrue(w._refused({"shared": "ok", "api": "rejected (x)", "ftp": "off"}))
+        self.run_steps(steps)
+
+    def test_the_stations_window_uses_the_same_counter_names(self):
+        w = self.window
+
+        def steps():
+            w.open_stations()
+            w.update()
+            headings = [w.stations_tree.heading(c, "text") for c in w.stations_tree["columns"]]
+            for expected in ("Done", "Could not be read", "Waiting to be read", "Waiting to be sent", "Refused"):
+                self.assertIn(expected, headings)
+            w.close_stations()
+            yield 100
+        self.run_steps(steps)
+
+
 class HeartbeatInWindow(WindowTest):
     def test_settings_page_test_button_and_menu(self):
         w = self.window
@@ -2091,7 +2167,7 @@ class FtpInWindow(WindowTest):
             self.assertEqual((saved["ftp_enabled"], saved["ftp_port"], saved["ftp_password"]), (True, server.port, "secret"))
             self.assertNotIn("secret", (self.tmp / "data" / "config.json").read_text(encoding="utf-8"))
 
-            menu, index = w.menu_items["test_ftp"]  # Tools > Test FTP connection
+            menu, index = w.menu_items["test_ftp"]  # Tools > Test FTP server
             menu.invoke(index)
             yield lambda: any(name == "showinfo" for name, _ in self.dialogs)
             self.assertIn("/incoming/line7", self.dialogs[-1][1][1])
@@ -2100,8 +2176,8 @@ class FtpInWindow(WindowTest):
             self.drop("a.csv", "S1")
             w.start()
             yield lambda: any(p.is_file() for p in root.rglob("*") if not p.name.startswith("."))
-            yield lambda: w.history.get_children() and w.history.item(w.history.get_children()[0], "values")[6] == "ok"
-            self.assertEqual(w.history.heading("ftp")["text"], "FTP")
+            yield lambda: w.history.get_children() and w.history.item(w.history.get_children()[0], "values")[6] == "Delivered"
+            self.assertEqual(w.history.heading("ftp")["text"], "FTP server")
             w.stop()
             yield lambda: not w.running
         self.run_steps(steps)

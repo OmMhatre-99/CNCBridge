@@ -37,13 +37,13 @@ They are processed in the order of their numbers.
 9. Do: copy 08_not_a_board_log.csv into the machine folder. An alarm log with nothing in any of the chosen cells.
    See: Not sent. History shows failed. The file is in back-up\_failed.
 
-After all 8 files: Processed 6, Failed files 1, Waiting in folder 0,
+After all 8 files: Done 6, Could not be read 1, Waiting to be read 0,
 and the customer inbox holds 6 files.
 
 ## Part 3: live cases
 
 10. Do: Press Start machine in the Demo control window.
-   See: A new board file appears every few seconds. Processed counts up. Each one shows in the customer inbox.
+   See: A new board file appears every few seconds. Done counts up. Each one shows in the customer inbox.
 
 11. Do: In CNCBridge open the tab Pick ranges & preview and press Newest machine file.
    See: The file is shown as a grid. The four chosen ranges are tinted and numbered 1 to 4.
@@ -55,22 +55,22 @@ and the customer inbox holds 6 files.
    See: New files in the shared folder and the customer inbox end in .csv, then .txt.
 
 14. Do: Press Simulate outage in the Demo control window and wait for two or three boards.
-   See: Queued to send goes up. The shared folder still receives every file. Nothing is lost.
+   See: Waiting to be sent goes up. The shared folder still receives every file. Nothing is lost.
 
 15. Do: Press Simulate outage again to end it.
-   See: Queued to send returns to 0 within a few seconds. The customer inbox receives the waiting files in order.
+   See: Waiting to be sent returns to 0 within a few seconds. The customer inbox receives the waiting files in order.
 
 16. Do: Press Refuse next file.
-   See: Refused by API shows 1. That file is in data\rejected. The boards after it are delivered.
+   See: Refused shows 1. That file is in data\rejected. The boards after it are delivered.
 
 17. Do: Press Send a duplicate.
    See: History shows duplicate. Nothing new reaches the customer inbox.
 
 18. Do: Press Drop a broken file.
-   See: Failed files shows 1 more. The file is in back-up\_failed. Monitoring continues.
+   See: Could not be read shows 1 more. The file is in back-up\_failed. Monitoring continues.
 
 19. Do: Press Write a file slowly.
-   See: Waiting in folder shows the file for about 12 seconds. It is processed only after it is complete.
+   See: Waiting to be read shows the file for about 12 seconds. It is processed only after it is complete.
 
 20. Do: Press Stop in CNCBridge, let two boards arrive, then press Start monitoring.
    See: The two waiting boards are processed straight away.

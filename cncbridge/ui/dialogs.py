@@ -30,7 +30,7 @@ class ShiftDialog(tk.Toplevel):
             "Files keep being processed meanwhile."))).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 12))
         self.entries = []
         for i, (name, value) in enumerate(app.man_vars):
-            ttk.Label(frame, text=name.get().strip() or tr("Input {number}", number=i + 1), style="Card.TLabel").grid(
+            ttk.Label(frame, text=name.get().strip() or tr("Typed value {number}", number=i + 1), style="Card.TLabel").grid(
                 row=2 + i, column=0, sticky="w", pady=5)
             var = tk.StringVar(self, value.get())
             ttk.Entry(frame, textvariable=var, width=34).grid(row=2 + i, column=1, sticky="ew", padx=(10, 0), pady=5)

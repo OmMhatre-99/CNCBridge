@@ -9,8 +9,17 @@ class TooltipsMixin:
     # ================================================================ run control
     def _add_tooltips(self):
         """Attach concise help to the controls that benefit from extra explanation."""
-        Tooltip(self.start_btn, tr("Start monitoring the source folder for new CNC files."))
+        Tooltip(self.start_btn, tr("Start monitoring the machine folder for new machine files."))
         Tooltip(self.stop_btn, tr("Stop monitoring and processing."))
+        for key, text in (("ok", tr("Machine files that were read and handled.")),
+                          ("waiting", tr("Machine files in the machine folder that have not been taken yet.")),
+                          ("queued", tr("Output files that are waiting to be sent to a destination.")),
+                          ("failed", tr("Machine files that could not be read. They were set aside in the _failed "
+                                        "folder inside the back-up folder.")),
+                          ("rejected", tr("Output files that the receiving site (API link or FTP server) refused. "
+                                          "They are in the rejected folder of the data folder."))):
+            for widget in (self.count_boxes[key], self.counts[key], self.count_captions[key]):
+                Tooltip(widget, text)
         Tooltip(self.once_btn, tr("Process the current files once without continuous monitoring."))
         Tooltip(self.save_btn, tr("Save all current settings to configuration."))
         Tooltip(self.sample_open_btn, tr("Choose a sample machine file to inspect and select cell ranges."))
@@ -20,7 +29,7 @@ class TooltipsMixin:
         help_text = {
             "station_name": tr("Name used to identify this machine in output files."),
             "source_folder": tr("Folder where the machine places completed CSV files."),
-            "source_folder_browse": tr("Choose the machine's CSV folder."),
+            "source_folder_browse": tr("Choose the machine folder."),
             "file_pattern": tr("File names to watch; the default matches all CSV files."),
             "backup_folder": tr("Processed machine files are moved here, grouped by date."),
             "backup_folder_browse": tr("Choose where processed machine files are archived."),
@@ -33,7 +42,7 @@ class TooltipsMixin:
             "api_token": tr("Optional authentication token; CNCBridge stores it encrypted."),
             "api_body": tr("Choose whether the file is sent as the request body or as a form upload."),
             "api_headers": tr("Optional HTTP headers, one per line in Name: value format."),
-            "test_api": tr("Send a small test file to check the API connection."),
+            "test_api": tr("Send a small test file to check the API link."),
             "ftp_enabled": tr("Upload every output file to an FTP server, as well as to the other destinations."),
             "ftp_host": tr("The FTP server's name or address."),
             "ftp_port": tr("Usually 21, for both plain FTP and explicit FTPS."),
@@ -111,8 +120,8 @@ class TooltipsMixin:
             Tooltip(self.field_widgets[f"selection_pick_{i}"], tr("Choose this range by selecting cells in a sample file."))
 
         self.tab_tooltip = NotebookTabTooltip(self.tabs, {
-            0: tr("Machine folders, output format, data ranges and manual inputs."),
-            1: tr("Shared-folder and API destinations, plus file-handling options."),
+            0: tr("Machine folders, output format, data ranges and typed values."),
+            1: tr("Shared folder, API link and FTP server, plus file-handling options."),
             2: tr("Select cells from a sample file and preview the resulting output."),
             3: tr("Review recent machine files and their delivery results."),
             4: tr("Technical event log for processing and delivery details."),

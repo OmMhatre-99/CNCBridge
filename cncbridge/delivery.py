@@ -198,6 +198,16 @@ def send_ftp(file_path, cfg):
         _ftp_quit(ftp)
 
 
+# How the destinations are called in messages (the window uses the same words); the keys are what is stored.
+DESTINATION_NAMES = {"shared": "shared folder", "api": "API link", "ftp": "FTP server"}
+
+
+def destination_name(kind, capital=False):
+    """'API link' for 'api', 'shared folder' for 'shared'; capital: for the start of a sentence or a title."""
+    name = DESTINATION_NAMES.get(kind, kind)
+    return name[:1].upper() + name[1:] if capital else name
+
+
 DESTINATIONS = {
     "shared": (copy_shared, lambda c: c["shared_enabled"] and c["shared_folder"]),
     "api": (send_api, lambda c: c["api_enabled"] and c["api_url"]),

@@ -30,7 +30,7 @@ class SetupTabMixin:
         station_entry = ttk.Entry(box, textvariable=self.v["station_name"])
         station_entry.grid(row=0, column=1, columnspan=2, sticky="ew", padx=(8, 0), pady=self.L.row)
         self.field_widgets["station_name"] = station_entry
-        self._folder_row(box, 1, tr("Machine CSV folder"), "source_folder")
+        self._folder_row(box, 1, tr("Machine folder"), "source_folder")
         ttk.Label(box, text=tr("File pattern"), style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=self.L.row)
         pattern_entry = ttk.Entry(box, textvariable=self.v["file_pattern"], width=14,
                                   **self.code_font)
@@ -52,14 +52,14 @@ class SetupTabMixin:
             choice.pack(side="left", padx=(0, 28), pady=2)
             self.field_widgets[f"output_format_{fmt}"] = choice
 
-        box = ttk.LabelFrame(left, text=tr(" 4  Details added to every file "), padding=self.L.box_pad)
+        box = ttk.LabelFrame(left, text=tr(" 4  Typed values "), padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
         box.columnconfigure(1, weight=1)
         box.columnconfigure(2, weight=2)
         ttk.Label(box, text=tr("Field name"), style="CardSmall.TLabel").grid(row=0, column=1, sticky="w", padx=8)
         ttk.Label(box, text=tr("Value"), style="CardSmall.TLabel").grid(row=0, column=2, sticky="w")
         for i, (name, value) in enumerate(self.man_vars, 1):
-            ttk.Label(box, text=tr("Input {i}", i=i), style="Card.TLabel").grid(row=i, column=0, sticky="w", pady=self.L.row)
+            ttk.Label(box, text=tr("Typed value {i}", i=i), style="Card.TLabel").grid(row=i, column=0, sticky="w", pady=self.L.row)
             ttk.Entry(box, textvariable=name).grid(row=i, column=1, sticky="ew", padx=8, pady=self.L.row)
             ttk.Entry(box, textvariable=value).grid(row=i, column=2, sticky="ew", pady=self.L.row)
         manual_help = ttk.Label(box, style="Small.TLabel", wraplength=self.px(470), justify="left",
@@ -119,7 +119,7 @@ class SetupTabMixin:
         shared_chk.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
         self.field_widgets["shared_enabled"] = shared_chk
         self._folder_row(box, 1, tr("Folder / UNC path"), "shared_folder")
-        test_shared = ttk.Button(box, text=tr("Test folder"), command=self.test_shared)
+        test_shared = ttk.Button(box, text=tr("Test shared folder"), command=self.test_shared)
         test_shared.grid(row=2, column=1, sticky="w", padx=8, pady=(5, 2))
         self.field_widgets["test_shared"] = test_shared
 
@@ -145,7 +145,7 @@ class SetupTabMixin:
             check = ttk.Checkbutton(choices, text=text, variable=self.b[key])
             check.pack(side="left", padx=(0, 18))
             self.field_widgets[key] = check
-        test_ftp = ttk.Button(box, text=tr("Test FTP"), command=self.test_ftp)
+        test_ftp = ttk.Button(box, text=tr("Test FTP server"), command=self.test_ftp)
         test_ftp.grid(row=7, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_ftp"] = test_ftp
 
@@ -160,7 +160,7 @@ class SetupTabMixin:
         note.pack(anchor="nw", fill="x")
         self._fit_wrap(note, self.px(540))
 
-        box = ttk.LabelFrame(right, text=tr(" 6  API connection "), padding=self.L.box_pad)
+        box = ttk.LabelFrame(right, text=tr(" 6  API link "), padding=self.L.box_pad)
         box.pack(fill="both", expand=True)
         box.columnconfigure(1, weight=1)
         api_enabled = ttk.Checkbutton(box, text=tr("Send every output file to the end user's site"),
@@ -191,6 +191,6 @@ class SetupTabMixin:
                   text=tr("One per line, for example  X-Api-Key: abc123. The token is sent as "
                        "Authorization: Bearer <token> and is stored encrypted.")).grid(row=5, column=1, sticky="w",
                                                                                       padx=(8, 0), pady=(0, 3))
-        test_api = ttk.Button(box, text=tr("Test connection"), command=self.test_api)
+        test_api = ttk.Button(box, text=tr("Test API link"), command=self.test_api)
         test_api.grid(row=6, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_api"] = test_api

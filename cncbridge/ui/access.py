@@ -16,12 +16,12 @@ class AccessMixin:
         self._page_intro(tab, tr("Typed values"),
                          tr("These values are written into every file. Change them when the operator or the "
                          "work order changes; they apply from the next file, without stopping."))
-        box = ttk.LabelFrame(tab, text=tr(" Details added to every file "), padding=self.L.box_pad)
+        box = ttk.LabelFrame(tab, text=tr(" Typed values "), padding=self.L.box_pad)
         box.pack(fill="x")
         box.columnconfigure(1, weight=1)
         self.operator_labels = []
         for i, (_, value) in enumerate(self.man_vars):
-            label = ttk.Label(box, text=tr("Input {number}", number=i + 1), style="Card.TLabel", width=22)
+            label = ttk.Label(box, text=tr("Typed value {number}", number=i + 1), style="Card.TLabel", width=22)
             label.grid(row=i, column=0, sticky="w", pady=6)
             ttk.Entry(box, textvariable=value).grid(row=i, column=1, sticky="ew", padx=8, pady=6)
             self.operator_labels.append(label)

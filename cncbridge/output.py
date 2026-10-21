@@ -180,13 +180,13 @@ def problems(cfg):
     p = []
     src, bak = cfg["source_folder"], cfg["backup_folder"]
     if not src:
-        p.append((FOLDERS, "Choose the machine CSV folder."))
+        p.append((FOLDERS, "Choose the machine folder."))
     elif not Path(src).is_dir():
-        p.append((FOLDERS, f"Machine CSV folder not found: {src}"))
+        p.append((FOLDERS, f"Machine folder not found: {src}"))
     if not bak:
         p.append((FOLDERS, "Choose the back-up folder."))
     elif src and _same_folder(src, bak):
-        p.append((FOLDERS, "The back-up folder must be different from the machine CSV folder."))
+        p.append((FOLDERS, "The back-up folder must be different from the machine folder."))
 
     ranges = []
     for i, sel in enumerate(cfg["selections"], 1):
@@ -212,7 +212,7 @@ def problems(cfg):
         if not cfg["shared_folder"]:
             p.append((DELIVERY, "Enter the shared folder."))
         elif src and _same_folder(src, cfg["shared_folder"]):
-            p.append((DELIVERY, "The shared folder must be different from the machine CSV folder."))
+            p.append((DELIVERY, "The shared folder must be different from the machine folder."))
     if cfg["api_enabled"]:
         if not re.match(r"https?://\S+$", cfg["api_url"], re.I):
             p.append((DELIVERY, "Enter the API link (it must start with http:// or https://)."))

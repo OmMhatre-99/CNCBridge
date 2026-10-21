@@ -1,10 +1,10 @@
 """
 CNCBridge engine.
 
-For every machine CSV that appears in the source folder:
+For every machine file (CSV) that appears in the machine folder:
 
     wait until the machine has finished writing -> fingerprint (duplicate guard)
-    -> read -> cut out up to 10 cell ranges -> add the 2 manual inputs
+    -> read -> cut out up to 10 cell ranges -> add the 2 typed values
     -> render JSON / CSV / TXT -> queue it for each destination (shared folder, API link, FTP server)
     -> move the source into the dated back-up folder -> record it in the ledger
     -> deliver everything queued; what cannot be delivered now is retried every cycle
@@ -61,6 +61,7 @@ from .ledger import (  # noqa: F401
     Ledger,
 )
 from .delivery import (  # noqa: F401
+    DESTINATION_NAMES, destination_name,
     atomic_write, CONTENT_TYPES, copy_shared, DESTINATIONS, PERMANENT_FTP, PERMANENT_HTTP,
     Rejected, send_api, send_ftp, test_api, test_ftp, test_shared, _ftp_connect, _ftp_enter,
     _ftp_free_name, _ftp_quit, _header_safe, _multipart, _NoRedirect, _opener,
@@ -230,19 +231,20 @@ class Engine:
                 except Rejected as e:
                     shutil.move(str(f), str(_unique(self.data / "rejected" / kind, f.name)))
                     self.ledger.set_delivery(f.name, kind, f"rejected ({e})")
-                    log.error("%s refused %s: %s - moved to data/rejected", kind, f.name, e)
-                    self.alerts.event(f"The receiving site refused {f.name} ({e}). It was set aside in "
+                    log.error("The %s refused %s: %s - moved to data/rejected", destination_name(kind), f.name, e)
+                    self.alerts.event(f"The {destination_name(kind)} refused {f.name} ({e}). It was set aside in "
                                       f"'rejected' in the data folder; the next files continue.", cfg)
                     continue
                 except Exception as e:
                     # destination is down: keep the order and try again next cycle
-                    self._report(kind, f"{kind} delivery not possible, {len(files)} file(s) waiting: {e}")
+                    self._report(kind, f"Delivery to the {destination_name(kind)} is not possible, "
+                                       f"{len(files)} file(s) waiting: {e}")
                     break
                 f.unlink()
                 self.ledger.set_delivery(f.name, kind, "ok")
                 if self._report(kind, None):
-                    log.info("%s delivery is working again", kind)
-                log.info("Delivered to %s: %s", kind, f.name)
+                    log.info("Delivery to the %s is working again", destination_name(kind))
+                log.info("Delivered to the %s: %s", destination_name(kind), f.name)
 
     # ---- pipeline
     def process_file(self, src):
@@ -333,7 +335,7 @@ class Engine:
         return ready
 
     def scan_once(self):
-        """One cycle: process every finished file in the source folder, then deliver what is queued."""
+        """One cycle: process every finished file in the machine folder, then deliver what is queued."""
         problems = validate(self.cfg)
         if problems:
             self._report("settings", "Settings are not complete: " + " ".join(problems), logging.ERROR)

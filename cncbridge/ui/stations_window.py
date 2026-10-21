@@ -15,8 +15,9 @@ from ..i18n import tr
 class StationsMixin:
     # N_ marks the texts for translation; they are translated where they are shown (this is read at import)
     COLUMNS = (("name", N_("Station"), 250), ("folder", N_("Data folder"), 260), ("state", N_("State"), 110),
-               ("processed", N_("Processed"), 80), ("failed", N_("Failed"), 60), ("waiting", N_("Waiting"), 70),
-               ("queued", N_("Queued"), 70), ("rejected", N_("Refused"), 70), ("last", N_("Last file"), 150),
+               ("processed", N_("Done"), 60), ("failed", N_("Could not be read"), 120),
+               ("waiting", N_("Waiting to be read"), 125), ("queued", N_("Waiting to be sent"), 125),
+               ("rejected", N_("Refused"), 70), ("last", N_("Last file"), 150),
                ("disk", N_("Back-up free"), 100), ("problem", N_("Open problem"), 300))
     STATE_TEXT = {"window": N_("Window open"), "background": N_("In background"), "stopped": N_("Stopped"),
                   "missing": N_("Missing")}

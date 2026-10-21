@@ -107,9 +107,10 @@ class LayoutMixin:
         self.state_label.pack(side="left", padx=(4, 10))
 
         self.counts = {}
-        for key, caption in reversed((("ok", tr("Processed")), ("waiting", tr("Waiting in folder")),
-                                      ("queued", tr("Queued to send")), ("failed", tr("Failed files")),
-                                      ("rejected", tr("Refused by API")))):
+        self.count_boxes, self.count_captions = {}, {}
+        for key, caption in reversed((("ok", tr("Done")), ("waiting", tr("Waiting to be read")),
+                                      ("queued", tr("Waiting to be sent")), ("failed", tr("Could not be read")),
+                                      ("rejected", tr("Refused")))):
             if self.L.metric_cards:
                 box = ttk.Frame(bar, style="Metric.TFrame", padding=(12, 5))
                 box.pack(side="right", padx=(8, 0))
@@ -119,7 +120,9 @@ class LayoutMixin:
             self.counts[key] = ttk.Label(box, text="0", style="MetricValue.TLabel" if self.L.metric_cards
                                          else "Count.TLabel", anchor="e")
             self.counts[key].pack(anchor="e")
-            ttk.Label(box, text=caption, style="CardSmall.TLabel").pack(anchor="e")
+            self.count_captions[key] = ttk.Label(box, text=caption, style="CardSmall.TLabel")
+            self.count_captions[key].pack(anchor="e")
+            self.count_boxes[key] = box
         # a line of facts under the counters: last file, queue age, back-up drive (see _show_health)
         self.health_bar = ttk.Frame(self, padding=(18, 0, 18, 8))
         self.health_bar.pack(fill="x")

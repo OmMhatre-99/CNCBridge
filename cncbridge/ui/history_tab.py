@@ -25,9 +25,9 @@ class HistoryTabMixin:
                                         state="disabled")
         self.reprocess_btn.pack(side="left", padx=6)
         ttk.Label(bar, text=tr("Most recent 200 files"), style="PageHint.TLabel").pack(side="right")
-        cols = (("processed_at", tr("Time"), 140), ("source", tr("Machine file"), 200), ("status", tr("Result"), 80),
-                ("output", tr("Output file"), 250), ("shared", tr("Shared folder"), 100), ("api", "API", 110),
-                ("ftp", "FTP", 90), ("message", tr("Note"), 300))
+        cols = (("processed_at", tr("Time"), 140), ("source", tr("Machine file"), 200), ("status", tr("Result"), 130),
+                ("output", tr("Output file"), 250), ("shared", tr("Shared folder"), 130), ("api", tr("API link"), 130),
+                ("ftp", tr("FTP server"), 130), ("message", tr("Note"), 300))
         history_area = ttk.Frame(tab, style="Card.TFrame", padding=1)
         history_area.pack(fill="both", expand=True)
         self.history = ttk.Treeview(history_area, columns=[c[0] for c in cols], show="headings",
@@ -53,6 +53,19 @@ class HistoryTabMixin:
     def _selected_rows(self):
         by_id = {str(r["id"]): r for r in self.shown_history or []}
         return [by_id[i] for i in self.history.selection() if i in by_id]
+
+    @staticmethod
+    def _result_text(status):
+        """The Result column in the words of the counters; what is stored stays ok / failed / duplicate."""
+        return {"ok": tr("Done"), "failed": tr("Could not be read"), "duplicate": tr("Duplicate")}.get(status, status)
+
+    @staticmethod
+    def _delivery_text(value):
+        """A destination's column in plain words; what is stored stays ok / queued / off / rejected (...)."""
+        value = value or ""
+        if value.startswith("rejected"):
+            return tr("Refused") + value[len("rejected"):]
+        return {"ok": tr("Delivered"), "queued": tr("Waiting to be sent"), "off": tr("Off")}.get(value, value)
 
     @staticmethod
     def _refused(row):

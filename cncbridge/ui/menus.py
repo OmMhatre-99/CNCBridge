@@ -48,7 +48,7 @@ class MenusMixin:
              lambda: self.import_settings(self.data_dir / "backups"))
         file_menu.add_separator()
         folders = menu(tr("Open folder"), file_menu)
-        for label, key in ((tr("Machine CSV folder"), "source_folder"), (tr("Back-up folder"), "backup_folder"),
+        for label, key in ((tr("Machine folder"), "source_folder"), (tr("Back-up folder"), "backup_folder"),
                            (tr("Shared folder"), "shared_folder")):
             folders.add_command(label=label, command=lambda key=key: self._open_folder(self.v[key].get()))
         folders.add_separator()
@@ -78,8 +78,8 @@ class MenusMixin:
 
         tools = menu("Tools")
         item(tools, "test_shared", tr("Test shared folder"), self.test_shared)
-        item(tools, "test_api", tr("Test API connection"), self.test_api)
-        item(tools, "test_ftp", tr("Test FTP connection"), self.test_ftp)
+        item(tools, "test_api", tr("Test API link"), self.test_api)
+        item(tools, "test_ftp", tr("Test FTP server"), self.test_ftp)
         item(tools, "test_alert", tr("Send test alert"), self.test_alert)
         item(tools, "test_heartbeat", tr("Send test heartbeat"), self.test_heartbeat)
         tools.add_separator()
