@@ -419,11 +419,18 @@ def _dashboard_styles(style, px, fonts):
         "ACCENT", "ACCENT_TINT", "FOCUS", "HOVER_SURFACE", "DISABLED_TEXT"))
     body, heading = fonts["body"], fonts["heading"]
     layout = ACTIVE.layout
-    # no tab strip, and no frame around the pages
-    style.layout("TNotebook.Tab", [])
-    style.layout("TNotebook", [("Notebook.client", {"sticky": "nswe"})])
-    style.configure("TNotebook", background=BACKGROUND, bordercolor=BACKGROUND, lightcolor=BACKGROUND,
+    # the main window's pages (Pages.TNotebook) have no tab strip and no frame: the sidebar is their navigation.
+    # Other notebooks, such as the pages of the Options window, keep their tabs.
+    style.layout("Pages.TNotebook.Tab", [])
+    style.layout("Pages.TNotebook", [("Notebook.client", {"sticky": "nswe"})])
+    style.configure("Pages.TNotebook", background=BACKGROUND, bordercolor=BACKGROUND, lightcolor=BACKGROUND,
                     darkcolor=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
+    style.configure("TNotebook", background=BACKGROUND, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                    tabmargins=(0, px(4), 0, 0))
+    style.configure("TNotebook.Tab", background=SURFACE_ALT, foreground=MUTED, padding=(px(18), px(10)),
+                    bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER, font=strong_font(fonts, 11))
+    style.map("TNotebook.Tab", background=[("selected", SURFACE), ("active", HOVER)],
+              foreground=[("selected", ACCENT), ("active", TEXT)], expand=[("selected", (0, 0, 0, 0))])
     # cards
     style.configure("TLabelframe", background=SURFACE, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
                     relief="solid", borderwidth=1)
@@ -457,7 +464,12 @@ def _dashboard_styles(style, px, fonts):
     style.configure("Toolbutton", padding=(px(14), px(8)))
     style.configure("Go.Toolbutton", padding=(px(16), px(8)))
     style.configure("TEntry", padding=(px(10), px(8)))
-    style.configure("TCombobox", padding=(px(10), px(8)))
+    # the drop-down button: wide enough to hit, with an arrow that can be seen, in the colour of the field
+    style.configure("TCombobox", padding=(px(10), px(8)), arrowsize=px(20), arrowcolor=TEXT, background=SURFACE,
+                    bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER)
+    style.map("TCombobox", background=[("active", HOVER), ("readonly", SURFACE)], arrowcolor=[("disabled", MUTED)],
+              bordercolor=[("focus", ACCENT), ("active", ACCENT)], lightcolor=[("focus", ACCENT)],
+              darkcolor=[("focus", ACCENT)])
     style.configure("Treeview", rowheight=_row_height(px, (body, 11), 36))
     style.configure("History.Treeview", rowheight=_row_height(px, (body, 11), 36), font=(body, 11))
     for name in ("Treeview.Heading", "History.Treeview.Heading"):

@@ -37,7 +37,7 @@ class LayoutMixin:
         self.tabs_canvas.bind("<Configure>", self._tabs_viewport_changed, add="+")
         self.bind_all("<MouseWheel>", self._tabs_mousewheel, add="+")
 
-        self.tabs = ttk.Notebook(self.tabs_frame)
+        self.tabs = ttk.Notebook(self.tabs_frame, style="Pages.TNotebook" if self.L.sidebar else "TNotebook")
         self.tabs.pack(fill="both", expand=True)
 
     def _tabs_content_changed(self, _event=None):

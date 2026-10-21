@@ -2204,7 +2204,10 @@ class DashboardWindow(WindowTest):
             self.assertIsNotNone(w.sidebar)
             self.assertIsNot(w.content, w)
             self.assertEqual(w.theme.key, "dashboard")
-            self.assertEqual([e[0] for e in ttk.Style(w).layout("TNotebook.Tab")], ["null"])  # the sidebar does the tabs' job
+            self.assertEqual([e[0] for e in ttk.Style(w).layout("Pages.TNotebook.Tab")], ["null"])  # the sidebar does the tabs' job
+            self.assertNotEqual([e[0] for e in ttk.Style(w).layout("TNotebook.Tab")], ["null"])  # other notebooks keep theirs
+            self.assertIn(str(w.options_tabs.cget("style")), ("", "TNotebook"))  # such as the Options window's pages
+            self.assertEqual(str(w.tabs.cget("style")), "Pages.TNotebook")
             self.assertEqual(self.visible(), ["monitor", "setup", "pick", "delivery", "history"])
             for extra in ("settings", "help", "log"):
                 self.assertTrue(w.nav_items[extra]["row"].winfo_manager(), extra)
