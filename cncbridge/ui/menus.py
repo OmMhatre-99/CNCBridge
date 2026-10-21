@@ -91,6 +91,8 @@ class MenusMixin:
         item(view, "settings_history", tr("Settings history..."), self.open_settings_history)
         item(view, "setup_checklist", tr("Setup checklist"), self.show_checklist)
         view.add_separator()
+        if self.L.monitor_page:
+            item(view, "view_monitor", tr("Monitor"), lambda: self._show_tab(self.monitor_tab), "Ctrl+0")
         for number, (key, attribute, label) in enumerate((("view_setup", "setup_tab", tr("Setup")),
                                                           ("view_delivery", "delivery_tab", tr("Delivery")),
                                                           ("view_pick", "pick_tab", tr("Pick ranges & preview")),
@@ -180,6 +182,8 @@ class MenusMixin:
         bind("<Control-comma>", "options", self.open_options)
         bind("<Control-l>", "log", self.open_log)
         bind("<F1>", "help", lambda: self.open_help("start"))
+        if self.L.monitor_page:
+            bind("<Control-Key-0>", "view_monitor", lambda: self._show_tab(self.monitor_tab))
         for number, (key, attribute) in enumerate((("view_setup", "setup_tab"), ("view_delivery", "delivery_tab"),
                                                    ("view_pick", "pick_tab"), ("view_history", "history_tab")), 1):
             bind(f"<Control-Key-{number}>", key, lambda attribute=attribute: self._show_tab(getattr(self, attribute)))

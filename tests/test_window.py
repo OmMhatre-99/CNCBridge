@@ -30,6 +30,10 @@ if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
 os.environ["CNCBRIDGE_NO_EVENTLOG"] = "1"  # the background process some tests start must not write to this PC's real Event Log
 from cncbridge import alerts, app, audit, config, engine, firstrun, i18n, permissions, shifts, stations  # noqa: E402
 from cncbridge.ui import access as access_ui  # noqa: E402
+from cncbridge.ui import cards, icons  # noqa: E402
+from cncbridge import theme  # noqa: E402
+import tkinter as tk  # noqa: E402
+from tkinter import ttk  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
 # a closed window could be freed on a background thread and crash the process (Tcl_AsyncDelete). The tests
@@ -2170,6 +2174,264 @@ class DiagnosticsInWindow(WindowTest):
             yield lambda: self.dialogs and self.dialogs[-1][0] == "showerror"
             self.assertIn("could not be saved", self.dialogs[-1][1][1])
             self.assertEqual(w.status_msg.get(), "The diagnostics were not saved.")
+        self.run_steps(steps)
+
+
+class DashboardWindow(WindowTest):
+    """The Dashboard theme: a sidebar instead of tabs, a Monitor page, and white cards."""
+
+    def make_window(self):
+        self.backup.mkdir(exist_ok=True)
+        data = self.tmp / "data"
+        config.save_config(config.normalize_config({
+            "theme": "dashboard", "station_name": "Line 7", "source_folder": str(self.machine),
+            "backup_folder": str(self.backup), "shared_enabled": True, "shared_folder": str(self.shared),
+            "api_enabled": True, "api_url": "https://mes.example/api",
+            "selections": [{"name": "Placements", "range": "A12:I*", "header": True}],
+            "manual_inputs": [{"name": "Operator", "value": "OP-17"}, {"name": "Work order", "value": "WO-1187"}]}),
+            data / "config.json")
+        firstrun.mark_done(data)  # a copy that has run before opens on the Monitor
+        return app.App(data)
+
+    def visible(self):
+        return [k for k in ("monitor", "setup", "pick", "delivery", "history", "operator")
+                if self.window.nav_items[k]["row"].winfo_manager()]
+
+    def test_the_window_has_a_sidebar_a_monitor_page_and_no_tab_strip(self):
+        w = self.window
+
+        def steps():
+            self.assertIsNotNone(w.sidebar)
+            self.assertIsNot(w.content, w)
+            self.assertEqual(w.theme.key, "dashboard")
+            self.assertEqual([e[0] for e in ttk.Style(w).layout("TNotebook.Tab")], ["null"])  # the sidebar does the tabs' job
+            self.assertEqual(self.visible(), ["monitor", "setup", "pick", "delivery", "history"])
+            for extra in ("settings", "help", "log"):
+                self.assertTrue(w.nav_items[extra]["row"].winfo_manager(), extra)
+            self.assertEqual(w.tabs.select(), str(w.monitor_tab))  # it has run before: the first thing is the state
+            self.assertTrue(w.nav_items["monitor"]["active"])
+            self.assertEqual((self.menu_label("view_monitor"), self.menu_state("view_monitor")), ("Monitor", "normal"))
+            self.assertEqual(w.sidebar_station.get(), "Line 7")
+            yield 100
+        self.run_steps(steps)
+
+    def test_clicking_the_sidebar_opens_the_page_and_marks_it(self):
+        w = self.window
+
+        def steps():
+            w.nav_items["delivery"]["text"].event_generate("<Button-1>")
+            yield lambda: w.tabs.select() == str(w.delivery_tab)
+            yield lambda: w.nav_items["delivery"]["active"] and not w.nav_items["monitor"]["active"]
+            w.nav_items["history"]["icon"].event_generate("<Button-1>")  # the icon is part of the entry
+            yield lambda: w.tabs.select() == str(w.history_tab)
+            w._show_tab(w.pick_tab)  # and a page opened any other way is marked too
+            yield lambda: w.nav_items["pick"]["active"] and not w.nav_items["history"]["active"]
+            self.assertTrue(all(str(i["row"].cget("takefocus")) in ("1", "True", "true") for i in w.nav_items.values()))
+            self.assertTrue(w.nav_items["setup"]["row"].bind("<Return>"))
+        self.run_steps(steps)
+
+    def test_settings_help_and_the_log_open_from_the_sidebar(self):
+        w = self.window
+
+        def steps():
+            w.nav_items["settings"]["text"].event_generate("<Button-1>")
+            yield lambda: w.options_win.state() == "normal"
+            w.close_options()
+            w.nav_items["help"]["text"].event_generate("<Button-1>")
+            yield lambda: w.help_win.state() == "normal"
+            w.help_win.withdraw()
+            w.nav_items["log"]["text"].event_generate("<Button-1>")
+            yield lambda: w.log_win.state() == "normal"
+        self.run_steps(steps)
+
+    def test_the_monitor_shows_the_counters_the_latest_files_and_each_destination(self):
+        w = self.window
+        (w.data_dir / "outbox" / "api").mkdir(parents=True)
+        for n in range(3):
+            (w.data_dir / "outbox" / "api" / f"b{n}.json").write_text("{}")
+        rows = [("10:04:11", "b6.csv", "ok", "ok", "ok"), ("10:05:20", "b7.csv", "duplicate", "off", "off"),
+                ("10:06:44", "b8.csv", "failed", "off", "off"), ("10:12:31", "b10.csv", "ok", "ok", "queued")]
+        for t, name, status, shared, api in rows:
+            w.ledger.add(processed_at=f"2026-10-21T{t}", source=name, output=name + ".json", status=status,
+                         shared=shared, api=api, ftp="off", message="")
+
+        def steps():
+            yield lambda: w.counts["ok"].cget("text") == "2" and w.recent_tree.get_children()
+            self.assertEqual([w.counts[k].cget("text") for k in ("ok", "waiting", "queued", "failed", "rejected")],
+                             ["2", "0", "3", "1", "0"])
+            values = [w.recent_tree.item(i, "values") for i in w.recent_tree.get_children()]
+            self.assertEqual([v[1] for v in values], ["b10.csv", "b8.csv", "b7.csv", "b6.csv"])  # newest first
+            self.assertEqual(values[0], ("10:12:31", "b10.csv", "Done", "Shared folder ✓ · API link waiting"))
+            self.assertEqual(values[1][2], "Could not be read")
+            self.assertEqual(values[2][2], "Duplicate")
+            self.assertEqual(values[3][3], "Shared folder ✓ · API link ✓")
+            self.assertEqual(w.recent_empty.winfo_manager(), "")  # there is something to show
+            self.assertEqual(w.destination_rows["shared"][1].cget("text"), "Delivered · last at 10:12")
+            self.assertEqual(w.destination_rows["api"][1].cget("text"), "3 waiting to be sent")
+            self.assertEqual(w.destination_rows["ftp"][1].cget("text"), "Off")
+            self.assertEqual(str(w.destination_rows["ftp"][0].cget("fg")), theme.IDLE)
+            self.assertEqual(str(w.destination_rows["api"][0].cget("fg")), theme.WARNING)
+            self.assertEqual([(a.get(), b.get()) for a, b in w.monitor_values],
+                             [("Operator", "OP-17"), ("Work order", "WO-1187")])
+            self.assertIn("Last file 10:12", w.health_labels["last"].cget("text"))
+        self.run_steps(steps)
+
+    def test_a_destination_that_is_down_is_said_to_be_not_answering(self):
+        w = self.window
+        (w.data_dir / "alerts.json").write_text(json.dumps({"open": {"api": {
+            "text": "Delivery to the API link is not possible", "since": "2026-10-21T10:08:00"}}}), encoding="utf-8")
+
+        def steps():
+            yield lambda: "Not answering since 10:08" in w.destination_rows["api"][1].cget("text")
+            self.assertEqual(str(w.destination_rows["api"][0].cget("fg")), theme.WARNING)
+        self.run_steps(steps)
+
+    def test_typed_values_on_the_monitor_follow_the_form_and_lead_to_where_they_are_changed(self):
+        w = self.window
+
+        def steps():
+            w.man_vars[0][1].set("OP-99")
+            self.assertEqual(w.monitor_values[0][1].get(), "OP-99")
+            w.man_vars[1][0].set("")
+            self.assertEqual(w.monitor_values[1][0].get(), "Typed value 2")
+            w.field_widgets["monitor_values"].invoke()
+            yield lambda: w.tabs.select() == str(w.setup_tab)
+            w._show_tab(w.monitor_tab)
+            w._store_password(config.hash_password("opensesame"))
+            w.toggle_lock()
+            yield lambda: w.tabs.select() == str(w.operator_tab)
+            w._show_tab(w.monitor_tab)
+            w.field_widgets["monitor_values"].invoke()  # locked: the operator's own page
+            yield lambda: w.tabs.select() == str(w.operator_tab)
+        self.run_steps(steps)
+
+    def test_locking_the_setup_leaves_the_operator_the_monitor_history_and_their_own_page(self):
+        w = self.window
+
+        def steps():
+            w._store_password(config.hash_password("opensesame"))
+            w.toggle_lock()
+            yield lambda: self.visible() == ["monitor", "history", "operator"]
+            self.assertEqual(w.tabs.select(), str(w.operator_tab))
+            self.assertTrue(w.nav_items["operator"]["active"])
+            self.assertTrue(w.protected)
+        self.run_steps(steps)
+
+    def test_the_status_pill_and_the_station_card_say_the_same(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.state_label.cget("text").strip(), "Stopped")
+            self.assertEqual(w.sidebar_state.cget("text"), "Stopped")
+            w._update_sidebar_state("Monitoring", theme.SUCCESS)
+            self.assertEqual((w.sidebar_state.cget("text"), str(w.sidebar_dot.cget("fg"))), ("Monitoring", "#5cc98a"))
+            w._update_sidebar_state("Stopped", theme.IDLE)
+            self.assertEqual(str(w.sidebar_dot.cget("fg")), theme.SIDEBAR_MUTED)
+            w.v["station_name"].set("Line 9")
+            self.assertEqual(w.sidebar_station.get(), "Line 9")
+            w.v["station_name"].set("")
+            self.assertEqual(w.sidebar_station.get(), "(no name yet)")
+            w.start()  # the pill and the card follow a real start too
+            yield lambda: w.running and w.sidebar_state.cget("text") == "Monitoring"
+            self.assertEqual(w.state_label.cget("text").strip(), "Monitoring")
+            w.stop()
+            yield lambda: not w.running and w.sidebar_state.cget("text") == "Stopped"
+        self.run_steps(steps)
+
+    def test_plain_widgets_inside_a_box_are_white_like_the_box(self):
+        w = self.window
+
+        def steps():
+            styles = set()
+
+            def walk(widget, inside=False):
+                for child in widget.winfo_children():
+                    within = inside or child.winfo_class() == "TLabelframe"
+                    if within and child.winfo_class() in ("TFrame", "TLabel", "TCheckbutton", "TRadiobutton"):
+                        styles.add(str(child.cget("style")))
+                    walk(child, within)
+            walk(w.setup_tab)
+            walk(w.delivery_tab)
+            self.assertTrue(styles & {"Inner.TFrame", "Card.TLabel", "Inner.TCheckbutton", "Inner.Small.TLabel"}, styles)
+            self.assertFalse(styles & {"", "TFrame", "Small.TLabel"}, styles)  # none left in the page colour
+            style = ttk.Style(w)
+            for name in ("Inner.TFrame", "Card.TLabel", "Inner.TCheckbutton", "TLabelframe"):
+                self.assertEqual(str(style.lookup(name, "background")), theme.SURFACE, name)
+            self.assertEqual(str(style.lookup("TFrame", "background")), theme.BACKGROUND)  # the page is not
+            yield 100
+        self.run_steps(steps)
+
+    def test_the_card_pass_only_touches_what_is_in_a_box(self):
+        def steps():
+            frame = ttk.Frame(self.window)
+            outside = ttk.Frame(frame)
+            box = ttk.LabelFrame(frame, text="box")
+            inner, small, check = ttk.Frame(box), ttk.Label(box, style="Small.TLabel"), ttk.Checkbutton(box)
+            own = ttk.Label(box, style="Card.TLabel")
+            deep = ttk.Label(inner)
+            window = tk.Toplevel(box)
+            in_window = ttk.Frame(window)
+            try:
+                self.assertEqual(cards.restyle_cards(frame), 4)
+                self.assertEqual(str(outside.cget("style")), "")
+                self.assertEqual((str(inner.cget("style")), str(small.cget("style")), str(check.cget("style"))),
+                                 ("Inner.TFrame", "Inner.Small.TLabel", "Inner.TCheckbutton"))
+                self.assertEqual(str(own.cget("style")), "Card.TLabel")  # already a card style
+                self.assertEqual(str(deep.cget("style")), "Inner.TLabel")
+                self.assertEqual(str(in_window.cget("style")), "")  # a window of its own starts on the page again
+                self.assertEqual(cards.restyle_cards(frame), 0)  # and a second pass changes nothing
+            finally:
+                window.destroy()
+                frame.destroy()
+            yield 50
+        self.run_steps(steps)
+
+    def test_every_icon_draws_and_the_sidebar_uses_only_icons_that_exist(self):
+        def steps():
+            canvas = tk.Canvas(self.window, width=24, height=24)
+            try:
+                for name in icons.ICONS:
+                    icons.draw(canvas, name, "#ffffff", 24)
+                    self.assertTrue(canvas.find_all(), name)
+                icons.draw(canvas, "monitor", "#ffffff", 48)  # and at another size, from scratch
+                self.assertTrue(canvas.find_all())
+            finally:
+                canvas.destroy()
+            names = [key for key, _label, _tab in self.window.NAV] + ["settings", "help", "log", "logo"]
+            self.assertEqual([n for n in names if n not in icons.ICONS], [])
+            yield 50
+        self.run_steps(steps)
+
+
+class DashboardFirstRun(WindowTest):
+    def make_window(self):
+        data = self.tmp / "fresh"
+        config.save_config(config.normalize_config({"theme": "dashboard"}), data / "config.json")
+        return app.App(data)
+
+    def test_a_copy_that_has_never_run_opens_on_setup_with_the_guide(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.tabs.select(), str(w.setup_tab))
+            self.assertTrue(w.checklist_shown)
+            self.assertTrue(w.nav_items["setup"]["active"])
+            yield 100
+        self.run_steps(steps)
+
+
+class OtherThemesHaveNoSidebar(WindowTest):
+    def test_the_default_theme_has_neither_a_sidebar_nor_a_monitor_page(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual(w.theme.key, "modern")
+            self.assertIsNone(w.sidebar)
+            self.assertIs(w.content, w)
+            self.assertFalse(hasattr(w, "monitor_tab"))
+            self.assertNotIn("view_monitor", w.menu_items)
+            self.assertNotEqual([e[0] for e in ttk.Style(w).layout("TNotebook.Tab")], ["null"])  # its tab strip is there
+            yield 100
         self.run_steps(steps)
 
 

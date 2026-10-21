@@ -16,10 +16,11 @@ class StatusMixin:
             try:
                 cfg = self.cfg
                 stats = self.ledger.stats()
+                queued = engine.count_queued(self.data_dir)
                 self.snapshot = {
                     "ok": stats.get("ok", 0), "failed": stats.get("failed", 0),
                     "waiting": engine.count_waiting(cfg) if cfg["source_folder"] else 0,
-                    "queued": sum(engine.count_queued(self.data_dir).values()),
+                    "queued": sum(queued.values()), "queued_kinds": queued,
                     "rejected": engine.count_rejected(self.data_dir),
                     "history": self.ledger.recent(200),
                     "alerts": alerts.read_state(self.data_dir),
@@ -88,6 +89,8 @@ class StatusMixin:
         self.state_label.configure(text=text, width=max(11, len(text)))
         self.state_label.configure(foreground=colour)
         self.state_dot.configure(fg=colour)
+        if self.sidebar is not None:
+            self._update_sidebar_state(text, colour)
         idle = not running and not self.busy
         self.start_btn.configure(state="normal" if idle else "disabled")
         self.once_btn.configure(state="normal" if idle and not self.connected else "disabled")
@@ -131,6 +134,8 @@ class StatusMixin:
                     self.history_empty.place_forget()
                 else:
                     self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
+            if self.L.monitor_page:
+                self._show_monitor(snap)
         self._tick_job = self.after(300, self._tick)
 
     @staticmethod

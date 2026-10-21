@@ -533,6 +533,8 @@ delivery are the same.
   **Legacy** is the look of version 1.0: native Windows controls, Segoe UI and Consolas, compact spacing,
   bare counters and no page headings, in the same 1180 x 740 window, with everything added since
   version 1.0 drawn in the same style.
+  **Dashboard** puts the navigation in a dark **sidebar** instead of tabs, adds a **Monitor** page, and draws
+  the boxes as white **cards** on a calm grey page (see *The Dashboard theme* below).
 - **Colours.** **Light**, **Dark** or **Follow Windows** (the app mode in the Windows settings). Modern has a
   designed dark palette. Legacy's dark mode **inverts its own colours** (light grey becomes near-black, the
   blue accent becomes amber), because the native Windows controls cannot take a normal dark palette; it
@@ -554,6 +556,31 @@ next menu, the pointer on another title switches to it, and nothing else in the 
 The choices are the `theme`, `color_mode` (`light`, `dark`, `system`), `font_family`, `font_size` and
 `ui_scale` settings in `config.json`, and are part of Export/Import settings. An unknown or invalid value falls
 back to the default.
+
+### The Dashboard theme
+
+The sidebar lists the pages (Monitor, Setup, Ranges & preview, Delivery, History, and the operator's own
+page while the setup is locked) with Settings, Help and the Activity log below them. The page that is
+open is marked, and a page that is hidden by the lock is not listed. Below the sidebar a card shows the
+station's name and whether it is monitoring. The tab strip is hidden: the sidebar does its job (View >
+Monitor, Ctrl+0 to Ctrl+4, the checklist's buttons and every other way of opening a page work as before).
+The toolbar with Start, Stop, Process now and Save settings stays at the top of every page, with a pill
+at its right that says what the program is doing. The menu bar is unchanged.
+
+The **Monitor** page is where the counters and the health line now live, so the other pages are free of
+them: the five counters (each says what it counts), the last file, the age of the send queue and the
+back-up drive, the latest files with where each went (Shared folder ✓, API link waiting...), one line per
+destination (working, waiting to be sent, not answering since 10:08, or off) and the typed values with a
+Change button. A copy that has run before opens on the Monitor; a new one opens on Setup with the guide.
+
+The fonts are IBM Plex Sans and Plex Mono when they are installed on the PC, otherwise Segoe UI and
+Cascadia Mono or Consolas. It has a designed dark palette too, and its colours were chosen so that text on
+the cards and on the page reaches the 4.5 : 1 contrast that is readable at a glance (a test checks it).
+
+For developers, a theme asks for these things in its `Layout`: `sidebar=True` (a sidebar, the tab strip
+hidden), `monitor_page=True` (the Monitor page and its View menu entry) and `cards=True` (the plain widgets
+inside a box take the card's colour, see `ui/cards.py`), and names the five `SIDEBAR_*` colours. The other
+themes leave all three off and look exactly as before.
 
 Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every name in
 `COLOUR_NAMES`, ten range colours, candidate fonts, a `Layout` (sizes and spacing) and a function that styles
@@ -664,7 +691,7 @@ tools/extract_strings.py   writes the template of every English text
 installer/                  the set-up program (core, window, command line); CNCBridgeSetup.pyw starts it
 cncbridge/stations.py       the list of copies on this PC and a read-only look at each
 cncbridge/app.py         the main window: puts the pieces below together, and run()
-cncbridge/ui/            the pieces of the window, one mixin each: layout (frame, toolbar, header), menus
+cncbridge/ui/            the pieces of the window, one mixin each (sidebar, monitor and cards for the Dashboard theme): layout (frame, toolbar, header), menus
                          (menu bar, shortcuts), setup_tab (Setup, Delivery), pick_tab, history_tab, options
                          (Options window, Appearance), access (password, operator view, shifts), windows
                          (log, Help), tooltips, form (settings <-> form, settings files), control (start/stop,

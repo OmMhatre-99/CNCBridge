@@ -21,7 +21,8 @@ COLOUR_NAMES = (
     "BACKGROUND", "SURFACE", "SURFACE_ALT", "TEXT", "MUTED", "BORDER", "DISABLED_SURFACE", "DISABLED_TEXT",
     "DISABLED_ACCENT", "HOVER_SURFACE", "FOCUS_SURFACE", "ACTIVE_HEADER", "ACCENT", "ACCENT_HOVER", "ACCENT_TINT",
     "FOCUS", "SUCCESS", "WARNING", "ERROR", "ERROR_TINT", "WARNING_TINT", "IDLE", "WHITE", "GRID_LINE",
-    "GRID_HEADER", "GRID_HEADER_TEXT", "GRID_SELECTION", "GRID_SELECTION_EDGE", "GRID_HEADER_SELECTION")
+    "GRID_HEADER", "GRID_HEADER_TEXT", "GRID_SELECTION", "GRID_SELECTION_EDGE", "GRID_HEADER_SELECTION",
+    "SIDEBAR", "SIDEBAR_TEXT", "SIDEBAR_MUTED", "SIDEBAR_ACTIVE", "SIDEBAR_HOVER")  # the last five: a theme with a sidebar
 
 
 @dataclass(frozen=True)
@@ -45,6 +46,10 @@ class Layout:
     grid_badge: int          # font size of the slot numbers on the grid
     grid_empty: tuple         # sizes of the two lines shown while the grid is empty
     menu_size: int            # font size of the menu bar and its menus
+    sidebar: bool = False     # navigation in a sidebar on the left; the tab strip is hidden
+    monitor_page: bool = False   # a Monitor page: the counters, the health line, the latest files, the destinations
+    cards: bool = False       # framed boxes are white cards on the page colour
+    sidebar_width: int = 232  # in 96-dpi pixels
 
 
 @dataclass(frozen=True)
@@ -236,7 +241,9 @@ MODERN = Theme(
         ACCENT_HOVER="#12575b", ACCENT_TINT="#dcefee", FOCUS="#a85b00", SUCCESS="#176b45", WARNING="#855600",
         ERROR="#a92720", ERROR_TINT="#fbe9e7", WARNING_TINT="#fff1cf", IDLE="#52636b", WHITE="#ffffff",
         GRID_LINE="#d3dcda", GRID_HEADER="#edf2f1", GRID_HEADER_TEXT="#52636b", GRID_SELECTION="#dcefee",
-        GRID_SELECTION_EDGE="#176b70", GRID_HEADER_SELECTION="#c3dedb"),
+        GRID_SELECTION_EDGE="#176b70", GRID_HEADER_SELECTION="#c3dedb",
+        SIDEBAR="#26343d", SIDEBAR_TEXT="#dbe3e6", SIDEBAR_MUTED="#9fb0b8", SIDEBAR_ACTIVE="#34464f",
+        SIDEBAR_HOVER="#2e3d46"),
     range_colours=(
         ("#e6f1ef", "#176b70"), ("#e8edf5", "#3f5f86"), ("#f3eee2", "#795a1c"), ("#e9f0e3", "#4f7040"),
         ("#f3e9e6", "#9a4d3e"), ("#ece8f2", "#65527f"), ("#e3efed", "#35766e"), ("#f1eee2", "#756628"),
@@ -373,7 +380,9 @@ LEGACY = Theme(
         ACCENT_HOVER="#1555b3", ACCENT_TINT="#cfe2ff", FOCUS="#1a66d9", SUCCESS="#1e8e3e", WARNING="#b06000",
         ERROR="#c5221f", ERROR_TINT="#fbe4e2", WARNING_TINT="#fbeccb", IDLE="#6b6b6b", WHITE="#ffffff",
         GRID_LINE="#dcdcdc", GRID_HEADER="#f1f1f1", GRID_HEADER_TEXT="#555555", GRID_SELECTION="#cfe2ff",
-        GRID_SELECTION_EDGE="#1a66d9", GRID_HEADER_SELECTION="#c5d7f2"),
+        GRID_SELECTION_EDGE="#1a66d9", GRID_HEADER_SELECTION="#c5d7f2",
+        SIDEBAR="#f0f0f0", SIDEBAR_TEXT="#000000", SIDEBAR_MUTED="#6b6b6b", SIDEBAR_ACTIVE="#cfe2ff",
+        SIDEBAR_HOVER="#e5f1fb"),
     range_colours=(
         ("#fde9c8", "#c77700"), ("#d9f2dc", "#2e8b3d"), ("#f6dcee", "#b0308a"), ("#dbeafe", "#3b6fd4"),
         ("#fbe0dc", "#c0392b"), ("#e6e0f8", "#6b4fc4"), ("#d8f3f1", "#11847c"), ("#f3efc9", "#8a7a00"),
@@ -395,6 +404,104 @@ LEGACY = Theme(
 )
 
 
+# ---------------------------------------------------------------- dashboard: sidebar, Monitor page and cards
+def _dashboard_styles(style, px, fonts):
+    """
+    Modern's widgets restyled as white cards on a calm grey page. The tab strip is hidden: the sidebar (see
+    ui/sidebar.py) is the navigation. Styles named Inner.* are what the plain widgets inside a card get, so that
+    they take the card's colour (ui/cards.py).
+    """
+    _modern_styles(style, px, fonts)
+    c = ACTIVE.colours
+    BACKGROUND, SURFACE, SURFACE_ALT, TEXT, MUTED, BORDER = (c[k] for k in (
+        "BACKGROUND", "SURFACE", "SURFACE_ALT", "TEXT", "MUTED", "BORDER"))
+    ACCENT, ACCENT_TINT, FOCUS, HOVER, DISABLED_TEXT = (c[k] for k in (
+        "ACCENT", "ACCENT_TINT", "FOCUS", "HOVER_SURFACE", "DISABLED_TEXT"))
+    body, heading = fonts["body"], fonts["heading"]
+    layout = ACTIVE.layout
+    # no tab strip, and no frame around the pages
+    style.layout("TNotebook.Tab", [])
+    style.layout("TNotebook", [("Notebook.client", {"sticky": "nswe"})])
+    style.configure("TNotebook", background=BACKGROUND, bordercolor=BACKGROUND, lightcolor=BACKGROUND,
+                    darkcolor=BACKGROUND, borderwidth=0, tabmargins=(0, 0, 0, 0))
+    # cards
+    style.configure("TLabelframe", background=SURFACE, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                    relief="solid", borderwidth=1)
+    style.configure("TLabelframe.Label", background=SURFACE, foreground=TEXT, font=strong_font(fonts, 12))
+    style.configure("Card.TLabel", background=SURFACE, foreground=TEXT)
+    style.configure("CardSmall.TLabel", background=SURFACE, foreground=MUTED)
+    style.configure("Metric.TFrame", background=SURFACE, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
+                    relief="solid", borderwidth=1)
+    style.configure("MetricSmall.TLabel", background=SURFACE, foreground=MUTED, font=strong_font(fonts, 10))
+    style.configure("MetricValue.TLabel", background=SURFACE, foreground=TEXT,
+                    font=strong_font(fonts, layout.counter_size))
+    style.configure("Inner.TFrame", background=SURFACE)
+    style.configure("Inner.TLabel", background=SURFACE, foreground=TEXT)
+    style.configure("Inner.Small.TLabel", background=SURFACE, foreground=MUTED)
+    for name in ("Inner.TCheckbutton", "Inner.TRadiobutton"):
+        style.configure(name, background=SURFACE, foreground=TEXT, padding=(0, px(3)), focuscolor=FOCUS,
+                        indicatorsize=px(16), indicatorbackground=SURFACE, indicatorcolor=SURFACE,
+                        indicatorforeground=ACCENT, upperbordercolor=MUTED, lowerbordercolor=MUTED)
+        style.map(name, indicatorcolor=[("selected", ACCENT), ("pressed", ACCENT_TINT), ("disabled", SURFACE_ALT)],
+                  background=[("active", SURFACE), ("disabled", SURFACE)], foreground=[("disabled", MUTED)])
+    # the page: a title in the heading font, a hint under it
+    style.configure("PageTitle.TLabel", background=BACKGROUND, foreground=TEXT, font=strong_font(fonts, 20))
+    style.configure("PageHint.TLabel", background=BACKGROUND, foreground=MUTED, font=(body, 11))
+    # the bar with the Start button, and the status pill in it
+    style.configure("Toolbar.TFrame", background=SURFACE)
+    style.configure("Pill.TFrame", background=SURFACE_ALT)
+    style.configure("Pill.TLabel", background=SURFACE_ALT, foreground=TEXT, font=strong_font(fonts, 11))
+    # roomier controls: a fingertip on a touch screen, and the eye find them easily
+    style.configure("TButton", padding=(px(14), px(8)))
+    style.configure("Go.TButton", padding=(px(14), px(8)))
+    style.configure("Toolbutton", padding=(px(14), px(8)))
+    style.configure("Go.Toolbutton", padding=(px(16), px(8)))
+    style.configure("TEntry", padding=(px(10), px(8)))
+    style.configure("TCombobox", padding=(px(10), px(8)))
+    style.configure("Treeview", rowheight=_row_height(px, (body, 11), 36))
+    style.configure("History.Treeview", rowheight=_row_height(px, (body, 11), 36), font=(body, 11))
+    for name in ("Treeview.Heading", "History.Treeview.Heading"):
+        style.configure(name, background=c["GRID_HEADER"], foreground=MUTED, padding=(px(10), px(9)))
+    style.map("Treeview", background=[("selected", ACCENT_TINT), ("focus", c["FOCUS_SURFACE"])],
+              foreground=[("selected", TEXT)])
+
+
+DASHBOARD = Theme(
+    key="dashboard",
+    label=N_("Dashboard"),
+    description=N_("A sidebar instead of tabs, a Monitor page with the counters and the latest files, and white "
+                   "cards on a calm grey. IBM Plex fonts when they are installed."),
+    colours=dict(
+        BACKGROUND="#f3f4f6", SURFACE="#ffffff", SURFACE_ALT="#eef0f3", TEXT="#15181c", MUTED="#5b6470",
+        BORDER="#d5d9df", DISABLED_SURFACE="#eceef1", DISABLED_TEXT="#7a838e", DISABLED_ACCENT="#6fa5a5",
+        HOVER_SURFACE="#e8ebee", FOCUS_SURFACE="#e3f1f0", ACTIVE_HEADER="#e3e6ea", ACCENT="#0e6b6b",
+        ACCENT_HOVER="#094848", ACCENT_TINT="#e3f1f0", FOCUS="#2e8f8a", SUCCESS="#1b6b43", WARNING="#9a5b00",
+        ERROR="#b42318", ERROR_TINT="#fdecea", WARNING_TINT="#fdf1dc", IDLE="#5b6470", WHITE="#ffffff",
+        GRID_LINE="#edeff2", GRID_HEADER="#f6f7f9", GRID_HEADER_TEXT="#4a525d", GRID_SELECTION="#e3f1f0",
+        GRID_SELECTION_EDGE="#0e6b6b", GRID_HEADER_SELECTION="#c7e3e0",
+        SIDEBAR="#14181d", SIDEBAR_TEXT="#c7cdd4", SIDEBAR_MUTED="#8e97a2", SIDEBAR_ACTIVE="#26303a",
+        SIDEBAR_HOVER="#1d242b"),
+    range_colours=(
+        ("#e3f1f0", "#0e6b6b"), ("#e6eef9", "#1d5fb0"), ("#f6ebdd", "#8a4b08"), ("#efe8f7", "#6b3fa0"),
+        ("#e6f2e7", "#2f7a3b"), ("#f8e7ef", "#a3295f"), ("#e3eff5", "#1f6f8f"), ("#f3efdb", "#7a6a12"),
+        ("#eceef1", "#4a525d"), ("#fbe9e3", "#b3472c")),
+    fonts=dict(
+        heading=("IBM Plex Sans", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
+        body=("IBM Plex Sans", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
+        strong=("IBM Plex Sans SemiBold", "Segoe UI Semibold", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
+        mono=("IBM Plex Mono", "Cascadia Mono", "Consolas", "Menlo", "Monaco", "Courier New", "DejaVu Sans Mono")),
+    layout=Layout(
+        window=(1360, 840, 1120, 700), page_intros=True, intro_inline=False, metric_cards=True,
+        tab_pad=(22, 16), box_pad=(16, 12), box_gap=16, row=5, range_size=11, text_mono=11, code_mono=True,
+        counter_size=22, state=(12, 12), check_text="Yes", grid_font=11, grid_badge=9, grid_empty=(13, 11),
+        menu_size=11, sidebar=True, monitor_page=True, cards=True, sidebar_width=232),
+    bundled_fonts=False,
+    ttk_base="clam",
+    configure_styles=_dashboard_styles,
+    apply_palette=_modern_palette,
+)
+
+
 # ---------------------------------------------------------------- dark versions
 MODERN = replace(
     MODERN,
@@ -405,11 +512,29 @@ MODERN = replace(
         ACCENT_HOVER="#6cc6c8", ACCENT_TINT="#1f4a4c", FOCUS="#f0a53a", SUCCESS="#5cc98a", WARNING="#f0b445",
         ERROR="#ff8a80", ERROR_TINT="#4a2623", WARNING_TINT="#4a3a1c", IDLE="#9fb0b8", WHITE="#0c1a1b",
         GRID_LINE="#3a464d", GRID_HEADER="#2a3238", GRID_HEADER_TEXT="#9fb0b8", GRID_SELECTION="#1f4a4c",
-        GRID_SELECTION_EDGE="#4fb3b5", GRID_HEADER_SELECTION="#2f5f61"),
+        GRID_SELECTION_EDGE="#4fb3b5", GRID_HEADER_SELECTION="#2f5f61",
+        SIDEBAR="#0f1316", SIDEBAR_TEXT="#dbe3e6", SIDEBAR_MUTED="#8d9ca5", SIDEBAR_ACTIVE="#26333a",
+        SIDEBAR_HOVER="#1c262b"),
     dark_range_colours=(
         ("#1d3a3a", "#4fb3b5"), ("#222f44", "#7da4d8"), ("#3a3220", "#d4a94c"), ("#27381f", "#8cbf6f"),
         ("#3d2622", "#e08a78"), ("#2e2840", "#a994d4"), ("#1c3a36", "#5cc2b4"), ("#38361f", "#cfc25a"),
         ("#2c3235", "#9aa8ad"), ("#3c2634", "#d98fb0")))
+DASHBOARD = replace(
+    DASHBOARD,
+    dark_colours=dict(
+        BACKGROUND="#0f1317", SURFACE="#171c21", SURFACE_ALT="#1f262c", TEXT="#e6eaee", MUTED="#9aa5b1",
+        BORDER="#2e3840", DISABLED_SURFACE="#1c2227", DISABLED_TEXT="#6f7a86", DISABLED_ACCENT="#2f6360",
+        HOVER_SURFACE="#222a31", FOCUS_SURFACE="#1b2f30", ACTIVE_HEADER="#29323a", ACCENT="#4db6b0",
+        ACCENT_HOVER="#7ccfca", ACCENT_TINT="#173b3b", FOCUS="#f0a53a", SUCCESS="#5cc98a", WARNING="#f0b445",
+        ERROR="#ff8a80", ERROR_TINT="#3d2220", WARNING_TINT="#3d3018", IDLE="#9aa5b1", WHITE="#0b1516",
+        GRID_LINE="#2a333a", GRID_HEADER="#1f262c", GRID_HEADER_TEXT="#9aa5b1", GRID_SELECTION="#173b3b",
+        GRID_SELECTION_EDGE="#4db6b0", GRID_HEADER_SELECTION="#245354",
+        SIDEBAR="#0a0d10", SIDEBAR_TEXT="#c7cdd4", SIDEBAR_MUTED="#8e97a2", SIDEBAR_ACTIVE="#1b2229",
+        SIDEBAR_HOVER="#141a1f"),
+    dark_range_colours=(
+        ("#173b3b", "#4db6b0"), ("#1c2a40", "#7da4d8"), ("#3a2e1c", "#d4a257"), ("#2b2340", "#b09ad8"),
+        ("#1f3523", "#7fc68a"), ("#3d2230", "#e08fb2"), ("#1a3340", "#6fb8d6"), ("#38341a", "#cfc25a"),
+        ("#252c32", "#9aa8ad"), ("#3d2620", "#e5896f")))
 LEGACY = replace(
     LEGACY,
     dark_colours={name: invert_colour(value) for name, value in LEGACY.colours.items()},
@@ -419,7 +544,7 @@ LEGACY = replace(
     dark_apply_palette=_legacy_dark_palette)
 
 # ---------------------------------------------------------------- the registry
-THEMES = {t.key: t for t in (MODERN, LEGACY)}   # add new themes here
+THEMES = {t.key: t for t in (MODERN, LEGACY, DASHBOARD)}   # add new themes here
 DEFAULT_THEME = "modern"
 ACTIVE = MODERN
 RANGE_COLOURS = MODERN.range_colours

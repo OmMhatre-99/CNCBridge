@@ -1,7 +1,7 @@
 """The operator view, the setup password and the shift-change confirmation."""
 from tkinter import messagebox, simpledialog, ttk
 
-from .. import config, permissions, shifts
+from .. import config, firstrun, permissions, shifts
 from ..config import APP_NAME, SettingsTooNew, normalize_config, save_config
 from .common import log
 from .dialogs import ShiftDialog
@@ -52,8 +52,17 @@ class AccessMixin:
             label.configure(text=name.get().strip() or label.cget("text"))
         self.password_state.set(tr("Password is set") if self.protected else tr("No password"))
         self.remove_pw_btn.configure(state="normal" if self.protected else "disabled")
-        self.tabs.select(self.operator_tab if locked else self.setup_tab)
+        self.tabs.select(self._home_tab(locked))
+        self._sync_sidebar()
         self._schedule_checklist()
+
+    def _home_tab(self, locked):
+        """The page shown when the window opens, and after the lock changes."""
+        if locked:
+            return self.operator_tab
+        if self.L.monitor_page and firstrun.is_done(self.data_dir):
+            return self.monitor_tab  # set up and started before: the first thing wanted is to see how it is going
+        return self.setup_tab
 
     def _ask_password(self, title, prompt):
         return simpledialog.askstring(title, prompt, show="●", parent=self)

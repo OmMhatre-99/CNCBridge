@@ -51,6 +51,52 @@ class Registry(unittest.TestCase):
         self.assertTrue(theme.MODERN.layout.page_intros)
         self.assertTrue(theme.MODERN.layout.metric_cards)
 
+    def test_the_dashboard_has_a_sidebar_a_monitor_page_and_cards_and_the_others_do_not(self):
+        self.assertIn("dashboard", theme.THEMES)
+        layout = theme.DASHBOARD.layout
+        self.assertTrue(layout.sidebar and layout.monitor_page and layout.cards)
+        self.assertGreater(layout.sidebar_width, 150)
+        for t in (theme.MODERN, theme.LEGACY):
+            self.assertFalse(t.layout.sidebar or t.layout.monitor_page or t.layout.cards, t.key)
+        self.assertEqual(theme.DEFAULT_THEME, "modern")  # the new look is a choice, not the default
+        self.assertEqual(theme.DASHBOARD.ttk_base, "clam")
+
+    def test_every_theme_names_the_sidebar_colours(self):
+        for key, t in theme.THEMES.items():
+            for name in ("SIDEBAR", "SIDEBAR_TEXT", "SIDEBAR_MUTED", "SIDEBAR_ACTIVE", "SIDEBAR_HOVER"):
+                self.assertIn(name, t.colours, f"{key} {name}")
+
+    def test_the_dashboards_sidebar_is_dark_in_light_mode_too(self):
+        def brightness(colour):
+            r, g, b = (int(colour[i:i + 2], 16) for i in (1, 3, 5))
+            return (299 * r + 587 * g + 114 * b) / 1000
+        for mode in ("light", "dark"):
+            t = theme.use("dashboard", mode)
+            self.assertLess(brightness(t.colours["SIDEBAR"]), 60, mode)
+            self.assertGreater(brightness(t.colours["SIDEBAR_TEXT"]), 150, mode)
+            self.assertGreater(brightness(t.colours["SIDEBAR_MUTED"]), 110, mode)
+
+    def test_text_on_the_dashboards_cards_can_be_read(self):
+        """WCAG contrast of the colours the Dashboard puts on its white cards and its grey page."""
+        def luminance(colour):
+            parts = []
+            for i in (1, 3, 5):
+                c = int(colour[i:i + 2], 16) / 255
+                parts.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+            return 0.2126 * parts[0] + 0.7152 * parts[1] + 0.0722 * parts[2]
+
+        def contrast(a, b):
+            la, lb = sorted((luminance(a), luminance(b)), reverse=True)
+            return (la + 0.05) / (lb + 0.05)
+        for mode in ("light", "dark"):
+            c = theme.use("dashboard", mode).colours
+            for text in ("TEXT", "MUTED", "ACCENT", "SUCCESS", "WARNING", "ERROR"):
+                for ground in ("SURFACE", "BACKGROUND"):
+                    self.assertGreaterEqual(contrast(c[text], c[ground]), 4.5, f"{mode} {text} on {ground}")
+            self.assertGreaterEqual(contrast(c["SIDEBAR_TEXT"], c["SIDEBAR"]), 4.5, mode)
+            self.assertGreaterEqual(contrast(c["SIDEBAR_MUTED"], c["SIDEBAR"]), 4.5, mode)
+            self.assertGreaterEqual(contrast(c["TEXT"], c["ACCENT_TINT"]), 4.5, mode)
+
     def test_labels_are_unique(self):
         labels = [t.label for t in theme.THEMES.values()]
         self.assertEqual(len(labels), len(set(labels)))
@@ -80,6 +126,15 @@ class DarkMode(unittest.TestCase):
     def test_modern_has_a_complete_dark_palette(self):
         self.assertEqual(set(theme.MODERN.dark_colours), set(theme.COLOUR_NAMES))
         self.assertEqual(len(theme.MODERN.dark_range_colours), 10)
+
+    def test_the_dashboard_has_a_complete_dark_palette(self):
+        self.assertEqual(set(theme.DASHBOARD.dark_colours), set(theme.COLOUR_NAMES))
+        self.assertEqual(len(theme.DASHBOARD.dark_range_colours), 10)
+        t = theme.use("dashboard", "dark")
+        self.assertTrue(t.dark)
+        self.assertEqual(t.ttk_base, "clam")
+        self.assertEqual(theme.SIDEBAR, theme.DASHBOARD.dark_colours["SIDEBAR"])
+        self.assertIs(theme.use("dashboard", "light"), theme.DASHBOARD)
 
     def test_dark_modern_is_in_force_after_use(self):
         t = theme.use("modern", "dark")

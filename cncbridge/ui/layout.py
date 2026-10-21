@@ -24,7 +24,7 @@ class LayoutMixin:
     # ================================================================ layout
     def _build_tabs_scroller(self):
         """Keep the tab content usable when the main window is shorter than its ideal height."""
-        host = ttk.Frame(self)
+        host = ttk.Frame(self.content)
         host.pack(fill="both", expand=True, padx=16, pady=(4, 0))
         self.tabs_canvas = tk.Canvas(host, background=theme.BACKGROUND, highlightthickness=0, borderwidth=0)
         self.tabs_scrollbar = ttk.Scrollbar(host, orient="vertical", command=self.tabs_canvas.yview)
@@ -81,7 +81,7 @@ class LayoutMixin:
 
     def _build_toolbar(self):
         """The buttons for the daily work. Everything else is in the menu bar."""
-        bar = ttk.Frame(self, padding=(8, 4))
+        bar = ttk.Frame(self.content, padding=(8, 4), style="Toolbar.TFrame")
         bar.pack(fill="x")
 
         def button(text, command, style="Toolbutton"):
@@ -94,10 +94,28 @@ class LayoutMixin:
         self.once_btn = button("↻  " + tr("Process now"), self.process_now)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6, pady=3)
         self.save_btn = button("✔  " + tr("Save settings"), self.save)
-        ttk.Separator(self).pack(fill="x")
+        if self.L.sidebar:  # the state of the program is in the bar, since the header with the counters is a page
+            self._build_state_pill(bar)
+        ttk.Separator(self.content).pack(fill="x")
+
+    def _build_state_pill(self, bar):
+        """A rounded-looking pill at the right of the toolbar: a dot and the state (Stopped, Monitoring, ...)."""
+        pill = ttk.Frame(bar, style="Pill.TFrame", padding=(self.px(12), self.px(6)))
+        pill.pack(side="right", padx=(8, 4))
+        dot_size, state_size = self.L.state
+        self.state_dot = tk.Label(pill, text="●", fg=theme.IDLE, bg=theme.SURFACE_ALT,
+                                  font=(self._font_body, dot_size, "bold"))
+        self.state_dot.pack(side="left")
+        self.state_label = ttk.Label(pill, text=tr("Stopped"), style="Pill.TLabel", width=11)
+        self.state_label.pack(side="left", padx=(6, 0))
 
     def _build_header(self):
-        bar = ttk.Frame(self, padding=(18, 10, 18, 10))
+        if self.L.monitor_page:  # the counters and the health line are on the Monitor page (see ui/monitor.py)
+            self.header_sep = ttk.Separator(self.content)
+            self.header_sep.pack(fill="x")
+            self._build_banners()
+            return
+        bar = ttk.Frame(self.content, padding=(18, 10, 18, 10))
         bar.pack(fill="x")
         dot_size, state_size = self.L.state
         self.state_dot = tk.Label(bar, text="●", fg=theme.IDLE, bg=theme.BACKGROUND,
@@ -124,18 +142,21 @@ class LayoutMixin:
             self.count_captions[key].pack(anchor="e")
             self.count_boxes[key] = box
         # a line of facts under the counters: last file, queue age, back-up drive (see _show_health)
-        self.health_bar = ttk.Frame(self, padding=(18, 0, 18, 8))
+        self.health_bar = ttk.Frame(self.content, padding=(18, 0, 18, 8))
         self.health_bar.pack(fill="x")
         self.health_labels = {key: ttk.Label(self.health_bar, text="", style="CardSmall.TLabel")
                               for key in ("last", "queue", "disk", "source")}
-        self.header_sep = ttk.Separator(self)
+        self.header_sep = ttk.Separator(self.content)
         self.header_sep.pack(fill="x")
+        self._build_banners()
+
+    def _build_banners(self):
         # shown only while an alert is open (see _tick)
-        self.alert_banner = tk.Label(self, text="", anchor="w", justify="left", bg=theme.ERROR_TINT, fg=theme.ERROR,
+        self.alert_banner = tk.Label(self.content, text="", anchor="w", justify="left", bg=theme.ERROR_TINT, fg=theme.ERROR,
                                      font=self.strong(11), padx=18, pady=7)
         self.alert_banner_shown = False
         # shown while a shift change is waiting for the operator's confirmation; a click opens the dialog
-        self.shift_banner = tk.Label(self, text="", anchor="w", justify="left", bg=theme.WARNING_TINT, fg=theme.WARNING,
+        self.shift_banner = tk.Label(self.content, text="", anchor="w", justify="left", bg=theme.WARNING_TINT, fg=theme.WARNING,
                                      font=self.strong(11), padx=18, pady=7, cursor="hand2")
         self.shift_banner.bind("<Button-1>", lambda e: self.confirm_shift())
         self.shift_banner_shown = False
@@ -182,6 +203,6 @@ class LayoutMixin:
             var.set(os.path.normpath(folder))
 
     def _build_footer(self):
-        bar = ttk.Frame(self, padding=(18, 10))
+        bar = ttk.Frame(self.content, padding=(18, 10))
         bar.pack(fill="x")
         ttk.Label(bar, textvariable=self.status_msg, style="Small.TLabel").pack(side="left")

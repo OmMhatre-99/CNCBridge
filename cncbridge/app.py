@@ -42,7 +42,10 @@ from .ui.tooltips import TooltipsMixin
 from .ui.control import ControlMixin
 from .ui.stations_window import StationsMixin
 from .ui.audit_window import SettingsHistoryMixin
+from .ui.cards import restyle_cards
 from .ui.checklist import ChecklistMixin
+from .ui.monitor import MonitorMixin
+from .ui.sidebar import SidebarMixin
 from .ui.status import StatusMixin
 
 
@@ -61,6 +64,8 @@ class App(LayoutMixin,
           StationsMixin,
           SettingsHistoryMixin,
           ChecklistMixin,
+          SidebarMixin,
+          MonitorMixin,
           tk.Tk):
     def __init__(self, data_dir, notice=None, lock=None, connected=False, resume=False):
         """
@@ -128,6 +133,7 @@ class App(LayoutMixin,
 
         self._make_vars()
         self._build_menubar()
+        self._build_body()
         self._build_toolbar()
         self._build_header()
         self._build_tabs_scroller()
@@ -136,18 +142,23 @@ class App(LayoutMixin,
         self._build_pick()
         self._build_history()
         self._build_operator()
+        if self.L.monitor_page:
+            self._build_monitor()
         self._build_footer()
         self._build_options()
         self._build_log()
         self._build_help()
+        self._fill_sidebar()
         self.fill(self.cfg)
         self._add_tooltips()
+        if self.L.cards:
+            restyle_cards(self)  # the plain widgets inside a box take the card's colour
         self._bind_shortcuts()
         self._apply_lock()
         self._update_protection_state()
         self._watch_setup_changes()
         self._refresh_checklist()
-        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
+        self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed, add="+")
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 
         threading.Thread(target=self._stats_loop, daemon=True).start()

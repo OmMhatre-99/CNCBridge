@@ -25,7 +25,7 @@ class HistoryTabMixin:
                                         state="disabled")
         self.reprocess_btn.pack(side="left", padx=6)
         ttk.Label(bar, text=tr("Most recent 200 files"), style="PageHint.TLabel").pack(side="right")
-        cols = (("processed_at", tr("Time"), 140), ("source", tr("Machine file"), 200), ("status", tr("Result"), 130),
+        cols = (("processed_at", tr("Time"), 165), ("source", tr("Machine file"), 200), ("status", tr("Result"), 130),
                 ("output", tr("Output file"), 250), ("shared", tr("Shared folder"), 130), ("api", tr("API link"), 130),
                 ("ftp", tr("FTP server"), 130), ("message", tr("Note"), 300))
         history_area = ttk.Frame(tab, style="Card.TFrame", padding=1)

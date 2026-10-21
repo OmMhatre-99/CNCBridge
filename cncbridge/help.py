@@ -175,10 +175,11 @@ running it starts again by itself. Appearance only changes how the window looks:
 ## Theme
 - Modern (default): flat controls, light industrial colours, semibold emphasis, large counters.
 - Legacy: the look of version 1.0: native Windows controls, Segoe UI and Consolas, compact spacing.
+- Dashboard: a dark sidebar instead of tabs, a Monitor page with the counters, the latest files and the state of each destination, and white cards on a calm grey.
 
 ## Colours
 - Light, Dark, or Follow Windows (the app mode set in Windows settings).
-- Modern has a designed dark palette. Legacy's dark mode inverts its own colours, because its native Windows \
+- Modern and Dashboard have a designed dark palette. Legacy's dark mode inverts its own colours, because its native Windows \
 controls cannot take a normal dark palette.
 
 ## Language
