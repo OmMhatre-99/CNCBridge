@@ -115,7 +115,8 @@ class FormMixin:
                                                                                               self.ledger))))
 
     # ================================================================ tests for the two destinations
-    def _in_background(self, title, work):
+    def _in_background(self, title, work, tested=False):
+        """Run work on a thread and show its result. tested: a success counts as a destination that was tested."""
         def job():
             try:
                 result = (True, work())
@@ -123,25 +124,27 @@ class FormMixin:
                 result = (False, str(e))
             show = messagebox.showinfo if result[0] else messagebox.showerror
             self.ui_q.put(lambda: show(title, result[1], parent=self))
+            if tested and result[0]:
+                self.ui_q.put(self._destination_was_tested)
         threading.Thread(target=job, daemon=True).start()
 
     def test_shared(self):
         cfg = self.collect()
         if not cfg["shared_folder"]:
             return messagebox.showerror(tr("Shared folder"), tr("Enter the shared folder first."), parent=self)
-        self._in_background(tr("Shared folder"), lambda: tr("The folder can be written to:\n{folder}", folder=engine.test_shared(cfg)))
+        self._in_background(tr("Shared folder"), lambda: tr("The folder can be written to:\n{folder}", folder=engine.test_shared(cfg)), tested=True)
 
     def test_api(self):
         cfg = self.collect()
         if not cfg["api_url"]:
             return messagebox.showerror(tr("API link"), tr("Enter the API link first."), parent=self)
-        self._in_background(tr("API link"), lambda: tr("A small test file was accepted (HTTP {status}).", status=engine.test_api(cfg)))
+        self._in_background(tr("API link"), lambda: tr("A small test file was accepted (HTTP {status}).", status=engine.test_api(cfg)), tested=True)
 
     def test_ftp(self):
         cfg = self.collect()
         if not cfg["ftp_host"]:
             return messagebox.showerror(tr("FTP server"), tr("Enter the FTP server address first."), parent=self)
-        self._in_background(tr("FTP server"), lambda: tr("A test file was uploaded and removed again in:\n{folder}", folder=engine.test_ftp(cfg)))
+        self._in_background(tr("FTP server"), lambda: tr("A test file was uploaded and removed again in:\n{folder}", folder=engine.test_ftp(cfg)), tested=True)
 
     # ================================================================ settings files
     def export_settings(self):

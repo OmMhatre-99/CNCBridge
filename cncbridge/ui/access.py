@@ -53,6 +53,7 @@ class AccessMixin:
         self.password_state.set(tr("Password is set") if self.protected else tr("No password"))
         self.remove_pw_btn.configure(state="normal" if self.protected else "disabled")
         self.tabs.select(self.operator_tab if locked else self.setup_tab)
+        self._schedule_checklist()
 
     def _ask_password(self, title, prompt):
         return simpledialog.askstring(title, prompt, show="●", parent=self)

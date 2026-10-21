@@ -89,6 +89,7 @@ class MenusMixin:
         item(view, "log", tr("Activity log"), self.open_log, "Ctrl+L")
         item(view, "stations", tr("Stations..."), self.open_stations)
         item(view, "settings_history", tr("Settings history..."), self.open_settings_history)
+        item(view, "setup_checklist", tr("Setup checklist"), self.show_checklist)
         view.add_separator()
         for number, (key, attribute, label) in enumerate((("view_setup", "setup_tab", tr("Setup")),
                                                           ("view_delivery", "delivery_tab", tr("Delivery")),
@@ -150,7 +151,8 @@ class MenusMixin:
     # entries that need the setup rights: they are disabled while the setup is locked
     LOCKED_ENTRIES = ("open_csv", "open_newest", "save", "export", "import", "restore", "options", "opt_processing",
                       "opt_output", "opt_alerts", "opt_heartbeat", "opt_access", "opt_appearance", "test_shared", "test_api",
-                      "test_ftp", "test_alert", "test_heartbeat", "simulation", "view_setup", "view_delivery", "view_pick")
+                      "test_ftp", "test_alert", "test_heartbeat", "simulation", "setup_checklist", "view_setup",
+                      "view_delivery", "view_pick")
 
     def _set_menu(self, key, enabled):
         menu, index = self.menu_items[key]

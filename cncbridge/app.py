@@ -42,6 +42,7 @@ from .ui.tooltips import TooltipsMixin
 from .ui.control import ControlMixin
 from .ui.stations_window import StationsMixin
 from .ui.audit_window import SettingsHistoryMixin
+from .ui.checklist import ChecklistMixin
 from .ui.status import StatusMixin
 
 
@@ -59,6 +60,7 @@ class App(LayoutMixin,
           StatusMixin,
           StationsMixin,
           SettingsHistoryMixin,
+          ChecklistMixin,
           tk.Tk):
     def __init__(self, data_dir, notice=None, lock=None, connected=False, resume=False):
         """
@@ -143,6 +145,8 @@ class App(LayoutMixin,
         self._bind_shortcuts()
         self._apply_lock()
         self._update_protection_state()
+        self._watch_setup_changes()
+        self._refresh_checklist()
         self.tabs.bind("<<NotebookTabChanged>>", self._tab_changed)
         self.protocol("WM_DELETE_WINDOW", self.on_close)
 

@@ -171,18 +171,22 @@ def _same_folder(a, b):
     return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
 
 
-def validate(cfg):
-    """Reasons why monitoring cannot run with these settings (empty list = ready)."""
+# The parts of the setup a problem can belong to; the first-start checklist follows them.
+FOLDERS, RANGES, DELIVERY, OTHER = "folders", "ranges", "delivery", "other"
+
+
+def problems(cfg):
+    """Why monitoring cannot run with these settings: [(part of the setup, reason)]. Empty list = ready."""
     p = []
     src, bak = cfg["source_folder"], cfg["backup_folder"]
     if not src:
-        p.append("Choose the machine CSV folder.")
+        p.append((FOLDERS, "Choose the machine CSV folder."))
     elif not Path(src).is_dir():
-        p.append(f"Machine CSV folder not found: {src}")
+        p.append((FOLDERS, f"Machine CSV folder not found: {src}"))
     if not bak:
-        p.append("Choose the back-up folder.")
+        p.append((FOLDERS, "Choose the back-up folder."))
     elif src and _same_folder(src, bak):
-        p.append("The back-up folder must be different from the machine CSV folder.")
+        p.append((FOLDERS, "The back-up folder must be different from the machine CSV folder."))
 
     ranges = []
     for i, sel in enumerate(cfg["selections"], 1):
@@ -191,39 +195,44 @@ def validate(cfg):
                 check_range(sel["range"])
                 ranges.append(sel["range"])
             except ValueError as e:
-                p.append(f"Selection {i}: {e}")
-    if not ranges and not any(msg.startswith("Selection") for msg in p):
-        p.append("Enter at least one cell range to extract (for example L1:M8).")
+                p.append((RANGES, f"Selection {i}: {e}"))
+    if not ranges and not any(part == RANGES for part, _ in p):
+        p.append((RANGES, "Enter at least one cell range to extract (for example L1:M8)."))
 
     try:
         parse_renames(cfg["rename_columns"], strict=True)
     except ValueError as e:
-        p.append(f"Rename columns: {e}")
+        p.append((OTHER, f"Rename columns: {e}"))
 
     if not cfg["shared_enabled"] and not cfg["api_enabled"] and not cfg["ftp_enabled"]:
-        p.append("Turn on at least one delivery: shared folder, API link or FTP server.")
+        p.append((DELIVERY, "Turn on at least one delivery: shared folder, API link or FTP server."))
     if cfg["ftp_enabled"] and not cfg["ftp_host"]:
-        p.append("Enter the FTP server address.")
+        p.append((DELIVERY, "Enter the FTP server address."))
     if cfg["shared_enabled"]:
         if not cfg["shared_folder"]:
-            p.append("Enter the shared folder.")
+            p.append((DELIVERY, "Enter the shared folder."))
         elif src and _same_folder(src, cfg["shared_folder"]):
-            p.append("The shared folder must be different from the machine CSV folder.")
+            p.append((DELIVERY, "The shared folder must be different from the machine CSV folder."))
     if cfg["api_enabled"]:
         if not re.match(r"https?://\S+$", cfg["api_url"], re.I):
-            p.append("Enter the API link (it must start with http:// or https://).")
+            p.append((DELIVERY, "Enter the API link (it must start with http:// or https://)."))
         try:
             parse_headers(cfg["api_headers"])
         except ValueError as e:
-            p.append(f"API: {e}")
+            p.append((DELIVERY, f"API: {e}"))
     if cfg["heartbeat_enabled"]:
         if not cfg["heartbeat_url"] and not cfg["heartbeat_folder"]:
-            p.append("The heartbeat is on: enter its web address or its folder (Options > Alerts).")
+            p.append((OTHER, "The heartbeat is on: enter its web address or its folder (Options > Alerts)."))
         elif cfg["heartbeat_url"] and not re.fullmatch(r"https?://[^ ]+", cfg["heartbeat_url"], re.I):
-            p.append("The heartbeat address must start with http:// or https://.")
+            p.append((OTHER, "The heartbeat address must start with http:// or https://."))
     if cfg["encoding"] != "auto":
         try:
             codecs.lookup(cfg["encoding"])
         except LookupError:
-            p.append(f"Unknown file encoding: {cfg['encoding']}")
+            p.append((OTHER, f"Unknown file encoding: {cfg['encoding']}"))
     return p
+
+
+def validate(cfg):
+    """Reasons why monitoring cannot run with these settings (empty list = ready)."""
+    return [reason for _, reason in problems(cfg)]

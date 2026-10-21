@@ -28,6 +28,8 @@ details you type, and delivers the result to a shared folder and/or a web link. 
 to a back-up folder.
 
 ## First set-up, in five steps
+On a new set-up the Setup tab starts with a short guide, "Getting started": four steps with a tick for each one that is done, and a button that takes you to the next. It goes away after the first start; View > Setup checklist shows it again.
+
 - Setup tab, box 1: choose the machine CSV folder and a back-up folder. They must be different folders.
 - Setup tab, box 2: choose JSON, CSV or TXT.
 - Setup tab, box 3: say what to extract. Type a range such as L1:M8, or press Pick... and drag over a real file.

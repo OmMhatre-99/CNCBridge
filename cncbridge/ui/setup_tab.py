@@ -15,6 +15,7 @@ class SetupTabMixin:
         self._page_intro(tab, tr("Set up your machine"), tr("Choose where machine files arrive, what to include, and how outputs should look."))
         content = ttk.Frame(tab)
         content.pack(fill="both", expand=True)
+        self._build_checklist(tab, content)
         content.columnconfigure(0, weight=4, uniform="setup")
         content.columnconfigure(1, weight=6, uniform="setup")
         content.rowconfigure(0, weight=1)

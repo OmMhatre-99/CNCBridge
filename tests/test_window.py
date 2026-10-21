@@ -28,7 +28,7 @@ if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
     raise unittest.SkipTest("window tests open real windows; set CNCBRIDGE_WINDOW_TESTS=1 to run them")
 
 os.environ["CNCBRIDGE_NO_EVENTLOG"] = "1"  # the background process some tests start must not write to this PC's real Event Log
-from cncbridge import alerts, app, audit, config, engine, i18n, permissions, shifts, stations  # noqa: E402
+from cncbridge import alerts, app, audit, config, engine, firstrun, i18n, permissions, shifts, stations  # noqa: E402
 from cncbridge.ui import access as access_ui  # noqa: E402
 
 # Tk may only free a window on the thread that made it. Python's cyclic collector can run on any thread, so
@@ -1866,6 +1866,161 @@ class OptionsScrolling(WindowTest):
             w.update()
             self.assertFalse(page.scrolls)  # room again: the scrollbar goes
             self.assertEqual(page.canvas.yview(), (0.0, 1.0))
+        self.run_steps(steps)
+
+
+class FirstStartChecklist(WindowTest):
+    def ticks(self):
+        """The guide's badges, e.g. ['1', '✓', '3', '4']: a number while the step is open, a tick when it is done."""
+        return [self.window.checklist_rows[k]["badge"].cget("text").strip()
+                for k in ("folders", "ranges", "delivery", "start")]
+
+    def settled(self, expected):
+        return lambda: self.ticks() == expected
+
+    def fill_folders(self):
+        self.backup.mkdir(exist_ok=True)
+        self.window.v["source_folder"].set(str(self.machine))
+        self.window.v["backup_folder"].set(str(self.backup))
+
+    def test_a_new_setup_starts_with_the_guide_and_each_step_ticks_when_done(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.checklist_shown)
+            self.assertEqual(w.checklist_box.winfo_manager(), "pack")
+            self.assertEqual(self.ticks(), ["1", "2", "3", "4"])
+            rows = w.checklist_rows
+            self.assertEqual(str(rows["folders"]["go"].cget("style")), "Go.TButton")  # the next thing to do stands out
+            self.assertEqual(str(rows["ranges"]["go"].cget("style")), "TButton")
+            self.assertEqual(str(rows["start"]["go"].cget("state")), "disabled")  # not before the other three
+            self.fill_folders()
+            yield self.settled(["✓", "2", "3", "4"])
+            self.assertEqual(str(rows["ranges"]["go"].cget("style")), "Go.TButton")
+            w.sel_vars[0][1].set("L1:M8")
+            yield self.settled(["✓", "✓", "3", "4"])
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            yield self.settled(["✓", "✓", "✓", "4"])
+            self.assertEqual(str(rows["start"]["go"].cget("state")), "normal")
+            self.assertEqual(str(rows["start"]["go"].cget("style")), "Go.TButton")
+            w.sel_vars[0][1].set("")  # a step that stops being true loses its tick
+            yield self.settled(["✓", "2", "✓", "4"])
+        self.run_steps(steps)
+
+    def test_a_working_destination_test_is_noticed(self):
+        w = self.window
+
+        def steps():
+            self.fill_folders()
+            w.sel_vars[0][1].set("L1:M8")
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            yield self.settled(["✓", "✓", "✓", "4"])
+            self.assertEqual(w.checklist_rows["delivery"]["hint"].cget("text"),
+                             "Set. Use its Test button to check that it works.")
+            w.test_shared()
+            yield lambda: w.checklist_rows["delivery"]["hint"].cget("text") == "Set, and the test worked."
+        self.run_steps(steps)
+
+    def test_the_buttons_go_to_the_right_place(self):
+        w = self.window
+        asked, started = [], []
+        self._patch(w, "open_csv", lambda: asked.append("dialog"))
+        self._patch(w, "start", lambda quiet=False: started.append(1))
+
+        def steps():
+            w.checklist_rows["delivery"]["go"].invoke()
+            self.assertEqual(w.tabs.select(), str(w.delivery_tab))
+            w.checklist_rows["folders"]["go"].invoke()
+            self.assertEqual(w.tabs.select(), str(w.setup_tab))
+            self.fill_folders()
+            w.checklist_rows["ranges"]["go"].invoke()  # no machine file anywhere yet: it asks for one
+            self.assertEqual(w.tabs.select(), str(w.pick_tab))
+            self.assertEqual(asked, ["dialog"])
+            self.drop("a.csv", "B240001")
+            w.checklist_rows["ranges"]["go"].invoke()  # with a file in the machine folder it opens that
+            self.assertEqual(w.sample_name, "a.csv")
+            self.assertEqual(asked, ["dialog"])
+            w.sel_vars[0][1].set("L1:M8")
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            yield self.settled(["✓", "✓", "✓", "4"])
+            w.checklist_rows["start"]["go"].invoke()
+            self.assertEqual(started, [1])
+        self.run_steps(steps)
+
+    def test_the_first_start_ends_the_guide(self):
+        w = self.window
+
+        def steps():
+            self.fill_folders()
+            w.sel_vars[0][1].set("L1:M8")
+            w.b["shared_enabled"].set(True)
+            w.v["shared_folder"].set(str(self.shared))
+            yield self.settled(["✓", "✓", "✓", "4"])
+            self.assertFalse(firstrun.is_done(w.data_dir))
+            w.checklist_rows["start"]["go"].invoke()
+            self.assertTrue(w.running)
+            self.assertTrue(firstrun.is_done(w.data_dir))
+            yield lambda: not w.checklist_shown
+            self.assertEqual(w.checklist_box.winfo_manager(), "")
+            w.stop()
+            yield lambda: not w.running
+        self.run_steps(steps)
+
+    def test_the_view_menu_brings_it_back_and_close_ends_it(self):
+        w = self.window
+
+        def steps():
+            self.assertEqual((self.menu_label("setup_checklist"), self.menu_state("setup_checklist")),
+                             ("Setup checklist", "normal"))
+            w.field_widgets["checklist_hide"].invoke()
+            self.assertFalse(w.checklist_shown)
+            self.assertTrue(firstrun.is_done(w.data_dir))
+            w.tabs.select(w.history_tab)
+            w.menu_items["setup_checklist"][0].invoke(w.menu_items["setup_checklist"][1])
+            self.assertTrue(w.checklist_shown)
+            self.assertEqual(w.tabs.select(), str(w.setup_tab))
+            w.hide_checklist()
+            self.assertFalse(w.checklist_shown)
+            yield 100
+        self.run_steps(steps)
+
+    def test_operators_do_not_see_the_guide(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.checklist_shown)
+            w._store_password(config.hash_password("opensesame"))  # whoever sets it stays in the setup
+            self.assertTrue(w.checklist_shown)
+            w.toggle_lock()  # lock
+            yield lambda: not w.checklist_shown
+            self.assertEqual(self.menu_state("setup_checklist"), "disabled")
+        self.run_steps(steps)
+
+
+class SetUpAlreadyInWindow(WindowTest):
+    def make_window(self):
+        data = self.tmp / "data"
+        self.backup.mkdir()
+        config.save_config(config.normalize_config({
+            "station_name": "Line 5", "source_folder": str(self.machine), "backup_folder": str(self.backup),
+            "shared_enabled": True, "shared_folder": str(self.shared),
+            "selections": [{"name": "Summary", "range": "L1:M8", "header": True}]}), data / "config.json")
+        return app.App(data)
+
+    def test_a_copy_that_is_already_set_up_gets_no_guide(self):
+        w = self.window
+
+        def steps():
+            self.assertFalse(w.checklist_shown)
+            self.assertTrue(firstrun.is_done(w.data_dir))
+            w.show_checklist()  # but it can be asked for: everything ticked
+            self.assertTrue(w.checklist_shown)
+            self.assertEqual([w.checklist_rows[k]["badge"].cget("text").strip() for k in ("folders", "ranges", "delivery", "start")],
+                             ["✓", "✓", "✓", "✓"])
+            yield 100
         self.run_steps(steps)
 
 

@@ -7,7 +7,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from tkinter import messagebox
 
-from .. import background, config, engine, permissions, shifts
+from .. import background, config, engine, firstrun, permissions, shifts
 from ..config import APP_NAME, SettingsTooNew, save_config
 from .common import log
 from ..i18n import tr
@@ -188,6 +188,8 @@ class ControlMixin:
                 try:
                     background.start_task(self.data_dir)
                     self.status_msg.set(tr("Starting the background processing..."))
+                    firstrun.mark_done(self.data_dir)
+                    self._schedule_checklist()
                 except OSError as e:
                     messagebox.showerror(APP_NAME, str(e), parent=self)
             elif self._become_normal():  # it was started some other way and has stopped
@@ -199,6 +201,8 @@ class ControlMixin:
             self.thread = threading.Thread(target=self.engine.run_forever, daemon=True)
             self.thread.start()
             self.status_msg.set(tr("Monitoring started."))
+            firstrun.mark_done(self.data_dir)
+            self._schedule_checklist()
 
     def stop(self):
         if self.connected and self.bg_running:
@@ -230,10 +234,12 @@ class ControlMixin:
         if self.lock:  # let the data folder go, for a background task or the next window
             self.lock.close()
             self.lock = None
-        for job in ("_tick_job", "_edit_check_job"):
+        for job in ("_tick_job", "_edit_check_job", "_checklist_job"):
             try:
-                self.after_cancel(getattr(self, job))  # no refresh may run after the window is gone
-            except (AttributeError, tk.TclError):
+                pending = getattr(self, job, None)
+                if pending is not None:
+                    self.after_cancel(pending)  # no refresh may run after the window is gone
+            except (tk.TclError, ValueError):
                 pass
         try:
             super().destroy()

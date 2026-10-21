@@ -83,6 +83,16 @@ separator, as in `build_exe.bat`).
 
 ## Set up
 
+**The first-start guide.** On a new set-up the Setup tab opens with a short guide at the top, *Getting
+started*: four steps (the folders, what to extract, where the files go, start), each with a tick when it
+is done and a button that takes you to it: it opens the folder fields, a machine file in the range picker
+(the newest one, or it asks you for one), the Delivery tab, or starts monitoring. A step loses its tick if
+the setting stops being right, and a delivery shows whether its Test button has worked. The guide uses the
+same rules as **Start monitoring**, so a step is ticked exactly when nothing is missing there. It goes away
+after the first start, or with **Close this guide**; **View > Setup checklist** shows it again. A copy that
+is already set up when it opens never shows it. The marker is the file `first_start.json` in the data
+folder.
+
 **Setup tab**
 
 1. *Folders*: the machine CSV folder and the back-up folder. They must be different folders.
@@ -594,6 +604,7 @@ cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/heartbeat.py   the regular status message; cncbridge/eventlog.py the Windows Event Log
 cncbridge/audit.py       the settings change log
 cncbridge/permissions.py who may change the settings (icacls), asking Windows for administrator rights
+cncbridge/firstrun.py    the marker that the first-start guide has done its job
 cncbridge/background.py  background task, single-copy lock, connected window
 cncbridge/shifts.py      shift-change times and the last confirmation
 cncbridge/i18n.py           tr() and the language files; cncbridge/locales/ holds template.json
@@ -615,6 +626,7 @@ tests/test_structure.py  the window's pieces fit together; every engine name is 
 tests/test_ledger.py     the history database and its migration
 tests/test_audit.py      the settings change log and edits made outside CNCBridge
 tests/test_protection.py typed values and passwords in their own files; locking, with real permissions
+tests/test_checklist.py  problems grouped by part of the setup, and the first-start marker
 tests/test_heartbeat.py  the heartbeat; tests/test_eventlog.py the Event Log handler
 tests/test_config_migrations.py  the settings file version
 tests/test_installer.py  install, update and uninstall into temporary folders and a test registry key
