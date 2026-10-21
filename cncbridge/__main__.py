@@ -6,9 +6,11 @@ CNCBridge entry point.
   CNCBridge --headless --once    process what is in the folder now, then exit
   CNCBridge --restarted          opened again by the window (new look); waits while the old window lets go
   CNCBridge --data DIR           keep settings, ledger, queue and logs in DIR instead of %ProgramData%\\CNCBridge
+  CNCBridge --diagnostics FILE   write the zip for support (log, settings without passwords, history) and exit
 """
 import argparse
 import logging
+import os
 import sys
 import time
 from logging.handlers import RotatingFileHandler
@@ -46,6 +48,17 @@ def choose_data_dir(requested=None, old=None, new=None):
         return old, None
     lock.close()
     return new, move_data(old, new)
+
+
+def existing_data_dir(requested=None):
+    """The data folder that holds this PC's settings, found without creating, moving or locking anything."""
+    if requested:
+        return Path(requested).resolve()
+    for root in (os.environ.get("PROGRAMDATA"), os.environ.get("LOCALAPPDATA")):
+        if root and has_data(Path(root) / APP_NAME):
+            return Path(root) / APP_NAME
+    legacy = legacy_data_dir()
+    return legacy if has_data(legacy) else default_data_dir()
 
 
 def window_mode(data_dir):
@@ -94,9 +107,16 @@ def main(argv=None):
     ap.add_argument("--headless", action="store_true", help="monitor without opening the window")
     ap.add_argument("--once", action="store_true", help="with --headless: process the waiting files and exit")
     ap.add_argument("--data", help="folder for settings, ledger, queue and logs")
+    ap.add_argument("--diagnostics", metavar="FILE", help="write the zip for support (no passwords in it) and exit")
     ap.add_argument("--restarted", action="store_true", help="the window restarted itself; wait for it to close")
     ap.add_argument("--resume", action="store_true", help="with --restarted: start monitoring at once")
     args = ap.parse_args(argv)
+
+    if args.diagnostics:  # read-only: no lock, no log file, nothing moved
+        from . import diagnostics
+        names = diagnostics.build(existing_data_dir(args.data), args.diagnostics)
+        print(f"Diagnostics written to {args.diagnostics} ({len(names)} parts)")
+        return 0
 
     data_dir, notice = choose_data_dir(args.data)  # before anything opens files in the data folder
     data_dir.mkdir(parents=True, exist_ok=True)

@@ -268,6 +268,32 @@ fixed), or **Process again** to put machine files that were set aside back in th
 so CNCBridge asks first. The activity log (**View > Activity log**) and
 `logs\cncbridge.log` in the data folder hold the details.
 
+## Sending a problem to support
+
+**Help > Export diagnostics...** saves one zip file (named like `CNCBridge diagnostics Line 7 2026-10-21.zip`)
+and opens the folder with it selected. Send that one file; nobody has to ask for the log, then the settings,
+then a screenshot. It holds:
+
+| File | What |
+|---|---|
+| `summary.txt` | version, PC and Windows, whether the program runs in a window or in the background, the counters, the last file, the oldest file waiting to be sent, free space on the back-up drive, open problems, the last settings change |
+| `settings.json` | the settings; every password, token and header value is left out and only "set" or "not set" is said |
+| `history.csv` | the last 500 files and where each went |
+| `logs\` | the log files, newest first, about 5 MB at most |
+| `alerts.json` | the problems that are open |
+| `settings_changes.jsonl` | the last 200 changes to the settings (who, when, what) |
+| `files.txt` | the names, sizes and times of the files in the send queue and the refused ones, not their contents |
+| `stations.txt` | the copies of CNCBridge on this PC |
+
+Nothing in it is a password. Every text is scrubbed first: the saved passwords and header values are replaced
+by `***` wherever they appear (a log line can quote one), `Authorization:` values are hidden, and a web
+address loses its query part, where keys are usually sent. Reading is read-only: the history is opened
+read-only, the single-copy lock is not touched and nothing in the data folder changes, so it can be exported
+while monitoring runs, and also while the setup is locked.
+
+With no window, for example in a remote session on the machine PC:
+`CNCBridge.exe --diagnostics C:\Temp\diagnostics.zip` (add `--data DIR` for another copy's data folder).
+
 ## Several machines (Stations)
 
 One copy of CNCBridge looks after one machine folder, with its own settings, history and send queue. For two
@@ -628,6 +654,7 @@ cncbridge/config.py      settings, data folder, token encryption, setup password
 cncbridge/alerts.py      Windows notification, webhook and email alerts
 cncbridge/heartbeat.py   the regular status message; cncbridge/eventlog.py the Windows Event Log
 cncbridge/audit.py       the settings change log
+cncbridge/diagnostics.py the zip for support
 cncbridge/permissions.py who may change the settings (icacls), asking Windows for administrator rights
 cncbridge/firstrun.py    the marker that the first-start guide has done its job
 cncbridge/background.py  background task, single-copy lock, connected window
@@ -650,6 +677,7 @@ tests/test_engine.py     python -m unittest discover -s tests -v
 tests/test_structure.py  the window's pieces fit together; every engine name is still reachable
 tests/test_ledger.py     the history database and its migration
 tests/test_audit.py      the settings change log and edits made outside CNCBridge
+tests/test_diagnostics.py the zip for support: what it holds, and that no password is in it
 tests/test_protection.py typed values and passwords in their own files; locking, with real permissions
 tests/test_checklist.py  problems grouped by part of the setup, and the first-start marker
 tests/test_heartbeat.py  the heartbeat; tests/test_eventlog.py the Event Log handler

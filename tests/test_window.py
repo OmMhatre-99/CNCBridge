@@ -2100,6 +2100,79 @@ class WordingInWindow(WindowTest):
         self.run_steps(steps)
 
 
+class DiagnosticsInWindow(WindowTest):
+    def make_window(self):
+        data = self.tmp / "data"
+        config.save_config(config.normalize_config({
+            "station_name": "Line 5", "api_token": "tok-SECRET-1", "api_url": "https://mes.example/in?key=KEY-SECRET-5",
+            "api_headers": "X-Api-Key: hdr-SECRET-4"}), data / "config.json")
+        (data / "logs").mkdir()
+        (data / "logs" / "cncbridge.log").write_text("ERROR POST https://mes.example/in?key=KEY-SECRET-5 -> 503\n"
+                                                       "DEBUG Authorization: Bearer tok-SECRET-1\n", encoding="utf-8")
+        return app.App(data)
+
+    def test_the_help_menu_saves_a_zip_without_passwords_and_shows_it(self):
+        w = self.window
+        target = self.tmp / "send" / "diag.zip"
+        asked, launched = [], []
+        self._patch(filedialog, "asksaveasfilename", lambda **k: asked.append(k) or str(target))
+        real = app.subprocess.Popen
+        self._patch(app.subprocess, "Popen", lambda command, *a, **k: launched.append(command)
+                    if command[0] == "explorer" else real(command, *a, **k))
+
+        def steps():
+            self.assertEqual((self.menu_label("diagnostics"), self.menu_state("diagnostics")),
+                             ("Export diagnostics...", "normal"))
+            w.export_diagnostics()
+            self.assertTrue(asked[0]["initialfile"].startswith("CNCBridge diagnostics Line 5 "))
+            self.assertTrue(asked[0]["initialfile"].endswith(".zip"))
+            yield lambda: "Diagnostics saved in" in w.status_msg.get()
+            self.assertIn("holds no passwords", w.status_msg.get())
+            self.assertEqual(launched, [["explorer", f"/select,{target}"]])  # the folder opens with the file selected
+            import zipfile
+            with zipfile.ZipFile(target) as z:
+                names = z.namelist()
+                self.assertEqual(names[0], "summary.txt")
+                self.assertIn("logs/cncbridge.log", names)
+                text = "".join(z.read(n).decode("utf-8", errors="replace") for n in names)
+            for secret in ("tok-SECRET-1", "KEY-SECRET-5", "hdr-SECRET-4"):
+                self.assertNotIn(secret, text)
+            self.assertIn("Bearer ***", text)
+            self.assertIn("Station:      Line 5", text)
+        self.run_steps(steps)
+
+    def test_it_works_while_the_setup_is_locked_and_a_cancelled_dialog_does_nothing(self):
+        w = self.window
+        answers = iter(["", str(self.tmp / "locked.zip")])
+        self._patch(filedialog, "asksaveasfilename", lambda **k: next(answers))
+        self._patch(app.subprocess, "Popen", lambda command, *a, **k: None)
+
+        def steps():
+            w._store_password(config.hash_password("opensesame"))
+            w.toggle_lock()
+            self.assertEqual(self.menu_state("save"), "disabled")  # locked
+            self.assertEqual(self.menu_state("diagnostics"), "normal")  # but support can still be asked
+            w.export_diagnostics()  # cancelled
+            self.assertEqual(w.status_msg.get().count("Diagnostics"), 0)
+            self.assertFalse((self.tmp / "locked.zip").exists())
+            w.export_diagnostics()
+            yield lambda: (self.tmp / "locked.zip").exists() and "Diagnostics saved" in w.status_msg.get()
+        self.run_steps(steps)
+
+    def test_a_place_that_cannot_be_written_is_reported(self):
+        w = self.window
+        blocker = self.tmp / "a file"
+        blocker.write_text("x")
+        self._patch(filedialog, "asksaveasfilename", lambda **k: str(blocker / "inside.zip"))
+
+        def steps():
+            w.export_diagnostics()
+            yield lambda: self.dialogs and self.dialogs[-1][0] == "showerror"
+            self.assertIn("could not be saved", self.dialogs[-1][1][1])
+            self.assertEqual(w.status_msg.get(), "The diagnostics were not saved.")
+        self.run_steps(steps)
+
+
 class HeartbeatInWindow(WindowTest):
     def test_settings_page_test_button_and_menu(self):
         w = self.window

@@ -1,8 +1,10 @@
 """The activity log window and the Help window."""
+import subprocess
+import threading
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
-from .. import theme
+from .. import diagnostics, theme
 from .. import help as help_text
 from ..config import APP_NAME, VERSION
 from ..i18n import tr
@@ -129,6 +131,36 @@ class WindowsMixin:
         self.help_win.lift()
         if self.theme.dark:
             theme.dark_title_bar(self.help_win)
+
+    def export_diagnostics(self):
+        """Help > Export diagnostics: one zip for support (log, settings without passwords, history, versions)."""
+        path = filedialog.asksaveasfilename(
+            parent=self, title=tr("Export diagnostics"), defaultextension=".zip",
+            initialfile=diagnostics.default_name(self.cfg),
+            filetypes=[(tr("Zip files"), "*.zip"), (tr("All files"), "*.*")])
+        if not path:
+            return
+        self.status_msg.set(tr("Collecting the diagnostics..."))
+        cfg = dict(self.cfg)
+
+        def job():
+            try:
+                diagnostics.build(self.data_dir, path, cfg)
+            except OSError as e:
+                error = str(e)  # e is gone once this block ends
+                self.ui_q.put(lambda: (self.status_msg.set(tr("The diagnostics were not saved.")), messagebox.showerror(
+                    APP_NAME, tr("The diagnostics could not be saved:\n{e}", e=error), parent=self)))
+                return
+            self.ui_q.put(lambda: self._diagnostics_saved(path))
+        threading.Thread(target=job, daemon=True).start()
+
+    def _diagnostics_saved(self, path):
+        self.status_msg.set(tr("Diagnostics saved in {file}. Send this one file to support; it holds no passwords.",
+                               file=path))
+        try:
+            subprocess.Popen(["explorer", f"/select,{path}"])  # the folder opens with the file selected
+        except OSError:
+            pass
 
     def about(self):
         messagebox.showinfo(

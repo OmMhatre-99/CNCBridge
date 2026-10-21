@@ -103,6 +103,7 @@ class MenusMixin:
         for key, title, _ in help_text.TOPICS[1:]:
             item(help_menu, f"help_{key}", tr(title), lambda key=key: self.open_help(key))
         help_menu.add_separator()
+        item(help_menu, "diagnostics", tr("Export diagnostics..."), self.export_diagnostics)
         item(help_menu, "about", tr("About CNCBridge"), self.about)
         self.bind("<F10>", lambda event: self._open_menu(next(iter(self.menubar_buttons.values()))))
         ttk.Separator(self).pack(fill="x")

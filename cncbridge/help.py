@@ -238,6 +238,7 @@ the Delivery tab, and check the Activity log (View menu).
 - A file stays in the machine folder: the machine may still be writing it, or "File is complete when it contains" \
 never appears in it.
 - Settings were lost or changed: File > Restore an earlier version... brings back one of the last 20 saves.
+- Asking support for help: Help > Export diagnostics... saves one zip with the log, the settings (without passwords), the history and the versions. Send that file; nobody has to ask for the pieces one by one.
 
 ## Where things are
 - File > Open folder > Data folder: settings, history, send queue, rejected files and logs.
