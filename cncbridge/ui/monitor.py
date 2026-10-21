@@ -59,7 +59,7 @@ class MonitorMixin:
         area = ttk.Frame(box)
         area.pack(fill="both", expand=True)
         columns = (("time", tr("Time"), 80, False), ("file", tr("Machine file"), 210, True),
-                   ("result", tr("Result"), 125, False), ("sent", tr("Destinations"), 290, False))
+                   ("result", tr("Result"), 165, False), ("sent", tr("Destinations"), 290, False))
         self.recent_tree = ttk.Treeview(area, columns=[c[0] for c in columns], show="headings", selectmode="browse",
                                         height=self.MONITOR_ROWS)
         for key, title, width, stretch in columns:
