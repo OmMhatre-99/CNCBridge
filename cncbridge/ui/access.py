@@ -40,7 +40,8 @@ class AccessMixin:
         for tab in (self.setup_tab, self.delivery_tab, self.pick_tab):
             self.tabs.tab(tab, state="hidden" if locked else "normal")
         self.tabs.tab(self.operator_tab, state="normal" if locked else "hidden")
-        self.save_btn.configure(state="disabled" if locked else "normal")
+        for button in self.save_buttons:
+            button.configure(state="disabled" if locked else "normal")
         for key in self.LOCKED_ENTRIES:
             self._set_menu(key, not locked)
         lock_menu, lock_index = self.menu_items["lock"]

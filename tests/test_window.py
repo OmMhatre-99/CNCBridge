@@ -2389,6 +2389,122 @@ class DashboardWindow(WindowTest):
             yield 50
         self.run_steps(steps)
 
+    def test_a_box_becomes_a_card_with_its_title_inside_and_no_number(self):
+        def steps():
+            frame = ttk.Frame(self.window)
+            box = ttk.LabelFrame(frame, text=" 5  Shared folder ")
+            ttk.Label(box, text="x").pack()
+            box.pack(padx=10, pady=10)
+            try:
+                cards.restyle_cards(frame)
+                self.assertEqual(str(box.cget("text")), "Shared folder")
+                self.assertEqual(str(box.cget("style")), "CardBox.TLabelframe")
+                self.assertEqual(len(box.card_edges), 4)
+                self.assertTrue(all(str(e.cget("bg")) == theme.BORDER for e in box.card_edges))
+                style = ttk.Style(self.window)
+                self.assertEqual(str(style.lookup("CardBox.TLabelframe", "bordercolor")), theme.SURFACE)  # no own border
+                cards.restyle_cards(frame)  # a second pass makes no second edge
+                self.assertEqual(len([c for c in frame.winfo_children() if c.winfo_class() == "Frame"]), 4)
+            finally:
+                frame.destroy()
+            yield 50
+        self.run_steps(steps)
+
+    def test_the_header_shows_the_open_pages_title_and_its_own_buttons(self):
+        w = self.window
+
+        def steps():
+            self.assertFalse(hasattr(w, "toolbar"))
+            self.assertEqual(w.page_title.cget("text"), "Monitor")
+            shown = lambda: [k for k, f in w.page_actions.items() if f.winfo_manager()]  # noqa: E731
+            self.assertEqual(shown(), ["monitor"])
+            w._show_tab(w.setup_tab)
+            yield lambda: w.page_title.cget("text") == "Set up your machine"
+            self.assertEqual(shown(), ["setup"])
+            self.assertIn("machine files arrive", w.page_hint.cget("text"))
+            w._show_tab(w.delivery_tab)
+            yield lambda: shown() == ["delivery"]
+            self.assertEqual(w.page_title.cget("text"), "Choose where files are delivered")
+            w._show_tab(w.history_tab)
+            yield lambda: shown() == []
+            self.assertEqual(w.page_title.cget("text"), "File history")
+            self.assertEqual(len(w.save_buttons), 2)
+            self.assertIs(w.save_btn, w.save_buttons[0])
+        self.run_steps(steps)
+
+    def test_the_pill_is_tinted_and_start_and_stop_take_turns(self):
+        w = self.window
+
+        def steps():
+            yield lambda: str(w.state_pill.cget("style")) == "PillIdle.TFrame"
+            self.assertTrue(w.start_btn.winfo_manager())
+            self.assertFalse(w.stop_btn.winfo_manager())
+            w.sidebar_go.invoke()  # the sidebar's button starts it from any page
+            yield lambda: w.running and str(w.state_pill.cget("style")) == "PillOk.TFrame"
+            self.assertEqual(str(w.state_label.cget("style")), "PillOk.TLabel")
+            self.assertEqual(str(w.state_dot.cget("bg")), theme.SUCCESS_TINT)
+            self.assertTrue(w.stop_btn.winfo_manager())
+            self.assertFalse(w.start_btn.winfo_manager())
+            self.assertIn("Stop", w.sidebar_go.cget("text"))
+            w.stop_btn.invoke()
+            yield lambda: not w.running and w.start_btn.winfo_manager()
+            yield lambda: "Start monitoring" in w.sidebar_go.cget("text")
+        self.run_steps(steps)
+
+    def test_a_problem_is_said_in_plain_words_with_a_way_to_it(self):
+        w = self.window
+        (w.data_dir / "outbox" / "api").mkdir(parents=True)
+        for n in range(3):
+            (w.data_dir / "outbox" / "api" / f"b{n}.json").write_text("{}")
+        (w.data_dir / "alerts.json").write_text(json.dumps({"open": {"api": {
+            "text": "Delivery to the API link is not possible: HTTP 503", "since": "2026-10-21T10:08:00"}}}),
+            encoding="utf-8")
+
+        def steps():
+            # the count follows the queue: wait until the snapshot has seen all three files
+            yield lambda: w.alert_banner_shown and "3 file(s) are safe in the send queue" in w.banner_advice.cget("text")
+            self.assertEqual(w.banner_headline.cget("text"), "The API link is not answering.")
+            self.assertIn("HTTP 503", w.banner_detail.cget("text"))  # the engine's own words stay, small
+            self.assertIn("10:08", w.banner_detail.cget("text"))
+            self.assertEqual(w.banner_button.cget("text"), "See what is waiting")
+            w.banner_button.invoke()
+            yield lambda: w.tabs.select() == str(w.history_tab)
+            (w.data_dir / "alerts.json").write_text(json.dumps({"open": {}}), encoding="utf-8")
+            yield lambda: not w.alert_banner_shown and not w.alert_banner.winfo_manager()
+        self.run_steps(steps)
+
+    def test_unsaved_changes_are_shown_until_they_are_saved(self):
+        w = self.window
+
+        def steps():
+            w._show_tab(w.setup_tab)
+            yield 100
+            self.assertEqual([l.cget("text") for l in w.unsaved_labels], ["", ""])
+            w.v["station_name"].set("Line 8")
+            yield lambda: all(l.cget("text") == "Unsaved changes" for l in w.unsaved_labels)
+            w.save_buttons[1].invoke()  # Delivery's Save does the same
+            yield lambda: all(l.cget("text") == "" for l in w.unsaved_labels)
+            self.assertEqual(w.cfg["station_name"], "Line 8")
+        self.run_steps(steps)
+
+    def test_locking_disables_every_save_button(self):
+        w = self.window
+
+        def steps():
+            w._store_password(config.hash_password("opensesame"))
+            w.toggle_lock()
+            yield lambda: all(str(b.cget("state")) == "disabled" for b in w.save_buttons)
+        self.run_steps(steps)
+
+    def test_the_dashboard_uses_the_bundled_plex_fonts(self):
+        def steps():
+            families = set(tkfont.families(self.window))
+            self.assertIn("IBM Plex Sans", families)
+            self.assertIn("IBM Plex Mono", families)
+            self.assertEqual(self.window._font_body, "IBM Plex Sans")
+            yield 50
+        self.run_steps(steps)
+
     def test_every_icon_draws_and_the_sidebar_uses_only_icons_that_exist(self):
         def steps():
             canvas = tk.Canvas(self.window, width=24, height=24)
@@ -2434,6 +2550,9 @@ class OtherThemesHaveNoSidebar(WindowTest):
             self.assertFalse(hasattr(w, "monitor_tab"))
             self.assertNotIn("view_monitor", w.menu_items)
             self.assertNotEqual([e[0] for e in ttk.Style(w).layout("TNotebook.Tab")], ["null"])  # its tab strip is there
+            self.assertFalse(hasattr(w, "page_header"))  # the toolbar, as before
+            self.assertEqual(w.save_buttons, [w.save_btn])
+            self.assertTrue(w.start_btn.winfo_manager() and w.stop_btn.winfo_manager())
             yield 100
         self.run_steps(steps)
 

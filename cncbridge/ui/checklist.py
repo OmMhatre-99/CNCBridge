@@ -71,6 +71,8 @@ class ChecklistMixin:
 
     def _refresh_checklist(self):
         self._checklist_job = None
+        if self.L.page_headers:
+            self._refresh_unsaved()
         wanted = self._checklist_wanted()
         if wanted != self.checklist_shown:
             if wanted:

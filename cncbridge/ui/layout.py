@@ -81,6 +81,8 @@ class LayoutMixin:
 
     def _build_toolbar(self):
         """The buttons for the daily work. Everything else is in the menu bar."""
+        if self.L.page_headers:  # a header bar with each page's own buttons (ui/pageheader.py)
+            return self._build_page_header()
         bar = ttk.Frame(self.content, padding=(8, 4), style="Toolbar.TFrame")
         bar.pack(fill="x")
 
@@ -94,14 +96,15 @@ class LayoutMixin:
         self.once_btn = button("↻  " + tr("Process now"), self.process_now)
         ttk.Separator(bar, orient="vertical").pack(side="left", fill="y", padx=6, pady=3)
         self.save_btn = button("✔  " + tr("Save settings"), self.save)
+        self.save_buttons = [self.save_btn]
         if self.L.sidebar:  # the state of the program is in the bar, since the header with the counters is a page
             self._build_state_pill(bar)
         ttk.Separator(self.content).pack(fill="x")
 
-    def _build_state_pill(self, bar):
-        """A rounded-looking pill at the right of the toolbar: a dot and the state (Stopped, Monitoring, ...)."""
-        pill = ttk.Frame(bar, style="Pill.TFrame", padding=(self.px(12), self.px(6)))
-        pill.pack(side="right", padx=(8, 4))
+    def _build_state_pill(self, bar, side="right"):
+        """A pill with a dot and the state (Stopped, Monitoring, ...)."""
+        pill = self.state_pill = ttk.Frame(bar, style="Pill.TFrame", padding=(self.px(12), self.px(6)))
+        pill.pack(side=side, padx=(8, 4))
         dot_size, state_size = self.L.state
         self.state_dot = tk.Label(pill, text="●", fg=theme.IDLE, bg=theme.SURFACE_ALT,
                                   font=(self._font_body, dot_size, "bold"))
@@ -152,9 +155,18 @@ class LayoutMixin:
 
     def _build_banners(self):
         # shown only while an alert is open (see _tick)
+        if self.L.page_headers:
+            self._build_problem_banner()
+        else:
+            self._build_alert_label()
+        self._build_shift_banner()
+
+    def _build_alert_label(self):
         self.alert_banner = tk.Label(self.content, text="", anchor="w", justify="left", bg=theme.ERROR_TINT, fg=theme.ERROR,
                                      font=self.strong(11), padx=18, pady=7)
         self.alert_banner_shown = False
+
+    def _build_shift_banner(self):
         # shown while a shift change is waiting for the operator's confirmation; a click opens the dialog
         self.shift_banner = tk.Label(self.content, text="", anchor="w", justify="left", bg=theme.WARNING_TINT, fg=theme.WARNING,
                                      font=self.strong(11), padx=18, pady=7, cursor="hand2")
@@ -164,6 +176,9 @@ class LayoutMixin:
     def _page_intro(self, parent, title, hint):
         """The title and hint at the top of a tab; version 1.0 had none, and Legacy does not either."""
         intro = ttk.Frame(parent)
+        if self.L.page_headers:  # shown in the header bar while this page is open
+            self._remember_page_text(parent, title, hint)
+            return intro
         if not self.L.page_intros:
             return intro
         intro.pack(fill="x", pady=(0, self.L.box_gap + 2))

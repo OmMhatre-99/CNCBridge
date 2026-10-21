@@ -89,6 +89,11 @@ class StatusMixin:
         self.state_label.configure(text=text, width=max(11, len(text)))
         self.state_label.configure(foreground=colour)
         self.state_dot.configure(fg=colour)
+        if self.L.page_headers:
+            problem = running and bool((self.snapshot or {}).get("alerts"))
+            self._update_pill(text + ("  ·  " + tr("needs attention") if problem else ""),
+                              "warn" if problem else "ok" if running else "idle")
+            self._swap_start_stop(running)
         if self.sidebar is not None:
             self._update_sidebar_state(text, colour)
         idle = not running and not self.busy
@@ -191,6 +196,8 @@ class StatusMixin:
 
     def _show_alerts(self, open_alerts):
         """A red banner under the counters while a problem is open; gone when it is resolved."""
+        if self.L.page_headers:
+            return self._show_problem_banner(open_alerts, (self.snapshot or {}).get("queued_kinds", {}))
         if open_alerts:
             lines = ["⚠  " + tr("{problem}  (since {time})", problem=item['text'], time=item['since'][11:16]) for item in open_alerts.values()]
             self.alert_banner.configure(text="\n".join(lines), wraplength=max(self.winfo_width() - 40, 400))

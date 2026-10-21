@@ -66,8 +66,9 @@ first moves to the new place and the second keeps using its own `data` folder.
 
 ### Bundled fonts
 
-CNCBridge bundles the official Google Fonts Roboto and Roboto Mono variable TrueType files
-in `assets/fonts/`, together with each family's SIL Open Font License. Before creating the
+CNCBridge bundles the official Google Fonts Roboto and Roboto Mono variable TrueType files, and IBM Plex
+Sans (Regular, Medium, SemiBold) and Plex Mono (Regular, Medium) for the Dashboard theme, in `assets/fonts/`,
+together with each family's SIL Open Font License (`IBMPlex-OFL.txt` for Plex). Before creating the
 Tk window, the app registers both fonts privately for its own process: GDI on Windows,
 Core Text on macOS, and Fontconfig on Linux. This does not install fonts system-wide and
 does not require an internet connection. Linux systems need Fontconfig available for
@@ -562,10 +563,22 @@ back to the default.
 The sidebar lists the pages (Monitor, Setup, Ranges & preview, Delivery, History, and the operator's own
 page while the setup is locked) with Settings, Help and the Activity log below them. The page that is
 open is marked, and a page that is hidden by the lock is not listed. Below the sidebar a card shows the
-station's name and whether it is monitoring. The tab strip is hidden: the sidebar does its job (View >
-Monitor, Ctrl+0 to Ctrl+4, the checklist's buttons and every other way of opening a page work as before).
-The toolbar with Start, Stop, Process now and Save settings stays at the top of every page, with a pill
-at its right that says what the program is doing. The menu bar is unchanged.
+station's name, whether it is monitoring, and a Start monitoring / Stop button that works from every page.
+The tab strip is hidden: the sidebar does its job (View > Monitor, Ctrl+0 to Ctrl+4, the checklist's buttons
+and every other way of opening a page work as before). The menu bar is unchanged.
+
+Instead of a toolbar, a white **header** at the top shows the open page's title, what the page is for, and
+that page's own buttons: on the Monitor a tinted pill that says what the program is doing (green while
+monitoring, amber while monitoring with a problem open, grey when stopped), Process now, and Start
+monitoring or Stop, whichever applies; on Setup and Delivery, Save settings, with "Unsaved changes" beside
+it while the form differs from the saved settings. The boxes are cards with their title inside, without
+numbers.
+
+While a problem is open an amber **banner** under the header says it in plain words: what is wrong,
+whether anything is lost ("3 file(s) are safe in the send queue..."), what to do, and, small, the
+program's own message and since when. Its button leads to where to look: the History for a destination
+that is not answering, Setup for incomplete settings, Delivery for the heartbeat, otherwise the
+Activity log.
 
 The **Monitor** page is where the counters and the health line now live, so the other pages are free of
 them: the five counters (each says what it counts), the last file, the age of the send queue and the
@@ -573,13 +586,16 @@ back-up drive, the latest files with where each went (Shared folder ✓, API lin
 destination (working, waiting to be sent, not answering since 10:08, or off) and the typed values with a
 Change button. A copy that has run before opens on the Monitor; a new one opens on Setup with the guide.
 
-The fonts are IBM Plex Sans and Plex Mono when they are installed on the PC, otherwise Segoe UI and
-Cascadia Mono or Consolas. It has a designed dark palette too, and its colours were chosen so that text on
+The fonts are IBM Plex Sans and Plex Mono, bundled with the program (see *Bundled fonts*); if they cannot
+be registered, Segoe UI and Cascadia Mono or Consolas. It has a designed dark palette too, and its colours were chosen so that text on
 the cards and on the page reaches the 4.5 : 1 contrast that is readable at a glance (a test checks it).
 
 For developers, a theme asks for these things in its `Layout`: `sidebar=True` (a sidebar, the tab strip
 hidden), `monitor_page=True` (the Monitor page and its View menu entry) and `cards=True` (the plain widgets
-inside a box take the card's colour, see `ui/cards.py`), and names the five `SIDEBAR_*` colours. The other
+inside a box take the card's colour and each box gets a card edge, see `ui/cards.py`), `page_headers=True`
+(the header bar and the plain-words banner instead of the toolbar and the red alert line, see
+`ui/pageheader.py` and `messages.py`), `chips=True` (reserved for the chips, switches and segmented controls
+that follow), and names the five `SIDEBAR_*` colours. The other
 themes leave all three off and look exactly as before.
 
 Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every name in

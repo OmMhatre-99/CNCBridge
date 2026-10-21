@@ -20,7 +20,7 @@ from .i18n import N_
 COLOUR_NAMES = (
     "BACKGROUND", "SURFACE", "SURFACE_ALT", "TEXT", "MUTED", "BORDER", "DISABLED_SURFACE", "DISABLED_TEXT",
     "DISABLED_ACCENT", "HOVER_SURFACE", "FOCUS_SURFACE", "ACTIVE_HEADER", "ACCENT", "ACCENT_HOVER", "ACCENT_TINT",
-    "FOCUS", "SUCCESS", "WARNING", "ERROR", "ERROR_TINT", "WARNING_TINT", "IDLE", "WHITE", "GRID_LINE",
+    "FOCUS", "SUCCESS", "SUCCESS_TINT", "WARNING", "ERROR", "ERROR_TINT", "WARNING_TINT", "IDLE", "WHITE", "GRID_LINE",
     "GRID_HEADER", "GRID_HEADER_TEXT", "GRID_SELECTION", "GRID_SELECTION_EDGE", "GRID_HEADER_SELECTION",
     "SIDEBAR", "SIDEBAR_TEXT", "SIDEBAR_MUTED", "SIDEBAR_ACTIVE", "SIDEBAR_HOVER")  # the last five: a theme with a sidebar
 
@@ -50,6 +50,8 @@ class Layout:
     monitor_page: bool = False   # a Monitor page: the counters, the health line, the latest files, the destinations
     cards: bool = False       # framed boxes are white cards on the page colour
     sidebar_width: int = 232  # in 96-dpi pixels
+    page_headers: bool = False   # a header bar with the open page's title and buttons, instead of the toolbar
+    chips: bool = False       # rounded chips, switches and segmented controls where the design has them
 
 
 @dataclass(frozen=True)
@@ -77,10 +79,12 @@ class Theme:
 def strong_font(fonts, size):
     """
     A font tuple for emphasised text. The bundled Roboto is a variable font with no bold of its own on
-    Windows, so bold text in it looks regular; a "Semibold" family is used as it is, any other is made bold.
+    Windows, so bold text in it looks regular; a semibold or medium family ("Segoe UI Semibold", "IBM Plex Sans
+    SmBld", as Windows abbreviates it) is used as it is, any other is made bold.
     """
     family = fonts["strong"]
-    return (family, size) if "semibold" in family.casefold() else (family, size, "bold")
+    heavy = any(word in family.casefold() for word in ("semibold", "smbld", "medium", "medm"))
+    return (family, size) if heavy else (family, size, "bold")
 
 
 def invert_colour(colour):
@@ -238,7 +242,7 @@ MODERN = Theme(
         BACKGROUND="#f4f5f2", SURFACE="#ffffff", SURFACE_ALT="#edf2f1", TEXT="#26343d", MUTED="#52636b",
         BORDER="#d3dcda", DISABLED_SURFACE="#ecefed", DISABLED_TEXT="#68777d", DISABLED_ACCENT="#5a7372",
         HOVER_SURFACE="#e8eeec", FOCUS_SURFACE="#e7efee", ACTIVE_HEADER="#e2eae8", ACCENT="#176b70",
-        ACCENT_HOVER="#12575b", ACCENT_TINT="#dcefee", FOCUS="#a85b00", SUCCESS="#176b45", WARNING="#855600",
+        ACCENT_HOVER="#12575b", ACCENT_TINT="#dcefee", FOCUS="#a85b00", SUCCESS="#176b45", SUCCESS_TINT="#e3f2ea", WARNING="#855600",
         ERROR="#a92720", ERROR_TINT="#fbe9e7", WARNING_TINT="#fff1cf", IDLE="#52636b", WHITE="#ffffff",
         GRID_LINE="#d3dcda", GRID_HEADER="#edf2f1", GRID_HEADER_TEXT="#52636b", GRID_SELECTION="#dcefee",
         GRID_SELECTION_EDGE="#176b70", GRID_HEADER_SELECTION="#c3dedb",
@@ -377,7 +381,7 @@ LEGACY = Theme(
         BACKGROUND="#f0f0f0", SURFACE="#ffffff", SURFACE_ALT="#f1f1f1", TEXT="#000000", MUTED="#6b6b6b",
         BORDER="#adadad", DISABLED_SURFACE="#f0f0f0", DISABLED_TEXT="#a0a0a0", DISABLED_ACCENT="#a0a0a0",
         HOVER_SURFACE="#e5f1fb", FOCUS_SURFACE="#e5f1fb", ACTIVE_HEADER="#e5e5e5", ACCENT="#1a66d9",
-        ACCENT_HOVER="#1555b3", ACCENT_TINT="#cfe2ff", FOCUS="#1a66d9", SUCCESS="#1e8e3e", WARNING="#b06000",
+        ACCENT_HOVER="#1555b3", ACCENT_TINT="#cfe2ff", FOCUS="#1a66d9", SUCCESS="#1e8e3e", SUCCESS_TINT="#d9f2dc", WARNING="#b06000",
         ERROR="#c5221f", ERROR_TINT="#fbe4e2", WARNING_TINT="#fbeccb", IDLE="#6b6b6b", WHITE="#ffffff",
         GRID_LINE="#dcdcdc", GRID_HEADER="#f1f1f1", GRID_HEADER_TEXT="#555555", GRID_SELECTION="#cfe2ff",
         GRID_SELECTION_EDGE="#1a66d9", GRID_HEADER_SELECTION="#c5d7f2",
@@ -435,6 +439,23 @@ def _dashboard_styles(style, px, fonts):
     style.configure("TLabelframe", background=SURFACE, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
                     relief="solid", borderwidth=1)
     style.configure("TLabelframe.Label", background=SURFACE, foreground=TEXT, font=strong_font(fonts, 12))
+    # a box of the main window (see ui/cards.py): no border of its own, so the title sits inside the card at its top
+    # left; the card's edge is a frame drawn behind it
+    style.configure("CardBox.TLabelframe", bordercolor=SURFACE, lightcolor=SURFACE, darkcolor=SURFACE,
+                    labelmargins=(px(16), px(12), px(16), px(2)))
+    # the header bar at the top of the content: the open page's title, hint and buttons
+    style.configure("Header.TFrame", background=SURFACE)
+    style.configure("HeaderTitle.TLabel", background=SURFACE, foreground=TEXT, font=strong_font(fonts, 17))
+    style.configure("HeaderHint.TLabel", background=SURFACE, foreground=MUTED, font=(body, 10))
+    style.configure("HeaderWarn.TLabel", background=SURFACE, foreground=c["WARNING"], font=strong_font(fonts, 10))
+    style.configure("Dark.TButton", font=strong_font(fonts, 11), background=TEXT, foreground=SURFACE, bordercolor=TEXT,
+                    padding=(px(16), px(8)))
+    style.map("Dark.TButton", background=[("active", MUTED), ("disabled", c["DISABLED_SURFACE"])],
+              foreground=[("disabled", DISABLED_TEXT)])
+    for name, tint, ink in (("PillOk", c["SUCCESS_TINT"], c["SUCCESS"]), ("PillWarn", c["WARNING_TINT"], c["WARNING"]),
+                            ("PillIdle", SURFACE_ALT, MUTED)):
+        style.configure(f"{name}.TFrame", background=tint)
+        style.configure(f"{name}.TLabel", background=tint, foreground=ink, font=strong_font(fonts, 10))
     style.configure("Card.TLabel", background=SURFACE, foreground=TEXT)
     style.configure("CardSmall.TLabel", background=SURFACE, foreground=MUTED)
     style.configure("Metric.TFrame", background=SURFACE, bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER,
@@ -482,12 +503,12 @@ DASHBOARD = Theme(
     key="dashboard",
     label=N_("Dashboard"),
     description=N_("A sidebar instead of tabs, a Monitor page with the counters and the latest files, and white "
-                   "cards on a calm grey. IBM Plex fonts when they are installed."),
+                   "cards on a calm grey, in the IBM Plex fonts."),
     colours=dict(
         BACKGROUND="#f3f4f6", SURFACE="#ffffff", SURFACE_ALT="#eef0f3", TEXT="#15181c", MUTED="#5b6470",
         BORDER="#d5d9df", DISABLED_SURFACE="#eceef1", DISABLED_TEXT="#7a838e", DISABLED_ACCENT="#6fa5a5",
         HOVER_SURFACE="#e8ebee", FOCUS_SURFACE="#e3f1f0", ACTIVE_HEADER="#e3e6ea", ACCENT="#0e6b6b",
-        ACCENT_HOVER="#094848", ACCENT_TINT="#e3f1f0", FOCUS="#2e8f8a", SUCCESS="#1b6b43", WARNING="#9a5b00",
+        ACCENT_HOVER="#094848", ACCENT_TINT="#e3f1f0", FOCUS="#2e8f8a", SUCCESS="#1b6b43", SUCCESS_TINT="#e4f3ea", WARNING="#9a5b00",
         ERROR="#b42318", ERROR_TINT="#fdecea", WARNING_TINT="#fdf1dc", IDLE="#5b6470", WHITE="#ffffff",
         GRID_LINE="#edeff2", GRID_HEADER="#f6f7f9", GRID_HEADER_TEXT="#4a525d", GRID_SELECTION="#e3f1f0",
         GRID_SELECTION_EDGE="#0e6b6b", GRID_HEADER_SELECTION="#c7e3e0",
@@ -500,14 +521,16 @@ DASHBOARD = Theme(
     fonts=dict(
         heading=("IBM Plex Sans", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
         body=("IBM Plex Sans", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
-        strong=("IBM Plex Sans SemiBold", "Segoe UI Semibold", "Segoe UI", "Helvetica Neue", "Helvetica", "Arial"),
+        strong=("IBM Plex Sans SmBld", "IBM Plex Sans SemiBold", "Segoe UI Semibold", "Segoe UI", "Helvetica Neue",
+                "Helvetica", "Arial"),
         mono=("IBM Plex Mono", "Cascadia Mono", "Consolas", "Menlo", "Monaco", "Courier New", "DejaVu Sans Mono")),
     layout=Layout(
         window=(1360, 840, 1120, 700), page_intros=True, intro_inline=False, metric_cards=True,
         tab_pad=(22, 16), box_pad=(16, 12), box_gap=16, row=5, range_size=11, text_mono=11, code_mono=True,
         counter_size=22, state=(12, 12), check_text="Yes", grid_font=11, grid_badge=9, grid_empty=(13, 11),
-        menu_size=11, sidebar=True, monitor_page=True, cards=True, sidebar_width=232),
-    bundled_fonts=False,
+        menu_size=11, sidebar=True, monitor_page=True, cards=True, sidebar_width=232, page_headers=True,
+        chips=True),
+    bundled_fonts=True,   # IBM Plex, shipped in assets/fonts
     ttk_base="clam",
     configure_styles=_dashboard_styles,
     apply_palette=_modern_palette,
@@ -521,7 +544,7 @@ MODERN = replace(
         BACKGROUND="#171c20", SURFACE="#20272c", SURFACE_ALT="#2a3238", TEXT="#e6ecee", MUTED="#9fb0b8",
         BORDER="#3a464d", DISABLED_SURFACE="#252d32", DISABLED_TEXT="#76868d", DISABLED_ACCENT="#3d6a6a",
         HOVER_SURFACE="#2c353b", FOCUS_SURFACE="#26363a", ACTIVE_HEADER="#323d44", ACCENT="#4fb3b5",
-        ACCENT_HOVER="#6cc6c8", ACCENT_TINT="#1f4a4c", FOCUS="#f0a53a", SUCCESS="#5cc98a", WARNING="#f0b445",
+        ACCENT_HOVER="#6cc6c8", ACCENT_TINT="#1f4a4c", FOCUS="#f0a53a", SUCCESS="#5cc98a", SUCCESS_TINT="#1d3b2b", WARNING="#f0b445",
         ERROR="#ff8a80", ERROR_TINT="#4a2623", WARNING_TINT="#4a3a1c", IDLE="#9fb0b8", WHITE="#0c1a1b",
         GRID_LINE="#3a464d", GRID_HEADER="#2a3238", GRID_HEADER_TEXT="#9fb0b8", GRID_SELECTION="#1f4a4c",
         GRID_SELECTION_EDGE="#4fb3b5", GRID_HEADER_SELECTION="#2f5f61",
@@ -537,7 +560,7 @@ DASHBOARD = replace(
         BACKGROUND="#0f1317", SURFACE="#171c21", SURFACE_ALT="#1f262c", TEXT="#e6eaee", MUTED="#9aa5b1",
         BORDER="#2e3840", DISABLED_SURFACE="#1c2227", DISABLED_TEXT="#6f7a86", DISABLED_ACCENT="#2f6360",
         HOVER_SURFACE="#222a31", FOCUS_SURFACE="#1b2f30", ACTIVE_HEADER="#29323a", ACCENT="#4db6b0",
-        ACCENT_HOVER="#7ccfca", ACCENT_TINT="#173b3b", FOCUS="#f0a53a", SUCCESS="#5cc98a", WARNING="#f0b445",
+        ACCENT_HOVER="#7ccfca", ACCENT_TINT="#173b3b", FOCUS="#f0a53a", SUCCESS="#5cc98a", SUCCESS_TINT="#173527", WARNING="#f0b445",
         ERROR="#ff8a80", ERROR_TINT="#3d2220", WARNING_TINT="#3d3018", IDLE="#9aa5b1", WHITE="#0b1516",
         GRID_LINE="#2a333a", GRID_HEADER="#1f262c", GRID_HEADER_TEXT="#9aa5b1", GRID_SELECTION="#173b3b",
         GRID_SELECTION_EDGE="#4db6b0", GRID_HEADER_SELECTION="#245354",

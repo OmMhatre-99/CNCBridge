@@ -1,6 +1,6 @@
 """The Monitor page of a theme that has one: how it is going, at a glance."""
 import tkinter as tk
-from tkinter import ttk
+from tkinter import font as tkfont, ttk
 
 from .. import engine, theme
 from ..i18n import N_, tr
@@ -62,9 +62,14 @@ class MonitorMixin:
                    ("result", tr("Result"), 165, False), ("sent", tr("Destinations"), 290, False))
         self.recent_tree = ttk.Treeview(area, columns=[c[0] for c in columns], show="headings", selectmode="browse",
                                         height=self.MONITOR_ROWS)
+        font = tkfont.Font(font=ttk.Style(self).lookup("Treeview", "font") or "TkDefaultFont")
         for key, title, width, stretch in columns:
             self.recent_tree.heading(key, text=title, anchor="w")
-            self.recent_tree.column(key, width=self.px(width), anchor="w", stretch=stretch)
+            if key == "time":  # wide enough for the time in the larger text sizes too
+                width = max(self.px(width), font.measure("00:00:00") + self.px(20))
+            else:
+                width = self.px(width)
+            self.recent_tree.column(key, width=width, anchor="w", stretch=stretch)
         self.recent_tree.tag_configure("failed", foreground=theme.ERROR)
         self.recent_tree.tag_configure("duplicate", foreground=theme.MUTED)
         self.recent_tree.tag_configure("pending", foreground=theme.WARNING)

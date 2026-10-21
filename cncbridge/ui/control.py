@@ -89,6 +89,7 @@ class ControlMixin:
             self.engine.cfg = cfg
         log.info("Settings saved")
         self._update_protection_state()
+        self._schedule_checklist()  # and with it 'Unsaved changes' goes
         self.status_msg.set(tr("Settings saved.") if not problems else tr("Settings saved. Before starting: ") + problems[0])
         self._apply_background_choice()  # the background process reads the saved settings by itself
         return True

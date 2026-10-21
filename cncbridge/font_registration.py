@@ -12,6 +12,13 @@ log = logging.getLogger("cncbridge")
 FONT_FILES = {
     "Roboto": "Roboto.ttf",
     "Roboto Mono": "RobotoMono.ttf",
+    # the Dashboard theme's fonts (IBM Plex, SIL Open Font License: IBMPlex-OFL.txt). Each weight is its own file,
+    # and Windows names the heavier ones as families of their own ("IBM Plex Sans SemiBold").
+    "IBM Plex Sans": "IBMPlexSans-Regular.ttf",
+    "IBM Plex Sans Medium": "IBMPlexSans-Medium.ttf",
+    "IBM Plex Sans SemiBold": "IBMPlexSans-SemiBold.ttf",
+    "IBM Plex Mono": "IBMPlexMono-Regular.ttf",
+    "IBM Plex Mono Medium": "IBMPlexMono-Medium.ttf",
 }
 _registration_result = None
 

@@ -175,7 +175,7 @@ running it starts again by itself. Appearance only changes how the window looks:
 ## Theme
 - Modern (default): flat controls, light industrial colours, semibold emphasis, large counters.
 - Legacy: the look of version 1.0: native Windows controls, Segoe UI and Consolas, compact spacing.
-- Dashboard: a dark sidebar instead of tabs, a Monitor page with the counters, the latest files and the state of each destination, and white cards on a calm grey.
+- Dashboard: a dark sidebar instead of tabs, a header with each page's own buttons, a Monitor page with the counters, the latest files and the state of each destination, problems said in plain words, and white cards on a calm grey, in the IBM Plex fonts.
 
 ## Colours
 - Light, Dark, or Follow Windows (the app mode set in Windows settings).

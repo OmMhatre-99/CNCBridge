@@ -72,6 +72,15 @@ class SidebarMixin:
         self.sidebar_state = tk.Label(state, text=tr("Stopped"), bg=theme.SIDEBAR_HOVER, fg=theme.SIDEBAR_TEXT,
                                       font=(self._font_body, 10))
         self.sidebar_state.pack(side="left", padx=(px(6), 0))
+        self.sidebar_go = None
+        if self.L.page_headers:  # there is no toolbar: monitoring can be started and stopped from every page here
+            self.sidebar_go = tk.Button(card, text="", bg=theme.ACCENT, fg=theme.WHITE, activebackground=theme.SIDEBAR_ACTIVE,
+                                        activeforeground=BRIGHT, disabledforeground=theme.SIDEBAR_MUTED, relief="flat",
+                                        bd=0, cursor="hand2", font=self.strong(10), pady=px(5),
+                                        highlightthickness=2, highlightbackground=theme.SIDEBAR_HOVER,
+                                        highlightcolor=theme.FOCUS,
+                                        command=lambda: self.stop() if self.processing else self.start())
+            self.sidebar_go.pack(fill="x", padx=px(12), pady=(0, px(12)))
         extras = tk.Frame(side, bg=theme.SIDEBAR)
         extras.pack(side="bottom", fill="x", padx=px(10))
         for key, label, command in (("settings", tr("Settings"), lambda: self.open_options()),
@@ -118,6 +127,8 @@ class SidebarMixin:
     # ---------------------------------------------------------------- keeping it in step
     def _sync_sidebar(self):
         """Show the pages that can be opened (the setup ones are hidden while it is locked), and mark the open one."""
+        if self.L.page_headers:
+            self._show_page_header()
         if self.sidebar is None or not self.nav_items:
             return
         current = self.tabs.select()
@@ -140,3 +151,10 @@ class SidebarMixin:
         name = next((n for n in self.STATE_ON_DARK if getattr(theme, n) == colour), None)
         self.sidebar_dot.configure(fg=self.STATE_ON_DARK.get(name, theme.SIDEBAR_MUTED))
         self.sidebar_state.configure(text=text)
+        if self.sidebar_go is not None:
+            running = self.processing
+            usable = running or not self.busy
+            self.sidebar_go.configure(text="■  " + tr("Stop") if running else "▶  " + tr("Start monitoring"),
+                                      state="normal" if usable else "disabled",
+                                      bg=theme.SIDEBAR_ACTIVE if running else theme.ACCENT,
+                                      fg=BRIGHT if running else theme.WHITE)  # WHITE: the text on the accent colour
