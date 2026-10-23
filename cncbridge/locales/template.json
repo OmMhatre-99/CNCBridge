@@ -396,6 +396,7 @@
     "No machine file was found in the machine folder or the back-up folder.": "",
     "{name}   ({rows} rows x {width} columns)": "",
     "(empty)": "",
+    "No ranges yet: drag over cells, or pick a table": "",
     "The top-left cell is empty, so there is no heading to find. Mark a cell with text.": "",
     "The block is found again by this text, wherever it moves in the file.": "",
     "This text appears {matches} times in the sample; the first one is used.": "",

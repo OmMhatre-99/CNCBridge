@@ -2484,6 +2484,28 @@ class DashboardWindow(WindowTest):
             yield 50
         self.run_steps(steps)
 
+    def test_ranges_page_has_range_chips_and_a_selection_card(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.open_sample(SAMPLE))
+            w._show_tab(w.pick_tab)
+            w._update_slots()
+            yield 100
+            self.assertEqual([c.text for c in w.range_chips], ["1  Placements"])  # one range in the settings
+            self.assertEqual(str(w.slot_box.master.master.cget("text")), "Selection")  # in its own card
+            w.table_list.selection_set("4")
+            yield 50
+            w.slot_box.current(1)
+            w.assign()
+            yield 50
+            self.assertEqual([c.text for c in w.range_chips], ["1  Placements", "2  ERRORS"])
+            self.assertEqual([c.kind for c in w.range_chips], ["plain", "accent"])  # the chosen slot
+            w._choose_slot(w.range_chips[0].slot)
+            self.assertEqual((w.slot_box.current(), w.range_chips[0].kind), (0, "accent"))
+            self.assertEqual(w.pick_name.get(), "Placements")
+        self.run_steps(steps)
+
     def test_locked_the_operator_gets_a_screen_of_their_own(self):
         w = self.window
 

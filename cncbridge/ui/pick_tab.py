@@ -7,6 +7,7 @@ from tkinter import filedialog, messagebox, ttk
 from .. import engine, pdf, theme
 from ..config import APP_NAME, FORMATS
 from ..grid import Grid
+from .widgets import Chip
 from .common import PREVIEW_LIMIT
 from ..i18n import tr
 
@@ -27,21 +28,27 @@ class PickTabMixin:
         self.sample_label = ttk.Label(top, text=tr("No sample file open"), style="PageHint.TLabel",
                                       **self.code_font)
         self.sample_label.pack(side="left", padx=12)
-        segmented = self._format_choice(top, command=self.refresh_preview, register=False)
-        if segmented:
-            segmented.pack(side="right", padx=(10, 0))
-        for fmt in reversed(FORMATS) if not segmented else ():
-            ttk.Radiobutton(top, text=fmt.upper(), value=fmt, variable=self.v["output_format"],
-                            command=self.refresh_preview).pack(side="right", padx=(10, 0))
-        ttk.Label(top, text=tr("Output preview as")).pack(side="right")
+        if not self.L.chips:  # with chips the choice is in the preview's card
+            for fmt in reversed(FORMATS):
+                ttk.Radiobutton(top, text=fmt.upper(), value=fmt, variable=self.v["output_format"],
+                                command=self.refresh_preview).pack(side="right", padx=(10, 0))
+            ttk.Label(top, text=tr("Output preview as")).pack(side="right")
 
         panes = ttk.PanedWindow(tab, orient="horizontal")
         panes.pack(fill="both", expand=True, pady=(0, 4))
         left = ttk.Frame(panes)
+        side = ttk.Frame(panes)  # the tables in the file, and below them the output preview
+        # with chips: the slot controls are a card of their own at the top of the right-hand column
+        controls = ttk.LabelFrame(side, text=tr(" Selection "), padding=self.L.box_pad) if self.L.chips else left
+        if self.L.chips:
+            controls.pack(fill="x", pady=(0, self.L.box_gap))
+            self.range_chips_row = ttk.Frame(left)
+            self.range_chips_row.pack(fill="x", pady=(0, self.px(8)))
+            self.range_chips = []
         self.grid_view = Grid(left, on_select=self._grid_selected)
         self.grid_view.pack(fill="both", expand=True)
-        bar = ttk.Frame(left, padding=(10, 8))
-        bar.pack(fill="x", pady=(8, 0))
+        bar = ttk.Frame(controls, padding=(10, 8) if controls is left else 0)
+        bar.pack(fill="x", pady=(8, 0) if controls is left else 0)
         ttk.Label(bar, text=tr("Selected range"), style="Card.TLabel").pack(side="left")
         pick_range_entry = ttk.Entry(bar, textvariable=self.pick_range, width=11, font=(self._font_mono, self.L.range_size),
                                      state="readonly")
@@ -51,8 +58,8 @@ class PickTabMixin:
                                     command=self._update_pick_range)
         pick_open.pack(side="left")
         self.field_widgets["pick_open"] = pick_open
-        bar = ttk.Frame(left, padding=(10, 0, 10, 8))  # a second row: the slot controls need the room
-        bar.pack(fill="x")
+        bar = ttk.Frame(controls, padding=(10, 0, 10, 8) if controls is left else 0)  # the slot needs the room
+        bar.pack(fill="x", pady=0 if controls is left else (self.px(8), 0))
         ttk.Label(bar, text=tr("Slot"), style="Card.TLabel").pack(side="left", padx=(0, 5))
         self.slot_box = ttk.Combobox(bar, state="readonly", width=22)
         self.slot_box.pack(side="left")
@@ -61,25 +68,36 @@ class PickTabMixin:
         pick_name_entry = ttk.Entry(bar, textvariable=self.pick_name, width=16)
         pick_name_entry.pack(side="left")
         self.field_widgets["pick_name"] = pick_name_entry
-        assign_button = ttk.Button(bar, text=tr("Assign"), style="Go.TButton", width=8, command=self.assign)
+        if controls is not left:  # a narrower card: the buttons get a row of their own, at the end
+            buttons = ttk.Frame(controls)
+        assign_button = ttk.Button(bar if controls is left else buttons, text=tr("Assign"), style="Go.TButton", width=8,
+                                   command=self.assign)
         assign_button.pack(side="left", padx=(8, 4))
         self.field_widgets["assign"] = assign_button
-        clear_button = ttk.Button(bar, text=tr("Clear slot"), command=self.clear_slot)
+        clear_button = ttk.Button(bar if controls is left else buttons, text=tr("Clear slot"), command=self.clear_slot)
         clear_button.pack(side="left")
         self.field_widgets["clear_slot"] = clear_button
-        by_heading = ttk.Frame(left, padding=(10, 0, 10, 4))
-        by_heading.pack(fill="x")
+        by_heading = ttk.Frame(controls, padding=(10, 0, 10, 4) if controls is left else 0)
+        by_heading.pack(fill="x", pady=0 if controls is left else (self.px(8), 0))
         pick_heading = ttk.Checkbutton(by_heading, text=tr("Find by heading"), variable=self.pick_heading,
                                        command=self._update_pick_range)
         pick_heading.pack(side="left")
         self.field_widgets["pick_heading"] = pick_heading
-        ttk.Label(by_heading, textvariable=self.pick_hint, style="CardSmall.TLabel").pack(side="left", padx=(10, 0))
+        hint = ttk.Label(by_heading, textvariable=self.pick_hint, style="CardSmall.TLabel")
+        if controls is left:
+            hint.pack(side="left", padx=(10, 0))
+        else:  # under the box, wrapped to the card
+            hint.pack(side="top", anchor="w", fill="x", pady=(self.px(4), 0))
+            self._fit_wrap(hint, self.px(420))
+            buttons.pack(fill="x", pady=(self.px(10), 0))
         panes.add(left, weight=3)
 
-        side = ttk.Frame(panes)  # the tables in the file, and below them the output preview
         self._build_table_list(side)
         right = ttk.LabelFrame(side, text=tr(" Output preview "), padding=(12, 10))
         right.pack(fill="both", expand=True, pady=(self.L.box_gap, 0))
+        segmented = self._format_choice(right, command=self.refresh_preview, register=False)
+        if segmented:
+            segmented.pack(anchor="w", pady=(0, self.px(8)))
         self.preview_note = ttk.Label(right, text="", foreground=theme.WARNING, wraplength=self.px(360),
                                       justify="left", background=theme.SURFACE if self.L.cards else theme.BACKGROUND)
         self.preview_note.pack(fill="x", pady=(0, 8))
@@ -216,6 +234,36 @@ class PickTabMixin:
         if current < 0:  # first visit: offer the first free slot
             current = next((i for i, (_, rng, _) in enumerate(self.sel_vars) if not rng.get().strip()), 0)
         self.slot_box.current(current)
+        self._show_range_chips()
+
+    def _show_range_chips(self):
+        """With chips: a chip for each range in use, over the grid; a click chooses that slot."""
+        if not self.L.chips:
+            return
+        for chip in self.range_chips:
+            chip.destroy()
+        self.range_chips = []
+        current = self.slot_box.current()
+        for i, (name, rng, _) in enumerate(self.sel_vars):
+            if not rng.get().strip():
+                continue
+            label = f"{i + 1}  {name.get().strip() or rng.get().strip()}"
+            chip = Chip(self.range_chips_row, label, "accent" if i == current else "plain", bg=theme.BACKGROUND,
+                        font=(self._font_body, 10), command=lambda n=i: self._choose_slot(n))
+            chip.pack(side="left", padx=(0, self.px(6)))
+            chip.slot = i
+            self.range_chips.append(chip)
+        if not self.range_chips:
+            chip = Chip(self.range_chips_row, tr("No ranges yet: drag over cells, or pick a table"), "plain",
+                        bg=theme.BACKGROUND, font=(self._font_body, 10))
+            chip.pack(side="left")
+            chip.slot = None
+            self.range_chips.append(chip)
+
+    def _choose_slot(self, slot):
+        self.slot_box.current(slot)
+        self._slot_chosen()
+        self._show_range_chips()
 
     def _slot_chosen(self, _event=None):
         name, rng, _ = self.sel_vars[self._slot()]
