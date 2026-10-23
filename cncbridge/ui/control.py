@@ -235,7 +235,7 @@ class ControlMixin:
         if self.lock:  # let the data folder go, for a background task or the next window
             self.lock.close()
             self.lock = None
-        for job in ("_tick_job", "_edit_check_job", "_checklist_job"):
+        for job in ("_tick_job", "_edit_check_job", "_checklist_job", "_folder_job"):
             try:
                 pending = getattr(self, job, None)
                 if pending is not None:

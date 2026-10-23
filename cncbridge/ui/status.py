@@ -124,24 +124,7 @@ class StatusMixin:
                 label.configure(text=str(snap[key]), foreground=colour)
             if snap["history"] != self.shown_history:
                 self.shown_history = snap["history"]
-                selected = set(self.history.selection())
-                self.history.delete(*self.history.get_children())
-                for row in self.shown_history:
-                    pending = "queued" in (row["shared"], row["api"], row["ftp"]) or any(
-                        "rejected" in (row[k] or "") for k in ("api", "ftp"))
-                    tag = row["status"] if row["status"] != "ok" else "pending" if pending else ""
-                    self.history.insert("", "end", iid=str(row["id"]), tags=(tag,), values=[
-                        (row["processed_at"] or "").replace("T", "  "), row["source"], self._result_text(row["status"]),
-                        row["output"] or "", self._delivery_text(row["shared"]), self._delivery_text(row["api"]),
-                        self._delivery_text(row["ftp"]), row["message"] or ""])
-                keep = [iid for iid in selected if self.history.exists(iid)]
-                if keep:
-                    self.history.selection_set(keep)
-                self._update_history_buttons()
-                if self.shown_history:
-                    self.history_empty.place_forget()
-                else:
-                    self.history_empty.place(relx=0.5, rely=0.5, anchor="center")
+                self._fill_history()
             if self.L.monitor_page:
                 self._show_monitor(snap)
         self._tick_job = self.after(300, self._tick)

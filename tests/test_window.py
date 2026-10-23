@@ -2484,6 +2484,46 @@ class DashboardWindow(WindowTest):
             yield 50
         self.run_steps(steps)
 
+    def test_history_has_a_search_filter_chips_with_counts_and_a_selection_bar(self):
+        w = self.window
+        rows = [("b1.csv", "ok", "ok", "ok", ""), ("b2.csv", "ok", "ok", "queued", ""),
+                ("b3.csv", "ok", "ok", "rejected (HTTP 422)", ""), ("junk.csv", "failed", "off", "off", "no data"),
+                ("b1_copy.csv", "duplicate", "off", "off", "")]
+        for name, status, shared, api, note in rows:
+            w.ledger.add(processed_at="2026-10-21T10:00:00", source=name, output=name + ".json" if status == "ok"
+                         else None, status=status, shared=shared, api=api, ftp="off", message=note)
+
+        def shown():
+            return sorted(w.history.set(i, "source") for i in w.history.get_children())
+
+        def steps():
+            yield lambda: len(w.history.get_children()) == 5
+            self.assertEqual({k: c.text for k, c in w.history_chips.items()},
+                             {"all": "All  5", "ok": "Delivered  1", "waiting": "Waiting to be sent  1",
+                              "refused": "Refused  1", "failed": "Could not be read  1", "duplicate": "Duplicate  1"})
+            self.assertEqual(w.history_chips["all"].kind, "accent")
+            w._choose_history_filter("waiting")
+            self.assertEqual(shown(), ["b2.csv"])
+            self.assertEqual((w.history_chips["waiting"].kind, w.history_chips["all"].kind), ("accent", "plain"))
+            w._choose_history_filter("all")
+            w.history_search.set("JUNK")  # file names and notes, ignoring case
+            self.assertEqual(shown(), ["junk.csv"])
+            w.history_search.set("no data")
+            self.assertEqual(shown(), ["junk.csv"])
+            w.history_search.set("nothing like it")
+            self.assertEqual(w.history_empty.cget("text"), "No files match")
+            w.history_search.set("")
+            self.assertFalse(w.history_selection_bar.winfo_manager())  # nothing selected: no bar
+            w.history.selection_set([i for i in w.history.get_children() if w.history.set(i, "source") == "b3.csv"])
+            w.update()
+            self.assertTrue(w.history_selection_bar.winfo_manager())
+            self.assertEqual(w.history_selected.cget("text"), "1 selected")
+            self.assertEqual(str(w.resend_btn["state"]), "normal")
+            w.history.selection_set(())
+            w.update()
+            self.assertFalse(w.history_selection_bar.winfo_manager())
+        self.run_steps(steps)
+
     def test_a_test_button_writes_its_result_beside_it(self):
         w = self.window
         self.shared.mkdir()

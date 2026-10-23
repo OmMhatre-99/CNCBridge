@@ -16,7 +16,7 @@ from .. import theme
 
 # chip kinds -> (tint, text colour) names in the theme
 KINDS = {"ok": ("SUCCESS_TINT", "SUCCESS"), "warn": ("WARNING_TINT", "WARNING"), "error": ("ERROR_TINT", "ERROR"),
-         "idle": ("SURFACE_ALT", "MUTED"), "accent": ("ACCENT_TINT", "ACCENT")}
+         "idle": ("SURFACE_ALT", "MUTED"), "accent": ("ACCENT_TINT", "ACCENT"), "plain": ("SURFACE", "TEXT")}
 
 
 def _rounded(canvas, x1, y1, x2, y2, r, **options):
