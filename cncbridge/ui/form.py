@@ -6,7 +6,7 @@ from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, messagebox
 
-from .. import alerts, background, engine, heartbeat, i18n, shifts
+from .. import alerts, background, engine, heartbeat, i18n, shifts, theme
 from ..config import APP_NAME, MAX_MANUAL, MAX_SELECTIONS, export_settings, import_settings, normalize_config
 from .common import BODY_LABELS, DEFAULT_FONT_LABEL, FONT_SIZE_LABELS, UI_SCALE_LABELS, log
 from ..i18n import tr
@@ -50,6 +50,7 @@ class FormMixin:
         self.background_on = tk.BooleanVar(self, background.task_exists(self.data_dir))
 
         self.field_widgets = {}
+        self.test_results, self.test_messages = {}, {}  # a theme with chips: the result line of each Test button
         self.folder_notes = {}  # a theme with chips: the line under each folder field
 
     def fill(self, cfg):
@@ -118,36 +119,61 @@ class FormMixin:
                                                                                               self.ledger))))
 
     # ================================================================ tests for the two destinations
-    def _in_background(self, title, work, tested=False):
-        """Run work on a thread and show its result. tested: a success counts as a destination that was tested."""
+    def _in_background(self, title, work, tested=None):
+        """
+        Run work on a thread and show its result. tested: the destination being tested ("shared", "api", "ftp");
+        a success counts for the setup guide, and where its card has a result line the result goes there.
+        """
+        if tested in self.test_results:
+            self._show_test_result(tested, None, tr("Testing..."))
+
         def job():
             try:
                 result = (True, work())
             except Exception as e:
                 result = (False, str(e))
-            show = messagebox.showinfo if result[0] else messagebox.showerror
-            self.ui_q.put(lambda: show(title, result[1], parent=self))
+            if tested in self.test_results:
+                self.ui_q.put(lambda: self._show_test_result(tested, *result))
+            else:
+                show = messagebox.showinfo if result[0] else messagebox.showerror
+                self.ui_q.put(lambda: show(title, result[1], parent=self))
             if tested and result[0]:
                 self.ui_q.put(self._destination_was_tested)
         threading.Thread(target=job, daemon=True).start()
+
+    def _show_test_result(self, kind, worked, message):
+        """The line beside a Test button: worked (and when), failed (and why), or testing."""
+        label = self.test_results[kind]
+        now = datetime.now().strftime("%H:%M")
+        if worked is None:
+            label.configure(text=message, foreground=theme.MUTED)
+        elif worked:
+            label.configure(text=tr("Worked at {time}", time=now), foreground=theme.SUCCESS)
+        else:
+            label.configure(text=tr("Failed at {time}: {problem}", time=now, problem=message.splitlines()[0]),
+                            foreground=theme.ERROR)
+        self.test_messages[kind] = message
+        if worked is not None:  # also where it can be seen from any page (the test may come from the Tools menu)
+            self.status_msg.set(tr("{destination}: {result}", destination=tr(engine.destination_name(kind, capital=True)),
+                                   result=label.cget("text")))
 
     def test_shared(self):
         cfg = self.collect()
         if not cfg["shared_folder"]:
             return messagebox.showerror(tr("Shared folder"), tr("Enter the shared folder first."), parent=self)
-        self._in_background(tr("Shared folder"), lambda: tr("The folder can be written to:\n{folder}", folder=engine.test_shared(cfg)), tested=True)
+        self._in_background(tr("Shared folder"), lambda: tr("The folder can be written to:\n{folder}", folder=engine.test_shared(cfg)), tested="shared")
 
     def test_api(self):
         cfg = self.collect()
         if not cfg["api_url"]:
             return messagebox.showerror(tr("API link"), tr("Enter the API link first."), parent=self)
-        self._in_background(tr("API link"), lambda: tr("A small test file was accepted (HTTP {status}).", status=engine.test_api(cfg)), tested=True)
+        self._in_background(tr("API link"), lambda: tr("A small test file was accepted (HTTP {status}).", status=engine.test_api(cfg)), tested="api")
 
     def test_ftp(self):
         cfg = self.collect()
         if not cfg["ftp_host"]:
             return messagebox.showerror(tr("FTP server"), tr("Enter the FTP server address first."), parent=self)
-        self._in_background(tr("FTP server"), lambda: tr("A test file was uploaded and removed again in:\n{folder}", folder=engine.test_ftp(cfg)), tested=True)
+        self._in_background(tr("FTP server"), lambda: tr("A test file was uploaded and removed again in:\n{folder}", folder=engine.test_ftp(cfg)), tested="ftp")
 
     # ================================================================ settings files
     def export_settings(self):

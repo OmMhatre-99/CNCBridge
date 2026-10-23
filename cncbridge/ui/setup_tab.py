@@ -129,6 +129,7 @@ class SetupTabMixin:
         test_shared = ttk.Button(box, text=tr("Test shared folder"), command=self.test_shared)
         test_shared.grid(row=2, column=1, sticky="w", padx=8, pady=(5, 2))
         self.field_widgets["test_shared"] = test_shared
+        self._test_result_line(box, "shared", row=3)
 
         box = ttk.LabelFrame(left, text=tr(" 7  FTP server "), padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
@@ -154,6 +155,10 @@ class SetupTabMixin:
         test_ftp = ttk.Button(box, text=tr("Test FTP server"), command=self.test_ftp)
         test_ftp.grid(row=7, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_ftp"] = test_ftp
+        self._test_result_line(box, "ftp", row=8)
+        if self.L.chips:  # off, the FTP card is only its switch: its fields come back when it is turned on
+            self._ftp_rows = [w for w in box.grid_slaves() if int(w.grid_info()["row"]) > 0]
+            self.b["ftp_enabled"].trace_add("write", lambda *_: self._show_ftp_fields())
 
         box = ttk.LabelFrame(left, text=tr(" How delivery works "), padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
@@ -167,7 +172,7 @@ class SetupTabMixin:
         self._fit_wrap(note, self.px(540))
 
         box = ttk.LabelFrame(right, text=tr(" 6  API link "), padding=self.L.box_pad)
-        box.pack(fill="both", expand=True)
+        box.pack(fill="x") if self.L.chips else box.pack(fill="both", expand=True)  # a card as tall as its content
         box.columnconfigure(1, weight=1)
         api_enabled = self._toggle(box, "api_enabled", tr("Send every output file to the end user's site"))
         api_enabled.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
@@ -208,3 +213,21 @@ class SetupTabMixin:
         test_api = ttk.Button(box, text=tr("Test API link"), command=self.test_api)
         test_api.grid(row=6, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_api"] = test_api
+        self._test_result_line(box, "api", row=7)
+
+    def _test_result_line(self, box, kind, row):
+        """A theme with chips: what the last test of this destination said, under its Test button."""
+        if not self.L.chips:
+            return
+        label = ttk.Label(box, text=tr("Not tested yet"), style="CardSmall.TLabel", wraplength=self.px(420),
+                          justify="left")
+        label.grid(row=row, column=1, sticky="w", padx=8, pady=(2, 0))
+        self.test_results[kind] = label
+
+    def _show_ftp_fields(self):
+        on = self.b["ftp_enabled"].get()
+        for widget in self._ftp_rows:
+            if on:
+                widget.grid()
+            else:
+                widget.grid_remove()

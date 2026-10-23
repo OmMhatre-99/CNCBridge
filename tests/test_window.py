@@ -2484,6 +2484,36 @@ class DashboardWindow(WindowTest):
             yield 50
         self.run_steps(steps)
 
+    def test_a_test_button_writes_its_result_beside_it(self):
+        w = self.window
+        self.shared.mkdir()
+
+        def steps():
+            self.assertEqual(w.test_results["shared"].cget("text"), "Not tested yet")
+            w.field_widgets["test_shared"].invoke()
+            yield lambda: w.test_results["shared"].cget("text").startswith("Worked at ")
+            self.assertEqual(str(w.test_results["shared"].cget("foreground")), theme.SUCCESS)
+            self.assertIn("Shared folder: Worked at", w.status_msg.get())
+            w.v["api_url"].set("http://127.0.0.1:9/nothing-here")
+            w.field_widgets["test_api"].invoke()
+            yield lambda: w.test_results["api"].cget("text").startswith("Failed at ")
+            self.assertEqual(str(w.test_results["api"].cget("foreground")), theme.ERROR)
+            self.assertEqual([d for d in self.dialogs if d[0] in ("showinfo", "showerror")], [])  # no pop-ups
+        self.run_steps(steps)
+
+    def test_the_ftp_card_shows_its_fields_only_while_it_is_on(self):
+        w = self.window
+
+        def steps():
+            self.assertFalse(w.b["ftp_enabled"].get())
+            yield 50
+            self.assertEqual(w.field_widgets["ftp_host"].winfo_manager(), "")
+            w.field_widgets["ftp_enabled"].invoke()
+            yield 50
+            self.assertEqual(w.field_widgets["ftp_host"].winfo_manager(), "grid")
+            self.assertEqual(w.test_results["ftp"].winfo_manager(), "grid")
+        self.run_steps(steps)
+
     def test_folder_fields_say_whether_the_folder_is_there(self):
         w = self.window
         for name in ("a.csv", "b.csv"):
