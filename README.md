@@ -617,6 +617,21 @@ folder field says under it whether the folder is there (for the machine folder: 
 it; a network folder is left to its Test button, since it can take seconds to answer). On the Monitor,
 results and destinations are coloured **chips**; double-click a line to see its output.
 
+The pages are laid out as in the design:
+- **Setup**: the guide shows how far along it is (a bar and "2 of 4 done"); the ranges card lists only
+  the ranges in use, and **Add a range** shows the next free one (all ten are still there).
+- **Delivery**: each Test button writes its result under it, *Worked at 09:41* or *Failed at 09:43: ...*,
+  instead of a message box; the FTP card shows only its switch while FTP is off.
+- **Ranges & preview**: a chip for each range over the grid (click one to choose that slot); the slot
+  controls are a **Selection** card on the right, over the tables in the file and the preview, which has
+  the format choice in its card.
+- **History**: a search over file names and notes, a chip with a count for each kind of row (Delivered,
+  Waiting to be sent, Refused, Could not be read, Duplicate), and a bar with Send again, Process again and
+  View output that appears while rows are selected.
+- **Operator view**: while the setup is locked, the sidebar and header give way to a dark bar (the
+  station, Operator / Monitor / History, Unlock setup...), and the Operator page has the state, Start /
+  Stop / Process now, three counters and large fields for the typed values.
+
 The **Monitor** page is where the counters and the health line now live, so the other pages are free of
 them: the five counters (each says what it counts), the last file, the age of the send queue and the
 back-up drive, the latest files with where each went (Shared folder ✓, API link waiting...), one line per

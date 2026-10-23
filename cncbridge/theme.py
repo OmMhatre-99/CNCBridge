@@ -445,6 +445,8 @@ def _dashboard_styles(style, px, fonts):
                     labelmargins=(px(16), px(12), px(16), px(2)))
     # the header bar at the top of the content: the open page's title, hint and buttons
     style.configure("Header.TFrame", background=SURFACE)
+    style.configure("Horizontal.TProgressbar", background=ACCENT, troughcolor=SURFACE_ALT, bordercolor=SURFACE_ALT,
+                    lightcolor=ACCENT, darkcolor=ACCENT, thickness=px(8))
     style.configure("HeaderTitle.TLabel", background=SURFACE, foreground=TEXT, font=strong_font(fonts, 17))
     style.configure("HeaderHint.TLabel", background=SURFACE, foreground=MUTED, font=(body, 10))
     style.configure("HeaderWarn.TLabel", background=SURFACE, foreground=c["WARNING"], font=strong_font(fonts, 10))

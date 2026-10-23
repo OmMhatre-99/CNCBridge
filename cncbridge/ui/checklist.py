@@ -33,20 +33,28 @@ class ChecklistMixin:
                                                            "after the first start; View > Setup checklist brings "
                                                            "it back.")).grid(row=0, column=0, columnspan=2,
                                                                               sticky="w", pady=(0, 6))
-        self.checklist_rows = {}
+        self.checklist_rows, self.checklist_progress = {}, None
+        if self.L.chips:  # how far along, at a glance
+            line = ttk.Frame(box)
+            line.grid(row=1, column=0, columnspan=3, sticky="ew", pady=(0, self.px(8)))
+            self.checklist_progress = ttk.Progressbar(line, maximum=len(self.CHECKLIST_STEPS), length=self.px(260))
+            self.checklist_progress.pack(side="left")
+            self.checklist_count = ttk.Label(line, text="", style="CardSmall.TLabel")
+            self.checklist_count.pack(side="left", padx=(self.px(10), 0))
+        first = 2 if self.L.chips else 1
         for index, (key, title, hint, button) in enumerate(self.CHECKLIST_STEPS, 1):
             badge = tk.Label(box, text=f" {index} ", bg=theme.IDLE, fg=theme.WHITE,
                              font=self.strong(self.L.grid_badge + 1))
-            badge.grid(row=index, column=0, padx=(0, 10), pady=4)
+            badge.grid(row=index + first - 1, column=0, padx=(0, 10), pady=4)
             words = ttk.Frame(box)
-            words.grid(row=index, column=1, sticky="ew", pady=4)
+            words.grid(row=index + first - 1, column=1, sticky="ew", pady=4)
             name = ttk.Label(words, text=tr(title), style="Card.TLabel", font=self.strong(self.L.grid_badge + 2))
             name.pack(anchor="w")
             detail = ttk.Label(words, text=tr(hint), style="CardSmall.TLabel", justify="left", wraplength=self.px(560))
             detail.pack(anchor="w", fill="x")
             self._fit_wrap(detail, self.px(560))
             go = ttk.Button(box, text=tr(button), width=14, command=getattr(self, f"_checklist_go_{key}"))
-            go.grid(row=index, column=2, padx=(10, 0), pady=4)
+            go.grid(row=index + first - 1, column=2, padx=(10, 0), pady=4)
             self.checklist_rows[key] = {"badge": badge, "title": name, "hint": detail, "go": go}
             self.field_widgets[f"checklist_{key}"] = go
         hide = ttk.Button(box, text=tr("Close this guide"), command=self.hide_checklist)
@@ -87,6 +95,10 @@ class ChecklistMixin:
         ready = all(done.values())
         done["start"] = ready and (firstrun.is_done(self.data_dir) or self.processing)
         current = next((key for key, *_ in self.CHECKLIST_STEPS if not done[key]), None)
+        if self.checklist_progress is not None:
+            count = sum(done.values())
+            self.checklist_progress.configure(value=count)
+            self.checklist_count.configure(text=tr("{done} of {total} done", done=count, total=len(done)))
         for index, (key, title, hint, button) in enumerate(self.CHECKLIST_STEPS, 1):
             row = self.checklist_rows[key]
             if done[key]:

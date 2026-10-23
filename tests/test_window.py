@@ -2484,6 +2484,23 @@ class DashboardWindow(WindowTest):
             yield 50
         self.run_steps(steps)
 
+    def test_setup_shows_the_ranges_in_use_and_a_button_for_one_more(self):
+        w = self.window
+
+        def steps():
+            yield 50
+            shown = lambda: [i for i in range(10) if w.field_widgets[f"selection_range_{i}"].winfo_manager()]  # noqa: E731
+            self.assertEqual(shown(), [0])  # one range in the settings
+            w.field_widgets["add_range"].invoke()
+            self.assertEqual(shown(), [0, 1])
+            w.sel_vars[5][1].set("B6")  # set elsewhere (the picker, an import): its row shows, and those before it
+            self.assertEqual(shown(), [0, 1, 2, 3, 4, 5])
+            w.sel_vars[9][1].set("C3")
+            self.assertEqual(shown(), list(range(10)))
+            self.assertEqual(w.add_range_btn.winfo_manager(), "")  # all ten: no more to add
+            self.assertEqual(len(w.field_widgets), len(set(w.field_widgets)))
+        self.run_steps(steps)
+
     def test_ranges_page_has_range_chips_and_a_selection_card(self):
         w = self.window
 
@@ -2900,6 +2917,8 @@ class DashboardFirstRun(WindowTest):
         def steps():
             self.assertEqual(w.tabs.select(), str(w.setup_tab))
             self.assertTrue(w.checklist_shown)
+            yield lambda: w.checklist_count.cget("text") == "0 of 4 done"
+            self.assertEqual(float(w.checklist_progress.cget("value")), 0)
             self.assertTrue(w.nav_items["setup"]["active"])
             yield 100
         self.run_steps(steps)

@@ -212,7 +212,6 @@ class LayoutMixin:
             entry = ttk.Entry(cell, textvariable=self.v[key])
             entry.pack(fill="x")
             self.folder_notes[key] = ttk.Label(cell, text="", style="CardSmall.TLabel")
-            self.folder_notes[key].pack(anchor="w", fill="x", pady=(self.px(3), 0))
             self._fit_wrap(self.folder_notes[key], self.px(420))
             self.v[key].trace_add("write", lambda *_: self._schedule_folder_check())
         else:
@@ -277,6 +276,10 @@ class LayoutMixin:
                 text = tr("Not there yet; made with the first file.")
             if note.cget("text") != text:
                 note.configure(text=text, foreground=colour)
+                if text and not note.winfo_manager():  # an empty line takes no room
+                    note.pack(anchor="w", fill="x", pady=(self.px(3), 0))
+                elif not text:
+                    note.pack_forget()
 
     def _browse(self, var):
         start = var.get() if Path(var.get() or "?").is_dir() else None

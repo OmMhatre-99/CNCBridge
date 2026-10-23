@@ -78,6 +78,7 @@ class SetupTabMixin:
         box.pack(fill="both", expand=True)
         box.columnconfigure(1, weight=3)
         box.columnconfigure(2, weight=2)
+        self.range_rows, self._ranges_shown = [], 1
         for col, text in ((1, tr("Name in the output")), (2, tr("Cell range")), (3, tr("First row is header"))):
             ttk.Label(box, text=text, style="CardSmall.TLabel").grid(row=0, column=col, sticky="w", padx=6, pady=(0, 6))
         for i, (name, rng, header) in enumerate(self.sel_vars):
@@ -96,13 +97,21 @@ class SetupTabMixin:
             self.field_widgets[f"selection_range_{i}"] = range_entry
             self.field_widgets[f"selection_header_{i}"] = header_check
             self.field_widgets[f"selection_pick_{i}"] = pick_button
+            self.range_rows.append(box.grid_slaves(row=i + 1))
+        if self.L.chips:  # only the ranges in use, and a button for one more (see _show_range_rows)
+            self.add_range_btn = ttk.Button(box, text="+  " + tr("Add a range"), command=self.add_range_row)
+            self.add_range_btn.grid(row=MAX_SELECTIONS + 1, column=1, sticky="w", padx=6, pady=(self.px(8), 0))
+            self.field_widgets["add_range"] = self.add_range_btn
+            for slot in self.sel_vars:
+                for var in slot[:2]:
+                    var.trace_add("write", lambda *_: self._show_range_rows())
         range_help = ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(650), justify="left",
                                text=tr("Type a range like in a spreadsheet, or press Pick... and drag over a real file.\n"
                                     "L1:M8  (also L1 x M8)  = from cell L1 to cell M8\n"
                                     "B6  = one cell          A12:I*  = from A12 down to the first empty row\n"
                                     "@[ERRORS]  = the table under that title    @NOZZLE*  = every table whose title fits\n"
                                     "Add [Ref, Result] after a range to keep only those columns, in that order"))
-        range_help.grid(row=MAX_SELECTIONS + 1, column=0, columnspan=5, sticky="ew", pady=(11, 2))
+        range_help.grid(row=MAX_SELECTIONS + 2, column=0, columnspan=5, sticky="ew", pady=(11, 2))
         self._fit_wrap(range_help, self.px(650))
 
     def _build_delivery(self):
@@ -214,6 +223,27 @@ class SetupTabMixin:
         test_api.grid(row=6, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_api"] = test_api
         self._test_result_line(box, "api", row=7)
+
+    def _show_range_rows(self):
+        """A theme with chips: the slots up to the last one in use, at least one, and those added with the button."""
+        used = [i for i, (name, rng, _) in enumerate(self.sel_vars) if name.get().strip() or rng.get().strip()]
+        shown = min(max((used[-1] + 1) if used else 1, self._ranges_shown), MAX_SELECTIONS)
+        for i, widgets in enumerate(self.range_rows):
+            for widget in widgets:
+                if i < shown:
+                    widget.grid()
+                else:
+                    widget.grid_remove()
+        if shown >= MAX_SELECTIONS:
+            self.add_range_btn.grid_remove()
+        else:
+            self.add_range_btn.grid()
+        return shown
+
+    def add_range_row(self):
+        self._ranges_shown = self._show_range_rows() + 1
+        shown = self._show_range_rows()
+        self.field_widgets[f"selection_name_{shown - 1}"].focus_set()
 
     def _test_result_line(self, box, kind, row):
         """A theme with chips: what the last test of this destination said, under its Test button."""
