@@ -218,6 +218,64 @@ class HeadingRanges(unittest.TestCase):
             self.assertEqual(feeders["rows"][0]["Feeder"], "F10")
 
 
+class SmarterPicking(unittest.TestCase):
+    """Column lists ([Ref, Result]), headings with wildcards (@NOZZLE*) and the tables found in a file."""
+
+    def setUp(self):
+        self.rows = engine.read_rows(SAMPLE)
+
+    def build(self, *selections, **settings):
+        cfg = config.normalize_config(dict(settings, selections=list(selections)))
+        return engine.build_output("x.csv", self.rows, cfg)
+
+    def test_a_column_list_keeps_those_columns_in_that_order(self):
+        _, blocks, warnings = self.build(sel("A12:I*[result, Ref]"))
+        self.assertEqual(blocks[0]["columns"], ["Result", "Ref"])  # the file's spelling, in the listed order
+        self.assertEqual(blocks[0]["rows"][1], ["PICKUP_ERR", "R102"])
+        self.assertEqual(blocks[0]["range"], "A12:I*")
+        self.assertEqual(warnings, [])
+        _, blocks, _ = self.build(sel("@[ERRORS][Code, Description]"))
+        self.assertEqual(blocks[0]["rows"], [["E101", "Pick-up failure"]])
+
+    def test_a_column_list_works_with_renamed_columns_under_either_name(self):
+        _, blocks, _ = self.build(sel("A12:I*[Reference, Part_No]"), rename_columns="Ref=Reference\nPart_No=Part")
+        self.assertEqual(blocks[0]["columns"], ["Reference", "Part"])
+
+    def test_a_missing_column_is_warned_about_once(self):
+        _, blocks, warnings = self.build(sel("A12:I*[Ref, Colour]"))
+        self.assertEqual(blocks[0]["columns"], ["Ref"])
+        self.assertEqual(warnings, ["selection 1: there is no column 'Colour' in this file"])
+
+    def test_a_heading_in_brackets_is_not_a_column_list(self):
+        self.assertEqual(engine.split_columns("@[ERRORS]"), ("@[ERRORS]", None))
+        self.assertEqual(engine.split_columns("@[ERRORS][Code]"), ("@[ERRORS]", ["Code"]))
+        self.assertEqual(engine.normalize_range("a12 : i* [ref,result]"), "A12:I*[ref, result]")
+
+    def test_column_lists_that_cannot_work_are_named_before_starting(self):
+        problems = engine.validate(config.normalize_config({"selections": [
+            sel("B6[Ref]"), sel("A12:I*[Ref]", header=False), sel("A12:I*[]")]}))
+        self.assertTrue(any("Selection 1: a column list needs a block of cells" in p for p in problems))
+        self.assertTrue(any("Selection 2: a column list needs 'First row is header'" in p for p in problems))
+        self.assertTrue(any("Selection 3: put the column names inside the brackets" in p for p in problems))
+
+    def test_a_heading_with_a_wildcard_takes_every_table_whose_title_fits(self):
+        _, blocks, _ = self.build(sel("@*STAT*", "Stats"))
+        self.assertEqual([b["name"] for b in blocks], ["Stats ([FEEDER_STATUS])", "Stats ([NOZZLE_STATS])"])
+        self.assertEqual([b["cells"] for b in blocks], ["A27:E39", "A42:D46"])
+        _, blocks, _ = self.build(sel("@NOZZLE*[Nozzle, Errors]"))  # without brackets, a [title] fits too
+        self.assertEqual((blocks[0]["name"], blocks[0]["columns"]), ("[NOZZLE_STATS]", ["Nozzle", "Errors"]))
+        _, blocks, warnings = self.build(sel("@NOTHING*"), sel("B6"))
+        self.assertEqual(warnings, ["selection 1 (@NOTHING*) is empty in this file"])
+
+    def test_the_tables_in_a_file_are_found_with_their_cells(self):
+        tables = engine.find_tables(self.rows)
+        self.assertEqual([(t["title"], t["range"], t["rows"]) for t in tables],
+                         [("[HEADER]", "A2:B9", 7), ("[L1xM8]", "A12:I24", 12), ("[FEEDER_STATUS]", "A27:E39", 12),
+                          ("[NOZZLE_STATS]", "A42:D46", 4), ("[ERRORS]", "A49:D50", 1)])
+        self.assertEqual(tables[3]["columns"], ["Nozzle", "Picks", "Errors", "Error_Rate_pct"])
+        self.assertEqual(engine.find_tables(engine.read_rows(b"a,b\n1,2\n")), [])  # no title, no table
+
+
 class OutputSwitches(unittest.TestCase):
     """Numbers as numbers, plain CSV, time zone and renamed columns. All off means files stay as they were."""
 

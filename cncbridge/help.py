@@ -69,9 +69,16 @@ Up to 10 ranges can be extracted. Each has a name for the output, a cell range, 
     B6         one cell
     A12:I*     from A12 down to the first empty row
     @[ERRORS]  the table under the cell that says [ERRORS]
+    @NOZZLE*   every table whose title fits: * stands for any text, ? for one character
+    A12:I*[Ref, Result]  only these columns, in this order
 
 L1 x M8 means the same as L1:M8. A12:I* is for tables whose length changes from board to board. @[ERRORS] finds \
-the table wherever it is in the file, so it still works when the tables above it grow or shrink.
+the table wherever it is in the file, so it still works when the tables above it grow or shrink. A heading with * \
+or ? gives one block for each table whose title fits, named after that title.
+
+A column list in square brackets can follow any block with a header row, including a heading: \
+@[ERRORS][Code, Description]. Column names are matched ignoring upper and lower case, by their name in the file \
+or the new name from Rename columns. A name the file does not have is left out, with a warning.
 
 ## Using Pick...
 Open a real machine file (Ctrl+O, or "Newest machine file"). The file appears as a grid with column letters and \
@@ -81,6 +88,8 @@ shows exactly the file that will be produced.
 - Tick "down to first empty row" to turn the block into one that grows with the table.
 - Tick "Find by heading" before marking a cell to follow a table that moves: the range becomes @ plus the text of \
 that cell.
+- "Tables in this file" lists every table that has a title over its header row, such as [ERRORS]. Click one: it is \
+marked in the grid and becomes @ plus its title. Press Assign (or double-click it) to put it in the chosen slot.
 
 If a range finds nothing, that selection is empty and CNCBridge warns about it. A file where every selection is \
 empty is set aside as failed.

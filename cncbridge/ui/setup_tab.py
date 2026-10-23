@@ -93,7 +93,9 @@ class SetupTabMixin:
         range_help = ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(650), justify="left",
                                text=tr("Type a range like in a spreadsheet, or press Pick... and drag over a real file.\n"
                                     "L1:M8  (also L1 x M8)  = from cell L1 to cell M8\n"
-                                    "B6  = one cell          A12:I*  = from A12 down to the first empty row"))
+                                    "B6  = one cell          A12:I*  = from A12 down to the first empty row\n"
+                                    "@[ERRORS]  = the table under that title    @NOZZLE*  = every table whose title fits\n"
+                                    "Add [Ref, Result] after a range to keep only those columns, in that order"))
         range_help.grid(row=MAX_SELECTIONS + 1, column=0, columnspan=5, sticky="ew", pady=(11, 2))
         self._fit_wrap(range_help, self.px(650))
 

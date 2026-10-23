@@ -72,9 +72,12 @@ class PickTabMixin:
         ttk.Label(by_heading, textvariable=self.pick_hint, style="CardSmall.TLabel").pack(side="left", padx=(10, 0))
         panes.add(left, weight=3)
 
-        right = ttk.LabelFrame(panes, text=tr(" Output preview "), padding=(12, 10))
+        side = ttk.Frame(panes)  # the tables in the file, and below them the output preview
+        self._build_table_list(side)
+        right = ttk.LabelFrame(side, text=tr(" Output preview "), padding=(12, 10))
+        right.pack(fill="both", expand=True, pady=(self.L.box_gap, 0))
         self.preview_note = ttk.Label(right, text="", foreground=theme.WARNING, wraplength=self.px(360),
-                                      justify="left", background=theme.BACKGROUND)
+                                      justify="left", background=theme.SURFACE if self.L.cards else theme.BACKGROUND)
         self.preview_note.pack(fill="x", pady=(0, 8))
         self.preview = tk.Text(right, wrap="none", font=(self._font_mono, self.L.text_mono), width=44, height=12,
                                state="normal", relief="solid", borderwidth=1, background=theme.SURFACE, foreground=theme.TEXT,
@@ -88,7 +91,54 @@ class PickTabMixin:
         self.preview.pack(fill="both", expand=True)
         self.preview.insert("1.0", tr("Your output preview will appear here.\n\nOpen a sample machine file to get started."))
         self.preview.configure(state="disabled")
-        panes.add(right, weight=2)
+        panes.add(side, weight=2)
+
+    def _build_table_list(self, parent):
+        """The tables found in the open file (a title such as [ERRORS] over a header row): click one, then Assign."""
+        area = ttk.LabelFrame(parent, text=tr(" Tables in this file "), padding=(12, 8))
+        area.pack(fill="x")
+        self.sample_tables = []
+        columns = (("title", tr("Title"), 150), ("cells", tr("Cells"), 80), ("rows", tr("Rows"), 64),
+                   ("columns", tr("Columns"), 220))
+        self.table_list = ttk.Treeview(area, columns=[c[0] for c in columns], show="headings", height=4,
+                                       selectmode="browse", takefocus=True)
+        for key, title, width in columns:
+            self.table_list.heading(key, text=title, anchor="w")
+            self.table_list.column(key, width=self.px(width), anchor="w", stretch=key == "columns")
+        self.table_list.pack(fill="x")
+        self.table_list.bind("<<TreeviewSelect>>", self._table_chosen)
+        self.table_list.bind("<Double-1>", lambda event: self.assign())
+        self.table_list.bind("<Return>", lambda event: self.assign())
+        self.field_widgets["table_list"] = self.table_list
+        self.table_empty = ttk.Label(self.table_list, text=tr("Open a machine file to list its tables."),
+                                     style="EmptyState.TLabel")
+        self.table_empty.place(relx=0.5, rely=0.55, anchor="center")
+
+    def _show_tables(self, rows):
+        self.sample_tables = engine.find_tables(rows)
+        self.table_list.delete(*self.table_list.get_children())
+        for i, t in enumerate(self.sample_tables):
+            self.table_list.insert("", "end", iid=str(i), values=(t["title"], t["range"], t["rows"],
+                                                                  ", ".join(t["columns"])))
+        if self.sample_tables:
+            self.table_empty.place_forget()
+        else:
+            self.table_empty.configure(text=tr("No tables with a title were found; drag over the cells instead."))
+            self.table_empty.place(relx=0.5, rely=0.55, anchor="center")
+
+    def _table_chosen(self, _event=None):
+        """A table from the list: marked in the grid, and found again by its title wherever it moves."""
+        chosen = self.table_list.selection()
+        if not chosen:
+            return
+        table = self.sample_tables[int(chosen[0])]
+        c1, r1, c2, r2 = engine.parse_range(table["range"])
+        self.grid_view.set_selection((c1, r1, c2, r2))
+        self.grid_view.see(c1, max(r1 - 1, 0))
+        self.pick_range.set("@" + table["title"])
+        self.pick_name.set(table["title"].strip("[] ") if not self.pick_name.get().strip() else self.pick_name.get())
+        self.pick_hint.set(tr("Press Assign to put this table in the chosen slot. It is found by its title, "
+                              "wherever it moves in the file."))
 
     # ================================================================ pick ranges & preview
     def _tab_changed(self, _event=None):
@@ -144,6 +194,7 @@ class PickTabMixin:
         self.sample_label.configure(text=tr("{name}   ({rows} rows x {width} columns)", name=self.sample_name, rows=len(rows), width=width))
         self.pick_range.set("")
         self.grid_view.set_rows(rows)
+        self._show_tables(rows)
         self.refresh_preview()
         return True
 

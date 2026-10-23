@@ -49,7 +49,8 @@ from .background import stop_requested
 from .config import APP_NAME, OPERATOR_FILE, VERSION, load_config, normalize_config
 # Everything that used to live in this file is still reachable as engine.<name>.
 from .csvread import (  # noqa: F401
-    check_range, col_index, col_letter, decode, DELIMITERS, extract, FileError, find_heading,
+    check_range, col_index, col_letter, decode, DELIMITERS, extract, extract_all, FileError, find_heading,
+    find_tables, find_titles, is_wildcard, split_columns,
     format_range, is_heading, json_rows, machine_files, normalize_range, parse_range, parse_renames, priority,
     RANGE_RE, read_rows, split_patterns,
     resolve_range, sniff_delimiter, _header, _resolve_heading,

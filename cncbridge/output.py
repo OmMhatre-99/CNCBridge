@@ -9,7 +9,8 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from .csvread import FileError, check_range, extract, is_heading, parse_range, parse_renames
+from .csvread import (FileError, check_range, extract_all, is_heading, normalize_range as normalize_cells,
+                      parse_range, parse_renames, split_columns)
 
 
 def manual_dict(cfg):
@@ -135,14 +136,19 @@ def build_output(src_name, rows, cfg, now=None):
     for i, sel in enumerate(cfg["selections"], 1):
         if not sel["range"]:
             continue
-        block, filled = extract(rows, sel, renames)
-        blocks.append(block)
-        has_data = has_data or filled
-        last = None if is_heading(sel["range"]) else parse_range(sel["range"])[3]
-        if not filled:
-            warnings.append(f"selection {i} ({block['range']}) is empty in this file")
-        elif last is not None and last >= len(rows):
-            warnings.append(f"selection {i} ({block['range']}) reaches past the last row of the file ({len(rows)})")
+        missing = []
+        cells = split_columns(sel["range"])[0]
+        last = None if is_heading(cells) else parse_range(cells)[3]
+        for block, filled in extract_all(rows, sel, renames, missing):
+            blocks.append(block)
+            has_data = has_data or filled
+            if not filled:
+                warnings.append(f"selection {i} ({block['range']}) is empty in this file")
+            elif last is not None and last >= len(rows):
+                warnings.append(f"selection {i} ({block['range']}) reaches past the last row of the file "
+                                f"({len(rows)})")
+        for column in dict.fromkeys(missing):
+            warnings.append(f"selection {i}: there is no column '{column}' in this file")
     if not blocks:
         raise ValueError("no cell range is configured")
     if not has_data:
@@ -196,6 +202,12 @@ def problems(cfg):
                 ranges.append(sel["range"])
             except ValueError as e:
                 p.append((RANGES, f"Selection {i}: {e}"))
+                continue
+            cells, columns = split_columns(sel["range"])
+            if columns and not is_heading(cells) and ":" not in normalize_cells(cells):
+                p.append((RANGES, f"Selection {i}: a column list needs a block of cells, not a single cell."))
+            elif columns and not sel["header"]:
+                p.append((RANGES, f"Selection {i}: a column list needs 'First row is header' to know the names."))
     if not ranges and not any(part == RANGES for part, _ in p):
         p.append((RANGES, "Enter at least one cell range to extract (for example L1:M8)."))
 

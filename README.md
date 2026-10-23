@@ -31,9 +31,13 @@ installed on the machine PC and it needs no internet connection.
    | `B6` | one cell |
    | `A12:I*` | from A12 down to the first empty row, for tables whose length changes per board |
    | `@[ERRORS]` | the table under the cell that says `[ERRORS]`, wherever it is in the file. It runs as far right as its header row and down to the first empty row, so it still works when the tables above it grow or shrink |
+   | `@NOZZLE*` | every table whose title fits (`*` any text, `?` one character), one block each, named after its title |
+   | `A12:I*[Ref, Result]` | only these columns, in this order; works after any block with a header row, also `@[ERRORS][Code, Description]`. Names are matched ignoring case, by their name in the file or after *Rename columns*; a missing one is left out with a warning |
 
    Per range you choose a name and whether its first row is a header row.
 
+   The picker lists the **Tables in this file**: every title (such as `[ERRORS]`) over a header row, with its
+   cells, rows and columns. Click one to mark it in the grid as `@` plus its title, then **Assign**.
    In the picker, tick **Find by heading** before marking a cell: the range becomes `@` plus the text of that cell. A heading range also reports where it was found (`cells`, for example `A49:D50`) in the output. If the heading is missing from a file, that selection is empty and CNCBridge warns about it; a file where every selection is empty is set aside as failed.
 4. Adds the **2 typed values** (for example Operator and Work order) plus the source file
    name, time and station name.

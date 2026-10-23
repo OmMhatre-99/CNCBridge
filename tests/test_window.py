@@ -222,6 +222,32 @@ class RangePicker(WindowTest):
             self.assertEqual([r.get() for _, r, _ in w.sel_vars[:2]], ["A12:I*", "B6"])
         self.run_steps(steps)
 
+    def test_a_table_from_the_list_is_marked_and_assigned_by_its_title(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.open_sample(SAMPLE))
+            w.tabs.select(w.pick_tab)
+            w._update_slots()
+            yield 200
+            titles = [w.table_list.set(i, "title") for i in w.table_list.get_children()]
+            self.assertEqual(titles, ["[HEADER]", "[L1xM8]", "[FEEDER_STATUS]", "[NOZZLE_STATS]", "[ERRORS]"])
+            self.assertEqual(w.table_empty.winfo_manager(), "")
+            w.slot_box.current(2)
+            w._slot_chosen()
+            w.table_list.selection_set("4")
+            yield 100
+            self.assertEqual(w.grid_view.sel, (0, 48, 3, 49))  # marked in the grid
+            self.assertEqual((w.pick_range.get(), w.pick_name.get()), ("@[ERRORS]", "ERRORS"))
+            w.assign()
+            yield 200
+            self.assertEqual((w.sel_vars[2][0].get(), w.sel_vars[2][1].get()), ("ERRORS", "@[ERRORS]"))
+            self.assertIn('"Pick-up failure"', w.preview.get("1.0", "end"))
+            w._show_tables(engine.read_rows(b"a,b\n1,2\n"))
+            self.assertEqual(w.table_list.get_children(), ())
+            self.assertTrue(w.table_empty.winfo_manager())
+        self.run_steps(steps)
+
 
 class SetupLock(WindowTest):
     """A setup password hides the setup tabs; operators keep Start/Stop, History, Log and the typed values."""
