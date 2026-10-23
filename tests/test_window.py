@@ -2484,6 +2484,37 @@ class DashboardWindow(WindowTest):
             yield 50
         self.run_steps(steps)
 
+    def test_locked_the_operator_gets_a_screen_of_their_own(self):
+        w = self.window
+
+        def steps():
+            self.assertTrue(w.sidebar.winfo_manager())
+            w._store_password(config.hash_password("opensesame"))
+            w.toggle_lock()
+            yield lambda: w.tabs.select() == str(w.operator_tab)
+            self.assertEqual(w.sidebar.winfo_manager(), "")  # no sidebar, no page header: the dark bar instead
+            self.assertEqual(w.page_header.winfo_manager(), "")
+            self.assertTrue(w.operator_bar.winfo_manager())
+            self.assertEqual(w.operator_title.cget("text"), "Line 7 · operator view")
+            self.assertEqual(str(w.operator_nav["operator"].cget("bg")), theme.SIDEBAR_ACTIVE)
+            self.assertEqual(str(w.field_widgets["operator_value_0"].cget("font")).split()[-1], "16")  # big fields
+            yield lambda: w.operator_state.cget("text") == "Stopped"
+            self.assertEqual(str(w.operator_start["state"]), "normal")
+            w.operator_nav["history"].invoke()
+            yield lambda: w.tabs.select() == str(w.history_tab)
+            self.assertEqual(str(w.operator_nav["history"].cget("bg")), theme.SIDEBAR_ACTIVE)
+            w.operator_start.invoke()
+            yield lambda: w.running and w.operator_state.cget("text") == "Monitoring"
+            self.assertEqual(str(w.operator_stop["state"]), "normal")
+            w.operator_stop.invoke()
+            yield lambda: not w.running
+            w.unlocked = True  # as after the password (its dialog is not opened in a test)
+            w._apply_lock()
+            yield 50
+            self.assertEqual(w.operator_bar.winfo_manager(), "")
+            self.assertTrue(w.sidebar.winfo_manager() and w.page_header.winfo_manager())
+        self.run_steps(steps)
+
     def test_history_has_a_search_filter_chips_with_counts_and_a_selection_bar(self):
         w = self.window
         rows = [("b1.csv", "ok", "ok", "ok", ""), ("b2.csv", "ok", "ok", "queued", ""),

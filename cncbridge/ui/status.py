@@ -97,6 +97,7 @@ class StatusMixin:
         if self.sidebar is not None:
             self._update_sidebar_state(text, colour)
         idle = not running and not self.busy
+        self._update_operator_status(text, running, idle)
         self.start_btn.configure(state="normal" if idle else "disabled")
         self.once_btn.configure(state="normal" if idle and not self.connected else "disabled")
         self.stop_btn.configure(state="normal" if running else "disabled")

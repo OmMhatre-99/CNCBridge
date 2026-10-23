@@ -1,7 +1,8 @@
 """The operator view, the setup password and the shift-change confirmation."""
+import tkinter as tk
 from tkinter import messagebox, simpledialog, ttk
 
-from .. import config, firstrun, permissions, shifts
+from .. import config, firstrun, permissions, shifts, theme
 from ..config import APP_NAME, SettingsTooNew, normalize_config, save_config
 from .common import log
 from .dialogs import ShiftDialog
@@ -16,18 +17,121 @@ class AccessMixin:
         self._page_intro(tab, tr("Typed values"),
                          tr("These values are written into every file. Change them when the operator or the "
                          "work order changes; they apply from the next file, without stopping."))
+        self.operator_counts = {}
+        if self.L.page_headers:  # a screen of its own, see _operator_mode
+            self._build_operator_status(tab)
         box = ttk.LabelFrame(tab, text=tr(" Typed values "), padding=self.L.box_pad)
-        box.pack(fill="x")
+        box.pack(fill="x", pady=(self.L.box_gap if self.L.page_headers else 0, 0))
         box.columnconfigure(1, weight=1)
         self.operator_labels = []
+        big = {"font": (self._font_body, 16)} if self.L.page_headers else {}  # read and typed at arm's length
         for i, (_, value) in enumerate(self.man_vars):
-            label = ttk.Label(box, text=tr("Typed value {number}", number=i + 1), style="Card.TLabel", width=22)
+            label = ttk.Label(box, text=tr("Typed value {number}", number=i + 1), style="Card.TLabel", width=22,
+                              **big)
             label.grid(row=i, column=0, sticky="w", pady=6)
-            ttk.Entry(box, textvariable=value).grid(row=i, column=1, sticky="ew", padx=8, pady=6)
+            entry = ttk.Entry(box, textvariable=value, **big)
+            entry.grid(row=i, column=1, sticky="ew", padx=8, pady=6, ipady=self.px(6) if big else 0)
+            self.field_widgets[f"operator_value_{i}"] = entry
             self.operator_labels.append(label)
         apply = ttk.Button(box, text=tr("Apply"), style="Go.TButton", command=self.apply_operator_values)
         apply.grid(row=len(self.man_vars), column=1, sticky="w", padx=8, pady=(8, 2))
         self.field_widgets["operator_apply"] = apply
+
+    def _build_operator_status(self, tab):
+        """The state, Start / Stop / Process now, and three counters, at the top of the operator's page."""
+        px = self.px
+        card = ttk.LabelFrame(tab, text=tr(" Status "), padding=self.L.box_pad)
+        card.pack(fill="x")
+        row = ttk.Frame(card)
+        row.pack(fill="x")
+        self.operator_state = ttk.Label(row, text=tr("Stopped"), font=self.strong(20))
+        self.operator_state.pack(side="left")
+        self.operator_stop = ttk.Button(row, text="■  " + tr("Stop"), style="Dark.TButton", command=self.stop)
+        self.operator_stop.pack(side="right")
+        self.operator_start = ttk.Button(row, text="▶  " + tr("Start monitoring"), style="Go.TButton",
+                                         command=self.start)
+        self.operator_start.pack(side="right", padx=(0, px(8)))
+        self.operator_once = ttk.Button(row, text="↻  " + tr("Process now"), command=self.process_now)
+        self.operator_once.pack(side="right", padx=(0, px(8)))
+        counters = ttk.Frame(card)
+        counters.pack(fill="x", pady=(px(14), 0))
+        for column, (key, caption) in enumerate((("ok", tr("Done")), ("queued", tr("Waiting to be sent")),
+                                                 ("failed", tr("Could not be read")))):
+            counters.columnconfigure(column, weight=1, uniform="operator")
+            box = ttk.Frame(counters, style="Metric.TFrame", padding=(px(14), px(10)))
+            box.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else px(10), 0))
+            ttk.Label(box, text=caption, style="MetricSmall.TLabel").pack(anchor="w")
+            self.operator_counts[key] = ttk.Label(box, text="0", style="MetricValue.TLabel")
+            self.operator_counts[key].pack(anchor="w")
+
+    def _build_operator_bar(self):
+        """The dark bar of the operator view: whose station, the three pages an operator has, and the way back."""
+        px = self.px
+        bar = self.operator_bar = tk.Frame(self.content, bg=theme.SIDEBAR)
+        self.operator_title = tk.Label(bar, text="", bg=theme.SIDEBAR, fg="#ffffff", font=self.strong(13))
+        self.operator_title.pack(side="left", padx=(px(24), px(20)), pady=px(12))
+        self.operator_nav = {}
+        for key, label, attribute in (("operator", tr("Operator"), "operator_tab"), ("monitor", tr("Monitor"), "monitor_tab"),
+                                      ("history", tr("History"), "history_tab")):
+            if not hasattr(self, attribute):
+                continue
+            button = tk.Button(bar, text=label, bg=theme.SIDEBAR, fg=theme.SIDEBAR_TEXT, relief="flat", bd=0,
+                               activebackground=theme.SIDEBAR_HOVER, activeforeground="#ffffff", cursor="hand2",
+                               font=(self._font_body, 11), padx=px(12), pady=px(6), highlightthickness=2,
+                               highlightbackground=theme.SIDEBAR, highlightcolor=theme.FOCUS,
+                               command=lambda a=attribute: self._show_tab(getattr(self, a)))
+            button.pack(side="left")
+            self.operator_nav[key] = button
+        unlock = tk.Button(bar, text=tr("Unlock setup..."), bg=theme.SIDEBAR_HOVER, fg="#ffffff", relief="flat", bd=0,
+                           activebackground=theme.SIDEBAR_ACTIVE, activeforeground="#ffffff", cursor="hand2",
+                           font=(self._font_body, 10), padx=px(14), pady=px(6), highlightthickness=2,
+                           highlightbackground=theme.SIDEBAR, highlightcolor=theme.FOCUS, command=self.toggle_lock)
+        unlock.pack(side="right", padx=px(20))
+        self.field_widgets["operator_unlock"] = unlock
+        self.tabs.bind("<<NotebookTabChanged>>", lambda event: self._mark_operator_nav(), add="+")
+
+    def _mark_operator_nav(self):
+        if not getattr(self, "operator_nav", None):
+            return
+        current = self.tabs.select()
+        for key, button in self.operator_nav.items():
+            on = current == str(getattr(self, f"{key}_tab"))
+            button.configure(bg=theme.SIDEBAR_ACTIVE if on else theme.SIDEBAR, fg="#ffffff" if on else theme.SIDEBAR_TEXT)
+
+    def _operator_mode(self, on):
+        """A theme with page headers: while locked, the operator's own screen instead of the sidebar and header."""
+        if getattr(self, "operator_bar", None) is None:
+            self._build_operator_bar()
+        station = self.cfg["station_name"] or tr("This station")
+        self.operator_title.configure(text=tr("{station} · operator view", station=station))
+        if on:
+            if self.sidebar is not None:
+                self.sidebar.pack_forget()
+            self.page_header.pack_forget()
+            if not self.operator_bar.winfo_manager():
+                self.operator_bar.pack(fill="x", before=self.header_sep)
+        else:
+            self.operator_bar.pack_forget()
+            if self.sidebar is not None and not self.sidebar.winfo_manager():
+                self.sidebar.pack(side="left", fill="y", before=self.content)
+            if not self.page_header.winfo_manager():
+                self.page_header.pack(fill="x", before=self.header_sep)
+        self._mark_operator_nav()
+
+    def _update_operator_status(self, text, running, idle):
+        """Called by _tick: the operator's copy of the state and the counters."""
+        if not self.operator_counts:
+            return
+        if self.operator_state.cget("text") != text:
+            self.operator_state.configure(text=text)
+        self.operator_start.configure(state="normal" if idle else "disabled")
+        self.operator_stop.configure(state="normal" if running else "disabled")
+        self.operator_once.configure(state="normal" if idle and not self.connected else "disabled")
+        snap = self.snapshot or {}
+        for key, label in self.operator_counts.items():
+            value = str(snap.get(key, 0))
+            if label.cget("text") != value:
+                label.configure(text=value)
 
     # ================================================================ setup password
     @property
@@ -53,6 +157,8 @@ class AccessMixin:
             label.configure(text=name.get().strip() or label.cget("text"))
         self.password_state.set(tr("Password is set") if self.protected else tr("No password"))
         self.remove_pw_btn.configure(state="normal" if self.protected else "disabled")
+        if self.L.page_headers:
+            self._operator_mode(locked)
         self.tabs.select(self._home_tab(locked))
         self._sync_sidebar()
         self._schedule_checklist()
