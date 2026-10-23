@@ -21,7 +21,7 @@ SECRETS_FILE = "secrets.json"     # the encrypted passwords and tokens, apart so
 
 MAX_SELECTIONS = 10
 MAX_MANUAL = 2
-FORMATS = ("json", "csv", "txt")
+FORMATS = ("json", "csv", "txt", "pdf")
 API_BODIES = ("raw", "multipart")
 COLOR_MODES = ("light", "dark", "system")
 FONT_SIZES = (90, 100, 115, 130)
@@ -35,7 +35,7 @@ DEFAULT_CONFIG = {
     "file_pattern": "*.csv",              # one or more, separated by ;  e.g. *.csv; *.json
     "priority_patterns": "",              # files that fit these (separated by ;) are processed first, in this order
     "backup_folder": "",                  # used source files are moved here (dated sub-folders)
-    "output_format": "json",              # json | csv | txt
+    "output_format": "json",              # json | csv | txt | pdf
     "selections": [{"name": "", "range": "", "header": True} for _ in range(MAX_SELECTIONS)],
     "manual_inputs": [{"name": "", "value": ""} for _ in range(MAX_MANUAL)],
     "shared_enabled": False,
@@ -191,8 +191,9 @@ def _v2_to_v3(raw):
 
 
 def _v3_to_v4(raw):
-    # 4 allows several file patterns ("*.csv; *.json") and adds priority_patterns. Nothing to convert, but an older
-    # program would read "*.csv; *.json" as one pattern that matches nothing, so it must not take this file.
+    # 4 allows several file patterns ("*.csv; *.json"), adds priority_patterns and the PDF output. Nothing to
+    # convert, but an older program would read "*.csv; *.json" as one pattern that matches nothing, and would
+    # quietly send JSON instead of PDF, so it must not take this file.
     return raw
 
 

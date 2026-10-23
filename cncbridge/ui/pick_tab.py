@@ -1,9 +1,10 @@
 """The Pick ranges & preview tab."""
+import os
 import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, messagebox, ttk
 
-from .. import engine, theme
+from .. import engine, pdf, theme
 from ..config import APP_NAME, FORMATS
 from ..grid import Grid
 from .common import PREVIEW_LIMIT
@@ -88,6 +89,8 @@ class PickTabMixin:
         self.preview.configure(yscrollcommand=ys.set, xscrollcommand=xs.set)
         xs.pack(side="bottom", fill="x")
         ys.pack(side="right", fill="y")
+        self.preview_pdf_btn = ttk.Button(right, text=tr("Save preview as PDF..."), command=self.save_preview_pdf)
+        self._preview_pdf = None  # the PDF of the preview, while the format is PDF
         self.preview.pack(fill="both", expand=True)
         self.preview.insert("1.0", tr("Your output preview will appear here.\n\nOpen a sample machine file to get started."))
         self.preview.configure(state="disabled")
@@ -255,6 +258,25 @@ class PickTabMixin:
         self.refresh_preview()
         self.status_msg.set(tr("Slot {slot} set to {range}. Press Save settings to keep it.", slot=self._slot() + 1, range=rng.get()))
 
+    def save_preview_pdf(self):
+        """Save the PDF of the preview where the user says, and open it."""
+        if not self._preview_pdf:
+            return
+        name = Path(self.sample_name or "preview").stem + "_preview.pdf"
+        path = filedialog.asksaveasfilename(parent=self, title=tr("Save preview as PDF"), initialfile=name,
+                                            defaultextension=".pdf", filetypes=[(tr("PDF files"), "*.pdf")])
+        if not path:
+            return
+        try:
+            Path(path).write_bytes(self._preview_pdf)
+        except OSError as e:
+            return messagebox.showerror(APP_NAME, tr("Cannot save {path}:\n{e}", path=path, e=e), parent=self)
+        self.status_msg.set(tr("Preview saved as {path}", path=path))
+        try:
+            os.startfile(path)  # in the PDF reader of this PC
+        except OSError:
+            pass
+
     def clear_slot(self):
         name, rng, _ = self.sel_vars[self._slot()]
         name.set(""), rng.set(""), self.pick_name.set("")
@@ -262,6 +284,7 @@ class PickTabMixin:
         self.refresh_preview()
 
     def refresh_preview(self):
+        self._preview_pdf = None
         cfg = self.collect()
         marks, note, text = [], "", tr("Your output preview will appear here.\n\nOpen a sample machine file to get started.")
         if self.sample_rows:
@@ -272,14 +295,23 @@ class PickTabMixin:
                 except ValueError:
                     pass
             try:
-                text, _, warnings = engine.build_output(self.sample_name, self.sample_rows, cfg)
+                text, blocks, warnings = engine.build_output(self.sample_name, self.sample_rows, cfg)
                 note = "\n".join(w[0].upper() + w[1:] for w in warnings)
+                if isinstance(text, bytes):  # a PDF: say what it holds; the button saves it to look at
+                    self._preview_pdf = text
+                    text = tr("PDF report: {pages} page(s), {blocks} selection(s), {size} KB.\n\n"
+                              "Press Save preview as PDF... to open it in your PDF reader.",
+                              pages=pdf.page_count(text), blocks=len(blocks), size=max(1, len(text) // 1024))
             except engine.FileError as e:
                 note = tr("With these ranges this file would be rejected: {e}.", e=e)
                 text = tr("Preview unavailable\n\n{note}\n\nChoose a range that contains data in the sample file.", note=note)
             except ValueError:
                 text = tr("No cell range yet.\n\nDrag over cells in the grid, choose a slot and press Assign.")
         self.grid_view.set_marks(marks)
+        if self._preview_pdf:
+            self.preview_pdf_btn.pack(anchor="w", pady=(0, 8), before=self.preview)
+        else:
+            self.preview_pdf_btn.pack_forget()
         self.preview_note.configure(text=note)
         if len(text) > PREVIEW_LIMIT:
             text = text[:PREVIEW_LIMIT] + tr("\n... (preview shortened)")

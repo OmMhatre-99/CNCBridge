@@ -31,7 +31,7 @@ to a back-up folder.
 On a new set-up the Setup tab starts with a short guide, "Getting started": four steps with a tick for each one that is done, and a button that takes you to the next. It goes away after the first start; View > Setup checklist shows it again.
 
 - Setup tab, box 1: choose the machine folder and a back-up folder. They must be different folders.
-- Setup tab, box 2: choose JSON, CSV or TXT.
+- Setup tab, box 2: choose JSON, CSV, TXT or PDF.
 - Setup tab, box 3: say what to extract. Type a range such as L1:M8, or press Pick... and drag over a real file.
 - Delivery tab: turn on the shared folder, the API link, the FTP server, or several, and press the Test buttons.
 - Press Save settings (Ctrl+S), then Start monitoring (F5).
@@ -212,7 +212,7 @@ or for a touch screen.
 ## Files and folders
 - Machine file: a CSV file the machine writes (a JSON file works too). Machine folder: where the machine writes them.
 - Back-up folder: where a machine file is moved once it is handled, with a folder for each day.
-- Output file: the JSON, CSV or TXT file CNCBridge makes from a machine file.
+- Output file: the JSON, CSV, TXT or PDF file CNCBridge makes from a machine file.
 - Data folder: the settings, the history, the send queue, the refused files and the logs of this copy.
 
 ## Where output files go

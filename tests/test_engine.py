@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
-from cncbridge import alerts, config, engine  # noqa: E402
+from cncbridge import alerts, config, engine, pdf  # noqa: E402
 
 alerts.SENDERS["notify"] = lambda *a, **k: None  # no Windows notifications on screen during tests
 
@@ -274,6 +274,68 @@ class SmarterPicking(unittest.TestCase):
                           ("[NOZZLE_STATS]", "A42:D46", 4), ("[ERRORS]", "A49:D50", 1)])
         self.assertEqual(tables[3]["columns"], ["Nozzle", "Picks", "Errors", "Error_Rate_pct"])
         self.assertEqual(engine.find_tables(engine.read_rows(b"a,b\n1,2\n")), [])  # no title, no table
+
+
+class PdfOutput(unittest.TestCase):
+    """The PDF report: standard library only, built-in fonts, tables over several pages."""
+
+    def setUp(self):
+        self.rows = engine.read_rows(SAMPLE)
+
+    def build(self, *selections, **settings):
+        cfg = config.normalize_config(dict(settings, output_format="pdf", selections=list(selections)))
+        return engine.build_output("board.csv", self.rows, cfg)[0]
+
+    def test_a_pdf_is_a_well_formed_file(self):
+        data = self.build(sel("B6", "Serial"), sel("A12:I*", "Placements"), station_name="Line 7")
+        self.assertIsInstance(data, bytes)
+        self.assertTrue(data.startswith(b"%PDF-1.4"))
+        self.assertTrue(data.rstrip().endswith(b"%%EOF"))
+        start = int(data.rsplit(b"startxref", 1)[1].split()[0])
+        self.assertEqual(data[start:start + 4], b"xref")  # the reader finds its table of contents
+        self.assertIn(b"/BaseFont /Helvetica", data)
+        self.assertIn(b"/Producer (CNCBridge " + config.VERSION.encode() + b")", data)
+        self.assertEqual(pdf.page_count(data), 1)
+
+    def test_a_long_table_continues_on_more_pages(self):
+        lines = ["[DATA]", "Ref,Result"] + [f"R{i},OK" for i in range(200)]
+        rows = engine.read_rows("\n".join(lines).encode())
+        cfg = config.normalize_config({"output_format": "pdf", "selections": [sel("@[DATA]")]})
+        data = engine.build_output("long.csv", rows, cfg)[0]
+        self.assertGreaterEqual(pdf.page_count(data), 5)
+        self.assertIn(("Page 1 of %d" % pdf.page_count(data)).encode("cp1252").hex().upper().encode(), data)
+
+    def test_a_wide_table_is_printed_in_groups_of_columns(self):
+        columns = [f"Column_{i}" for i in range(30)]
+        groups = pdf._groups(columns, [[f"value {i}" for i in range(30)]])
+        self.assertGreater(len(groups), 1)
+        self.assertEqual(sum(len(cols) for cols, _ in groups), 30)
+        for _, widths in groups:
+            self.assertLessEqual(sum(widths), pdf.USABLE + 0.01)
+
+    def test_text_outside_the_built_in_fonts_does_not_stop_it(self):
+        data = self.build(sel("B6"), manual_inputs=[{"name": "Operator", "value": "山田 – Süd"}])
+        self.assertTrue(data.startswith(b"%PDF"))
+        self.assertEqual(pdf._text("山田 – Süd"), "?? – Süd")
+        self.assertTrue(pdf._fit("x" * 500, 60, 8).endswith("…"))
+
+    def test_a_pdf_goes_out_like_any_other_output(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        api = Receiver()
+        self.addCleanup(api.close)
+        (tmp / "machine").mkdir()
+        shutil.copy(SAMPLE, tmp / "machine" / "board.csv")
+        eng = engine.Engine({"source_folder": str(tmp / "machine"), "backup_folder": str(tmp / "backup"),
+                             "output_format": "pdf", "selections": [sel("A12:I*")], "stable_seconds": 0,
+                             "shared_enabled": True, "shared_folder": str(tmp / "shared"),
+                             "api_enabled": True, "api_url": api.url}, tmp / "data")
+        self.assertEqual(eng.scan_once(), 1)
+        out = list((tmp / "shared").glob("board_*.pdf"))
+        self.assertEqual(len(out), 1)
+        self.assertTrue(out[0].read_bytes().startswith(b"%PDF"))
+        self.assertEqual(api.got[0]["headers"]["Content-Type"], "application/pdf")
+        self.assertEqual(api.got[0]["body"], out[0].read_bytes())
 
 
 class OutputSwitches(unittest.TestCase):

@@ -1,7 +1,7 @@
 # CNCBridge
 
 Takes the CSV file an assembly machine writes for every board, cuts out the cell ranges you
-choose, adds two operator-entered values, and delivers the result as JSON, CSV or TXT to a
+choose, adds two operator-entered values, and delivers the result as JSON, CSV, TXT or a PDF report to a
 shared folder and/or an API link. The used machine file is then moved to a back-up folder.
 
 It is a native Windows program (`CNCBridge.exe`, about 12 MB). Nothing else has to be
@@ -41,7 +41,7 @@ installed on the machine PC and it needs no internet connection.
    In the picker, tick **Find by heading** before marking a cell: the range becomes `@` plus the text of that cell. A heading range also reports where it was found (`cells`, for example `A49:D50`) in the output. If the heading is missing from a file, that selection is empty and CNCBridge warns about it; a file where every selection is empty is set aside as failed.
 4. Adds the **2 typed values** (for example Operator and Work order) plus the source file
    name, time and station name.
-5. Writes one output file in the chosen format: **JSON, CSV or TXT**.
+5. Writes one output file in the chosen format: **JSON, CSV, TXT or PDF**.
 6. Delivers it to the **shared folder**, to the **API link**, or to both.
 7. Moves the machine file to `back-up\YYYY-MM-DD\`, so the machine folder only ever holds new files.
 
@@ -109,7 +109,7 @@ folder.
 **Setup tab**
 
 1. *Folders*: the machine folder and the back-up folder. They must be different folders.
-2. *Output format*: JSON, CSV or TXT.
+2. *Output format*: JSON, CSV, TXT or PDF.
 3. *Data to extract*: type the ranges, or press **Pick...**, which opens a real machine file
    as a grid with column letters and row numbers. Drag over the cells, choose the slot, give
    it a name, press **Assign**. The right-hand side shows the exact file that will be produced.
@@ -142,7 +142,7 @@ The window, Help (**Help > Words used in CNCBridge**), the messages and this gui
 |---|---|
 | **Machine file** | a CSV file the machine writes. The **machine folder** is where it writes them. |
 | **Back-up folder** | where a machine file is moved once it is handled, with a folder for each day. |
-| **Output file** | the JSON, CSV or TXT file made from a machine file. |
+| **Output file** | the JSON, CSV, TXT or PDF file made from a machine file. |
 | **Destination** | where an output file is sent: the **shared folder**, the **API link** or the **FTP server**. |
 | **Typed values** | the two name and value pairs (for example Operator and Work order) written into every file. The engineer chooses the names, the operator changes the values. |
 | **Done** | counter: machine files that were read and handled. |
@@ -195,7 +195,7 @@ show their keyboard shortcut:
 
 ## Output files
 
-Named `<machine file name>_<date>_<time>.<json|csv|txt>`.
+Named `<machine file name>_<date>_<time>.<json|csv|txt|pdf>`.
 
 JSON:
 
@@ -223,7 +223,17 @@ then for each range a line `[name],range` followed by its rows.
 
 TXT: the same content as an aligned, readable report.
 
-All output is UTF-8. While a file is being copied into the shared folder it has a temporary
+PDF: a printable report on A4 landscape pages: the file, time, station and typed values at the top,
+then each range as `name: value` or as a table with its column names repeated on every page. A table
+too wide for the page is printed in groups of columns; a cell too long for its column is cut short
+with `...`. It is made with the standard library only and uses the PDF readers' built-in Helvetica,
+so nothing is embedded and the files stay small. That font covers the Windows Western code page:
+other characters (Japanese, Chinese, Cyrillic...) print as `?`, so choose JSON, CSV or TXT for such
+data. The API receives it as `application/pdf`; check that the receiver accepts PDF before choosing it.
+On **Pick ranges & preview** the preview then says how many pages the report has, and
+**Save preview as PDF...** saves it and opens it in the PDF reader.
+
+All text output is UTF-8. While a file is being copied into the shared folder it has a temporary
 name starting with `.` and ending in `.part`; it gets its real name only when complete.
 
 ### Output switches

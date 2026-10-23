@@ -16,6 +16,7 @@ import time
 import traceback
 import types
 import unittest
+from unittest import mock
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, font as tkfont, messagebox
@@ -220,6 +221,30 @@ class RangePicker(WindowTest):
             self.assertIn('"Board serial"', preview)
             self.assertIn('"value": "B240001"', preview)
             self.assertEqual([r.get() for _, r, _ in w.sel_vars[:2]], ["A12:I*", "B6"])
+        self.run_steps(steps)
+
+    def test_the_pdf_preview_says_what_the_report_holds_and_can_be_saved(self):
+        w = self.window
+        saved = self.tmp / "preview.pdf"
+
+        def steps():
+            self.assertIn("output_format_pdf", w.field_widgets)  # the fourth format on the Setup tab
+            self.assertTrue(w.open_sample(SAMPLE))
+            w.sel_vars[0][1].set("A12:I*")
+            w.v["output_format"].set("pdf")
+            w.refresh_preview()
+            yield 100
+            self.assertTrue(w.preview.get("1.0", "end").startswith("PDF report: 1 page(s), 1 selection(s)"))
+            self.assertTrue(w.preview_pdf_btn.winfo_manager())
+            with mock.patch.object(filedialog, "asksaveasfilename", return_value=str(saved)), \
+                    mock.patch("os.startfile", create=True) as opened:
+                w.save_preview_pdf()
+            self.assertTrue(saved.read_bytes().startswith(b"%PDF"))
+            opened.assert_called_once_with(str(saved))
+            w.v["output_format"].set("json")
+            w.refresh_preview()
+            self.assertFalse(w.preview_pdf_btn.winfo_manager())
+            self.assertIsNone(w._preview_pdf)
         self.run_steps(steps)
 
     def test_a_table_from_the_list_is_marked_and_assigned_by_its_title(self):

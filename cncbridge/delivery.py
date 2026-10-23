@@ -20,7 +20,7 @@ class Rejected(Exception):
     """The receiver refused this particular file; it is moved to data/rejected."""
 
 
-CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "txt": "text/plain"}
+CONTENT_TYPES = {"json": "application/json", "csv": "text/csv", "txt": "text/plain", "pdf": "application/pdf"}
 
 
 # The receiver looked at this file and refused it; sending the same bytes again cannot succeed.

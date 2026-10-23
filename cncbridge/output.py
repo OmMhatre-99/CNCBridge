@@ -1,4 +1,4 @@
-"""From cut-out ranges to the JSON / CSV / TXT text, and the check that the settings are complete."""
+"""From cut-out ranges to the JSON / CSV / TXT text or the PDF report, and the check that the settings are complete."""
 
 import codecs
 import csv
@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from .config import APP_NAME, VERSION
 from .csvread import (FileError, check_range, extract_all, is_heading, normalize_range as normalize_cells,
                       parse_range, parse_renames, split_columns)
 
@@ -65,7 +66,7 @@ def _flat_csv(info, manual, blocks):
 
 def render(fmt, meta, blocks, numbers=False, flat=False):
     """
-    Return the output document as text.
+    Return the output document as text, or as bytes for PDF.
     numbers: JSON only, write cells that are numbers as numbers.
     flat: CSV only, one plain table with a row per record instead of one block per selection.
     """
@@ -124,6 +125,10 @@ def render(fmt, meta, blocks, numbers=False, flat=False):
                 text.insert(1, "-+-".join("-" * w for w in widths))
             lines += text
         return "\r\n".join(lines) + "\r\n"
+
+    if fmt == "pdf":
+        from .pdf import render_pdf
+        return render_pdf(meta, blocks, producer=f"{APP_NAME} {VERSION}")
 
     raise ValueError(f"Unsupported format: {fmt}")
 

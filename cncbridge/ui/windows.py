@@ -165,4 +165,4 @@ class WindowsMixin:
     def about(self):
         messagebox.showinfo(
             tr("About {APP_NAME}", APP_NAME=APP_NAME),
-            tr("{APP_NAME} {VERSION}\n\nTakes the CSV file an assembly machine writes for every board, cuts out the cell ranges you choose, and delivers the result as JSON, CSV or TXT to a shared folder and/or an API link.\n\nData folder:\n{v2}\n\nThe bundled fonts Roboto and Roboto Mono are used under the SIL Open Font License.", APP_NAME=APP_NAME, VERSION=VERSION, v2=self.data_dir), parent=self)
+            tr("{APP_NAME} {VERSION}\n\nTakes the CSV file an assembly machine writes for every board, cuts out the cell ranges you choose, and delivers the result as JSON, CSV, TXT or PDF to a shared folder, an API link and/or an FTP server.\n\nData folder:\n{v2}\n\nThe bundled fonts Roboto, Roboto Mono, IBM Plex Sans and IBM Plex Mono are used under the SIL Open Font License.", APP_NAME=APP_NAME, VERSION=VERSION, v2=self.data_dir), parent=self)
