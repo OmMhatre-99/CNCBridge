@@ -610,6 +610,13 @@ program's own message and since when. Its button leads to where to look: the His
 that is not answering, Setup for incomplete settings, Delivery for the heartbeat, otherwise the
 Activity log.
 
+The controls follow the design as well: the destinations are turned on and off with **switches**, the
+output format is one **segmented** row (JSON | CSV | TXT | PDF), the API link's rarely needed settings
+(send as, extra headers) sit behind **More**, which opens by itself when something is set in it, and each
+folder field says under it whether the folder is there (for the machine folder: how many files wait in
+it; a network folder is left to its Test button, since it can take seconds to answer). On the Monitor,
+results and destinations are coloured **chips**; double-click a line to see its output.
+
 The **Monitor** page is where the counters and the health line now live, so the other pages are free of
 them: the five counters (each says what it counts), the last file, the age of the send queue and the
 back-up drive, the latest files with where each went (Shared folder ✓, API link waiting...), one line per
@@ -621,11 +628,11 @@ be registered, Segoe UI and Cascadia Mono or Consolas. It has a designed dark pa
 the cards and on the page reaches the 4.5 : 1 contrast that is readable at a glance (a test checks it).
 
 For developers, a theme asks for these things in its `Layout`: `sidebar=True` (a sidebar, the tab strip
-hidden), `monitor_page=True` (the Monitor page and its View menu entry) and `cards=True` (the plain widgets
+hidden), `monitor_page=True` (the Monitor page and its View menu entry), `chips=True` (switches, segmented
+choice, More, folder checks and chips, see `ui/widgets.py`) and `cards=True` (the plain widgets
 inside a box take the card's colour and each box gets a card edge, see `ui/cards.py`), `page_headers=True`
 (the header bar and the plain-words banner instead of the toolbar and the red alert line, see
-`ui/pageheader.py` and `messages.py`), `chips=True` (reserved for the chips, switches and segmented controls
-that follow), and names the five `SIDEBAR_*` colours. The other
+`ui/pageheader.py` and `messages.py`), and names the five `SIDEBAR_*` colours. The other
 themes leave all three off and look exactly as before.
 
 Adding a theme (for developers): in `cncbridge/theme.py` write a `Theme` with a value for every name in

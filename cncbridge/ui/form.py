@@ -50,6 +50,7 @@ class FormMixin:
         self.background_on = tk.BooleanVar(self, background.task_exists(self.data_dir))
 
         self.field_widgets = {}
+        self.folder_notes = {}  # a theme with chips: the line under each folder field
 
     def fill(self, cfg):
         numbers = ("poll_seconds", "alert_after_minutes", "alert_email_port", "keep_backup_days",
@@ -67,6 +68,8 @@ class FormMixin:
             name.set(m["name"]), value.set(m["value"])
         self.headers_text.delete("1.0", "end")
         self.headers_text.insert("1.0", cfg["api_headers"])
+        if getattr(self, "api_more", None) and (cfg["api_headers"] or cfg["api_body"] != "raw"):
+            self.api_more.open()  # something is set in it: do not hide it
         self.rename_text.delete("1.0", "end")
         self.rename_text.insert("1.0", cfg["rename_columns"])
         self._set_text(self.accounts_text, cfg["password_accounts"])

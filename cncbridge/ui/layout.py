@@ -4,8 +4,10 @@ import tkinter as tk
 from pathlib import Path
 from tkinter import filedialog, ttk
 
-from .. import theme
+from .. import engine, theme
+from ..config import FORMATS
 from ..i18n import tr
+from .widgets import Segmented, Switch
 
 
 class LayoutMixin:
@@ -202,14 +204,79 @@ class LayoutMixin:
         self.after_idle(resize)
 
     def _folder_row(self, parent, row, label, key):
-        ttk.Label(parent, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="w", pady=self.L.row)
-        entry = ttk.Entry(parent, textvariable=self.v[key])
-        entry.grid(row=row, column=1, sticky="ew", padx=8, pady=self.L.row)
+        ttk.Label(parent, text=label, style="Card.TLabel").grid(row=row, column=0, sticky="nw" if self.L.chips else "w",
+                                                                pady=self.L.row)
+        if self.L.chips:  # a line under the field says whether the folder is there (see _check_folders)
+            cell = ttk.Frame(parent)
+            cell.grid(row=row, column=1, sticky="ew", padx=8, pady=self.L.row)
+            entry = ttk.Entry(cell, textvariable=self.v[key])
+            entry.pack(fill="x")
+            self.folder_notes[key] = ttk.Label(cell, text="", style="CardSmall.TLabel")
+            self.folder_notes[key].pack(anchor="w", fill="x", pady=(self.px(3), 0))
+            self._fit_wrap(self.folder_notes[key], self.px(420))
+            self.v[key].trace_add("write", lambda *_: self._schedule_folder_check())
+        else:
+            entry = ttk.Entry(parent, textvariable=self.v[key])
+            entry.grid(row=row, column=1, sticky="ew", padx=8, pady=self.L.row)
         self.field_widgets[key] = entry
         browse = ttk.Button(parent, text=tr("Browse..."), width=9,
                             command=lambda: self._browse(self.v[key]))
-        browse.grid(row=row, column=2, padx=(2, 0), pady=self.L.row)
+        browse.grid(row=row, column=2, padx=(2, 0), pady=self.L.row, sticky="n" if self.L.chips else "")
         self.field_widgets[f"{key}_browse"] = browse
+
+    # ---------------------------------------------------------------- controls of a theme with chips
+    def _toggle(self, parent, key, text):
+        """A setting that is on or off: a switch in a theme with chips, a check box otherwise."""
+        if self.L.chips:
+            return Switch(parent, self.b[key], text, bg=theme.SURFACE, px=self.px,
+                          font=ttk.Style(self).lookup("TCheckbutton", "font") or None)
+        return ttk.Checkbutton(parent, text=text, variable=self.b[key])
+
+    def _format_choice(self, parent, command=None, register=True):
+        """JSON | CSV | TXT | PDF as one segmented control (a theme with chips), or as radio buttons."""
+        if self.L.chips:
+            choice = Segmented(parent, self.v["output_format"], [(f, f.upper()) for f in FORMATS], command=command,
+                               font=ttk.Style(self).lookup("TButton", "font") or None)
+            if register:
+                for fmt, segment in choice.segments.items():
+                    self.field_widgets[f"output_format_{fmt}"] = segment
+            return choice
+        return None
+
+    def _schedule_folder_check(self):
+        if getattr(self, "_folder_job", None):
+            self.after_cancel(self._folder_job)
+        self._folder_job = self.after(400, self._check_folders)
+
+    def _check_folders(self):
+        """The line under each folder: found (and how many machine files wait in it), will be created, not found."""
+        self._folder_job = None
+        if not self.folder_notes:
+            return
+        source, backup = self.v["source_folder"].get().strip(), self.v["backup_folder"].get().strip()
+        for key, note in self.folder_notes.items():
+            folder = self.v[key].get().strip()
+            text, colour = "", theme.MUTED
+            if not folder:
+                pass
+            elif folder.startswith(("\\\\", "//")):  # a network folder can take seconds to answer: not here
+                text = tr("A network folder: use its Test button to check it.") if key == "shared_folder" else \
+                    tr("A network folder: it is checked when monitoring starts.")
+            elif key == "backup_folder" and source and engine._same_folder(source, folder):
+                text, colour = tr("Must be a different folder from the machine folder."), theme.ERROR
+            elif Path(folder).is_dir():
+                if key == "source_folder":
+                    n = len(engine.machine_files(folder, self.v["file_pattern"].get()))
+                    text = tr("Found. {n} file(s) waiting.", n=n) if n else tr("Found. Nothing waiting.")
+                else:
+                    text = tr("Found.")
+                colour = theme.SUCCESS
+            elif key == "source_folder":
+                text, colour = tr("Folder not found."), theme.ERROR
+            else:
+                text = tr("Not there yet; made with the first file.")
+            if note.cget("text") != text:
+                note.configure(text=text, foreground=colour)
 
     def _browse(self, var):
         start = var.get() if Path(var.get() or "?").is_dir() else None

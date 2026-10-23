@@ -4,6 +4,7 @@ from tkinter import ttk
 
 from .. import theme
 from ..config import FORMATS, MAX_SELECTIONS
+from .widgets import Disclosure
 from .common import BODY_LABELS
 from ..i18n import tr
 
@@ -36,6 +37,8 @@ class SetupTabMixin:
                                   **self.code_font)
         pattern_entry.grid(row=2, column=1, sticky="w", padx=8, pady=self.L.row)
         self.field_widgets["file_pattern"] = pattern_entry
+        if self.L.chips:
+            self.v["file_pattern"].trace_add("write", lambda *_: self._schedule_folder_check())
         self._folder_row(box, 3, tr("Back-up folder"), "backup_folder")
         folder_help = ttk.Label(box, style="Small.TLabel", wraplength=self.px(470), justify="left",
                                 text=tr("Each file is taken from the machine folder as soon as the machine has finished writing it. "
@@ -47,7 +50,10 @@ class SetupTabMixin:
         box.pack(fill="x", pady=(self.L.box_gap, 0))
         formats = ttk.Frame(box)
         formats.pack(fill="x")
-        for fmt in FORMATS:
+        segmented = self._format_choice(formats)
+        if segmented:
+            segmented.pack(side="left", pady=2)
+        for fmt in FORMATS if not segmented else ():
             choice = ttk.Radiobutton(formats, text=fmt.upper(), value=fmt, variable=self.v["output_format"])
             choice.pack(side="left", padx=(0, 28), pady=2)
             self.field_widgets[f"output_format_{fmt}"] = choice
@@ -116,8 +122,7 @@ class SetupTabMixin:
         box = ttk.LabelFrame(left, text=tr(" 5  Shared folder "), padding=self.L.box_pad)
         box.pack(fill="x")
         box.columnconfigure(1, weight=1)
-        shared_chk = ttk.Checkbutton(box, text=tr("Save every output file into a shared folder"),
-                                     variable=self.b["shared_enabled"])
+        shared_chk = self._toggle(box, "shared_enabled", tr("Save every output file into a shared folder"))
         shared_chk.grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 5))
         self.field_widgets["shared_enabled"] = shared_chk
         self._folder_row(box, 1, tr("Folder / UNC path"), "shared_folder")
@@ -128,8 +133,7 @@ class SetupTabMixin:
         box = ttk.LabelFrame(left, text=tr(" 7  FTP server "), padding=self.L.box_pad)
         box.pack(fill="x", pady=(self.L.box_gap, 0))
         box.columnconfigure(1, weight=1)
-        ftp_enabled = ttk.Checkbutton(box, text=tr("Upload every output file to an FTP server"),
-                                      variable=self.b["ftp_enabled"])
+        ftp_enabled = self._toggle(box, "ftp_enabled", tr("Upload every output file to an FTP server"))
         ftp_enabled.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
         self.field_widgets["ftp_enabled"] = ftp_enabled
         for row, (label, key, options) in enumerate(((tr("Server"), "ftp_host", {}),
@@ -165,8 +169,7 @@ class SetupTabMixin:
         box = ttk.LabelFrame(right, text=tr(" 6  API link "), padding=self.L.box_pad)
         box.pack(fill="both", expand=True)
         box.columnconfigure(1, weight=1)
-        api_enabled = ttk.Checkbutton(box, text=tr("Send every output file to the end user's site"),
-                                      variable=self.b["api_enabled"])
+        api_enabled = self._toggle(box, "api_enabled", tr("Send every output file to the end user's site"))
         api_enabled.grid(row=0, column=0, columnspan=2, sticky="w", pady=(0, 5))
         self.field_widgets["api_enabled"] = api_enabled
         ttk.Label(box, text=tr("API link (URL)"), style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=self.L.row)
@@ -177,22 +180,31 @@ class SetupTabMixin:
         api_token = ttk.Entry(box, textvariable=self.v["api_token"], show="●")
         api_token.grid(row=2, column=1, sticky="ew", padx=(8, 0), pady=self.L.row)
         self.field_widgets["api_token"] = api_token
-        ttk.Label(box, text=tr("Send as"), style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=self.L.row)
-        api_body = ttk.Combobox(box, textvariable=self.v["api_body"], values=list(BODY_LABELS.values()),
+        extras, first = box, 3
+        if self.L.chips:  # rarely needed: closed until asked for, or until something is in it (see fill)
+            self.api_more = Disclosure(box, tr("More: send as, extra headers"), font=(self._font_body, 10))
+            self.api_more.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(self.px(6), 0))
+            extras, first = self.api_more.body, 0
+            extras.columnconfigure(1, weight=1)
+            self.field_widgets["api_more"] = self.api_more.header
+        ttk.Label(extras, text=tr("Send as"), style="Card.TLabel").grid(row=first, column=0, sticky="w", pady=self.L.row)
+        api_body = ttk.Combobox(extras, textvariable=self.v["api_body"], values=list(BODY_LABELS.values()),
                                 state="readonly", width=26)
-        api_body.grid(row=3, column=1, sticky="w", padx=(8, 0), pady=self.L.row)
+        api_body.grid(row=first, column=1, sticky="w", padx=(8, 0), pady=self.L.row)
         self.field_widgets["api_body"] = api_body
-        ttk.Label(box, text=tr("Extra headers"), style="Card.TLabel").grid(row=4, column=0, sticky="nw", pady=self.L.row)
-        self.headers_text = tk.Text(box, height=4, width=30, font=(self._font_mono, self.L.text_mono), relief="solid", borderwidth=1,
+        ttk.Label(extras, text=tr("Extra headers"), style="Card.TLabel").grid(row=first + 1, column=0, sticky="nw",
+                                                                              pady=self.L.row)
+        self.headers_text = tk.Text(extras, height=4, width=30, font=(self._font_mono, self.L.text_mono), relief="solid", borderwidth=1,
                                     background=theme.SURFACE, foreground=theme.TEXT, insertbackground=theme.TEXT,
                                     highlightthickness=1, highlightbackground=theme.BORDER, highlightcolor=theme.ACCENT,
                                     padx=7, pady=5, wrap="word", undo=True)
-        self.headers_text.grid(row=4, column=1, sticky="ew", padx=(8, 0), pady=self.L.row)
+        self.headers_text.grid(row=first + 1, column=1, sticky="ew", padx=(8, 0), pady=self.L.row)
         self.field_widgets["api_headers"] = self.headers_text
-        ttk.Label(box, style="CardSmall.TLabel", wraplength=self.px(420), justify="left",
+        ttk.Label(extras, style="CardSmall.TLabel", wraplength=self.px(420), justify="left",
                   text=tr("One per line, for example  X-Api-Key: abc123. The token is sent as "
-                       "Authorization: Bearer <token> and is stored encrypted.")).grid(row=5, column=1, sticky="w",
-                                                                                      padx=(8, 0), pady=(0, 3))
+                       "Authorization: Bearer <token> and is stored encrypted.")).grid(row=first + 2, column=1,
+                                                                                      sticky="w", padx=(8, 0),
+                                                                                      pady=(0, 3))
         test_api = ttk.Button(box, text=tr("Test API link"), command=self.test_api)
         test_api.grid(row=6, column=1, sticky="w", padx=8, pady=(7, 2))
         self.field_widgets["test_api"] = test_api

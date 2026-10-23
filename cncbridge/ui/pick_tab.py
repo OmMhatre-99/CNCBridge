@@ -27,7 +27,10 @@ class PickTabMixin:
         self.sample_label = ttk.Label(top, text=tr("No sample file open"), style="PageHint.TLabel",
                                       **self.code_font)
         self.sample_label.pack(side="left", padx=12)
-        for fmt in reversed(FORMATS):
+        segmented = self._format_choice(top, command=self.refresh_preview, register=False)
+        if segmented:
+            segmented.pack(side="right", padx=(10, 0))
+        for fmt in reversed(FORMATS) if not segmented else ():
             ttk.Radiobutton(top, text=fmt.upper(), value=fmt, variable=self.v["output_format"],
                             command=self.refresh_preview).pack(side="right", padx=(10, 0))
         ttk.Label(top, text=tr("Output preview as")).pack(side="right")

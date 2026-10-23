@@ -31,7 +31,7 @@ if os.environ.get("CNCBRIDGE_WINDOW_TESTS") != "1":
 os.environ["CNCBRIDGE_NO_EVENTLOG"] = "1"  # the background process some tests start must not write to this PC's real Event Log
 from cncbridge import alerts, app, audit, config, engine, firstrun, i18n, permissions, shifts, stations  # noqa: E402
 from cncbridge.ui import access as access_ui  # noqa: E402
-from cncbridge.ui import cards, icons  # noqa: E402
+from cncbridge.ui import cards, icons, widgets  # noqa: E402
 from cncbridge import theme  # noqa: E402
 import tkinter as tk  # noqa: E402
 from tkinter import ttk  # noqa: E402
@@ -2421,16 +2421,22 @@ class DashboardWindow(WindowTest):
                          shared=shared, api=api, ftp="off", message="")
 
         def steps():
-            yield lambda: w.counts["ok"].cget("text") == "2" and w.recent_tree.get_children()
+            yield lambda: w.counts["ok"].cget("text") == "2" and w.recent_shown
             self.assertEqual([w.counts[k].cget("text") for k in ("ok", "waiting", "queued", "failed", "rejected")],
                              ["2", "0", "3", "1", "0"])
-            values = [w.recent_tree.item(i, "values") for i in w.recent_tree.get_children()]
+            values = [texts for _, texts in w.recent_shown]
             self.assertEqual([v[1] for v in values], ["b10.csv", "b8.csv", "b7.csv", "b6.csv"])  # newest first
             self.assertEqual(values[0], ("10:12:31", "b10.csv", "Done", "Shared folder ✓ · API link waiting"))
             self.assertEqual(values[1][2], "Could not be read")
             self.assertEqual(values[2][2], "Duplicate")
             self.assertEqual(values[3][3], "Shared folder ✓ · API link ✓")
             self.assertEqual(w.recent_empty.winfo_manager(), "")  # there is something to show
+            result, places = w.recent_lines[0][2], w.recent_lines[0][4]
+            self.assertEqual((result.text, result.kind), ("Done", "ok"))  # as chips
+            self.assertEqual([(c.text, c.kind) for c in places if c.winfo_manager()],
+                             [("Shared folder ✓", "ok"), ("API link waiting", "warn")])
+            self.assertEqual(w.recent_lines[1][2].kind, "error")  # Could not be read
+            self.assertFalse(w.recent_lines[5][0].winfo_manager())  # only four files: the other lines are hidden
             self.assertEqual(w.destination_rows["shared"][1].cget("text"), "Delivered · last at 10:12")
             self.assertEqual(w.destination_rows["api"][1].cget("text"), "3 waiting to be sent")
             self.assertEqual(w.destination_rows["ftp"][1].cget("text"), "Off")
@@ -2439,6 +2445,64 @@ class DashboardWindow(WindowTest):
             self.assertEqual([(a.get(), b.get()) for a, b in w.monitor_values],
                              [("Operator", "OP-17"), ("Work order", "WO-1187")])
             self.assertIn("Last file 10:12", w.health_labels["last"].cget("text"))
+        self.run_steps(steps)
+
+    def test_switches_segments_and_more_work_like_the_controls_they_replace(self):
+        w = self.window
+
+        def steps():
+            switch = w.field_widgets["api_enabled"]
+            self.assertIsInstance(switch, widgets.Switch)
+            self.assertTrue(w.b["api_enabled"].get())
+            switch.invoke()
+            self.assertFalse(w.b["api_enabled"].get())
+            switch.event_generate("<space>")  # the keyboard too
+            switch.focus_force()
+            switch.event_generate("<space>")
+            w.update()
+            switch.configure(state="disabled")
+            self.assertEqual(switch.cget("state"), "disabled")
+            before = w.b["api_enabled"].get()
+            switch.invoke()  # a switched-off switch does nothing
+            self.assertEqual(w.b["api_enabled"].get(), before)
+            switch.configure(state="normal")
+
+            self.assertIsInstance(w.field_widgets["output_format_pdf"], widgets.Segment)
+            w.field_widgets["output_format_pdf"].invoke()
+            self.assertEqual(w.v["output_format"].get(), "pdf")
+            segmented = w.field_widgets["output_format_pdf"].owner
+            segmented._step(1)  # Right from the last goes round to the first
+            self.assertEqual(w.v["output_format"].get(), "json")
+
+            self.assertFalse(w.api_more.opened)  # nothing set in it: closed
+            self.assertEqual(w.field_widgets["api_body"].winfo_ismapped(), 0)
+            w.api_more.toggle()
+            self.assertTrue(w.api_more.opened)
+            w.api_more.toggle()
+            w.fill(dict(w.cfg, api_headers="X-Key: 1"))  # something in it: opened, never hidden
+            self.assertTrue(w.api_more.opened)
+            yield 50
+        self.run_steps(steps)
+
+    def test_folder_fields_say_whether_the_folder_is_there(self):
+        w = self.window
+        for name in ("a.csv", "b.csv"):
+            self.drop(name, name)
+
+        def steps():
+            w._check_folders()
+            self.assertEqual(w.folder_notes["source_folder"].cget("text"), "Found. 2 file(s) waiting.")
+            self.assertEqual(w.folder_notes["backup_folder"].cget("text"), "Found.")
+            w.v["source_folder"].set(str(self.tmp / "nowhere"))
+            w.v["shared_folder"].set(r"\\MES-SERVER\inbox")
+            w._check_folders()
+            self.assertEqual(w.folder_notes["source_folder"].cget("text"), "Folder not found.")
+            self.assertEqual(str(w.folder_notes["source_folder"].cget("foreground")), theme.ERROR)
+            self.assertIn("network folder", w.folder_notes["shared_folder"].cget("text"))  # not looked at here
+            w.v["backup_folder"].set(str(self.tmp / "nowhere"))
+            w._check_folders()
+            self.assertIn("different folder", w.folder_notes["backup_folder"].cget("text"))
+            yield 50
         self.run_steps(steps)
 
     def test_a_recent_file_on_the_monitor_opens_its_output(self):
@@ -2451,9 +2515,9 @@ class DashboardWindow(WindowTest):
                      shared="ok", api="off", ftp="off", message="")
 
         def steps():
-            yield lambda: w.recent_tree.get_children()
-            w.recent_tree.focus(w.recent_tree.get_children()[0])
-            w._view_recent()
+            yield lambda: w.recent_shown
+            self.assertTrue(w.recent_lines[0][1].bind("<Double-1>"))  # a double-click on the line opens it
+            w._view_recent(0)
             yield lambda: getattr(w, "output_win", None) is not None and w.output_win.state() == "normal"
             self.assertEqual(w.output_tree.item(w.output_tree.get_children()[0], "values")[0], "B6-SERIAL")
         self.run_steps(steps)
@@ -2731,6 +2795,9 @@ class OtherThemesHaveNoSidebar(WindowTest):
             self.assertNotEqual([e[0] for e in ttk.Style(w).layout("TNotebook.Tab")], ["null"])  # its tab strip is there
             self.assertFalse(hasattr(w, "page_header"))  # the toolbar, as before
             self.assertEqual(w.save_buttons, [w.save_btn])
+            self.assertIsInstance(w.field_widgets["api_enabled"], ttk.Checkbutton)  # no switches, no chips
+            self.assertIsInstance(w.field_widgets["output_format_pdf"], ttk.Radiobutton)
+            self.assertEqual(w.folder_notes, {})
             self.assertTrue(w.start_btn.winfo_manager() and w.stop_btn.winfo_manager())
             yield 100
         self.run_steps(steps)

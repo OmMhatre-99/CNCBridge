@@ -1,9 +1,10 @@
 """The Monitor page of a theme that has one: how it is going, at a glance."""
 import tkinter as tk
-from tkinter import font as tkfont, ttk
+from tkinter import ttk
 
 from .. import engine, theme
 from ..i18n import N_, tr
+from .widgets import Chip
 
 
 class MonitorMixin:
@@ -54,35 +55,35 @@ class MonitorMixin:
         self._build_typed_values(side).pack(fill="x", pady=(gap, 0))
         self._monitor_history, self._monitor_destinations = None, None
 
-    def _view_recent(self):
-        row = self._history_row(self.recent_tree.focus() or next(iter(self.recent_tree.selection()), ""))
-        if row and row["output"]:
-            self.view_output(row)
+    def _view_recent(self, index=0):
+        if index < len(self.recent_shown):
+            row = self._history_row(self.recent_shown[index][0])
+            if row and row["output"]:
+                self.view_output(row)
 
     def _build_recent_files(self, parent):
+        """The latest files, a line each: the time, the machine file, its result and where it went, as chips."""
         box = ttk.LabelFrame(parent, text=tr(" Recent files "), padding=self.L.box_pad)
-        area = ttk.Frame(box)
+        area = self.recent_area = ttk.Frame(box)
         area.pack(fill="both", expand=True)
-        columns = (("time", tr("Time"), 80, False), ("file", tr("Machine file"), 210, True),
-                   ("result", tr("Result"), 165, False), ("sent", tr("Destinations"), 290, False))
-        self.recent_tree = ttk.Treeview(area, columns=[c[0] for c in columns], show="headings", selectmode="browse",
-                                        height=self.MONITOR_ROWS)
-        font = tkfont.Font(font=ttk.Style(self).lookup("Treeview", "font") or "TkDefaultFont")
-        for key, title, width, stretch in columns:
-            self.recent_tree.heading(key, text=title, anchor="w")
-            if key == "time":  # wide enough for the time in the larger text sizes too
-                width = max(self.px(width), font.measure("00:00:00") + self.px(20))
-            else:
-                width = self.px(width)
-            self.recent_tree.column(key, width=width, anchor="w", stretch=stretch)
-        self.recent_tree.tag_configure("failed", foreground=theme.ERROR)
-        self.recent_tree.tag_configure("duplicate", foreground=theme.MUTED)
-        self.recent_tree.tag_configure("pending", foreground=theme.WARNING)
-        self.recent_tree.pack(fill="both", expand=True)
-        self.recent_tree.bind("<Double-1>", lambda e: self._view_recent())
-        self.recent_tree.bind("<Return>", lambda e: self._view_recent())
+        area.columnconfigure(1, weight=1)
+        for column, title in enumerate((tr("Time"), tr("Machine file"), tr("Result"), tr("Destinations"))):
+            ttk.Label(area, text=title, style="CardSmall.TLabel").grid(row=0, column=column, sticky="w",
+                                                                       padx=(0, self.px(14)), pady=(0, self.px(6)))
+        ttk.Separator(area).grid(row=1, column=0, columnspan=4, sticky="ew", pady=(0, self.px(4)))
+        chip_font = (self._font_body, 9)
+        self.recent_lines, self.recent_shown = [], []  # recent_shown: (history id, the texts of the line)
+        for i in range(self.MONITOR_ROWS):
+            time_label = ttk.Label(area, text="", style="Card.TLabel", font=(self._font_mono, 10))
+            file_label = ttk.Label(area, text="", style="Card.TLabel")
+            result = Chip(area, font=chip_font)
+            sent = ttk.Frame(area)
+            places = [Chip(sent, font=chip_font) for _ in engine.DESTINATIONS]
+            for widget in (time_label, file_label, result, sent, *places):
+                widget.bind("<Double-1>", lambda e, n=i: self._view_recent(n))
+            self.recent_lines.append((time_label, file_label, result, sent, places))
         self.recent_empty = ttk.Label(area, style="EmptyState.TLabel", text=tr("No files processed yet"))
-        self.recent_empty.place(relx=0.5, rely=0.5, anchor="center")
+        self.recent_empty.grid(row=2, column=0, columnspan=4, pady=self.px(30))
         link = ttk.Button(box, text=tr("Open History"), command=lambda: self._show_tab(self.history_tab))
         link.pack(anchor="w", pady=(self.px(10), 0))
         self.field_widgets["monitor_history"] = link
@@ -147,18 +148,38 @@ class MonitorMixin:
         history = snap["history"]
         if history != self._monitor_history:
             self._monitor_history = history
-            self.recent_tree.delete(*self.recent_tree.get_children())
-            for row in history[:self.MONITOR_ROWS]:
+            self.recent_shown = []
+            for i, (time_label, file_label, result, sent, places) in enumerate(self.recent_lines):
+                widgets = (time_label, file_label, result, sent)
+                if i >= len(history):
+                    for widget in widgets:
+                        widget.grid_remove()
+                    continue
+                row = history[i]
                 kinds = [k for k in engine.DESTINATIONS if (row.get(k) or "off") != "off"]
-                sent = " · ".join(f"{engine.destination_name(k, capital=True)} {self._mark(row.get(k))}" for k in kinds)
-                pending = any((row.get(k) or "") == "queued" or (row.get(k) or "").startswith("rejected") for k in kinds)
-                tag = row["status"] if row["status"] != "ok" else "pending" if pending else ""
-                self.recent_tree.insert("", "end", iid=str(row["id"]), tags=(tag,), values=[
-                    (row["processed_at"] or "")[11:19], row["source"], self._result_text(row["status"]), sent])
+                status = self._result_text(row["status"])
+                when = (row["processed_at"] or "")[11:19]
+                time_label.configure(text=when)
+                file_label.configure(text=row["source"], cursor="hand2" if row["output"] else "")
+                result.set(status, {"ok": "ok", "failed": "error"}.get(row["status"], "idle"))
+                labels = []
+                for chip, kind in zip(places, list(kinds) + [None] * len(places)):
+                    if kind is None:
+                        chip.pack_forget()
+                        continue
+                    value = row.get(kind) or ""
+                    mark = self._mark(value)
+                    text = f"{engine.destination_name(kind, capital=True)} {mark}".strip()
+                    chip.set(text, "ok" if value == "ok" else "error" if value.startswith("rejected") else "warn")
+                    chip.pack(side="left", padx=(0, self.px(4)))
+                    labels.append(text)
+                for column, widget in enumerate(widgets):
+                    widget.grid(row=i + 2, column=column, sticky="w", padx=(0, self.px(14)), pady=self.px(3))
+                self.recent_shown.append((str(row["id"]), (when, row["source"], status, " · ".join(labels))))
             if history:
-                self.recent_empty.place_forget()
+                self.recent_empty.grid_remove()
             else:
-                self.recent_empty.place(relx=0.5, rely=0.5, anchor="center")
+                self.recent_empty.grid()
         self._show_destinations(snap)
 
     def _mark(self, value):

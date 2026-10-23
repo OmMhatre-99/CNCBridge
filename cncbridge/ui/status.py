@@ -106,6 +106,9 @@ class StatusMixin:
         if not running and self.status_msg.get() in self._stopping_notes():
             self.status_msg.set(tr("Monitoring stopped."))
 
+        if self.folder_notes and time.monotonic() - getattr(self, "_folders_checked", 0) > 5:
+            self._folders_checked = time.monotonic()  # machine files come and go: keep 'n waiting' current
+            self._check_folders()
         if time.monotonic() - self._shift_checked > 15:  # cheap, but once every few seconds is plenty
             self._shift_checked = time.monotonic()
             self._check_shift()
