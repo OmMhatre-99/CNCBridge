@@ -43,7 +43,9 @@ installed on the machine PC and it needs no internet connection.
    name, time and station name.
 5. Writes one output file in the chosen format: **JSON, CSV, TXT or PDF**.
 6. Delivers it to the **shared folder**, to the **API link**, or to both.
-7. Moves the machine file to `back-up\YYYY-MM-DD\`, so the machine folder only ever holds new files.
+7. Moves the machine file to `back-up\YYYY-MM-DD\`, so the machine folder only ever holds new files,
+   and keeps a copy of the output file beside it in `back-up\YYYY-MM-DD\outputs\` for **View output**.
+   Both go when the back-up clean-up deletes that day.
 
 ## Install
 
@@ -288,7 +290,13 @@ The **History** tab lists every file with its result per destination. Select row
 **Send again** to put files the receiving site refused back in the send queue (once its problem is
 fixed), or **Process again** to put machine files that were set aside back in the machine folder
 (for example after correcting a cell range). A duplicate processed again is delivered a second time,
-so CNCBridge asks first. The activity log (**View > Activity log**) and
+so CNCBridge asks first. **View output** (or a double-click on a row; on the Dashboard theme's Monitor
+too) shows the output file that was made: JSON and CSV as tables, one selection at a time, with a filter
+over all columns (the first 1,000 matching rows are listed); TXT as it is; a PDF with its number of pages
+and **Open in PDF reader**. **Save a copy...** and **Open folder** are there as well. It shows the copy
+kept in the back-up folder, or the file itself while it waits in the send queue or among the refused
+files; outputs from before this version, or from a day the clean-up has deleted, are not kept.
+The activity log (**View > Activity log**) and
 `logs\cncbridge.log` in the data folder hold the details.
 
 ## Sending a problem to support

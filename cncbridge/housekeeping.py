@@ -174,6 +174,27 @@ def _kept_copy(folder, name):
     return max(found, key=lambda f: f.stat().st_mtime) if found else None
 
 
+OUTPUTS = "outputs"  # in each back-up day folder: a copy of every output file made that day
+
+
+def find_output(cfg, data_dir, row):
+    """
+    The output file of a history row, to look at: the copy kept in the back-up folder, or else the file itself
+    while it is still in the send queue or among the refused files. None when there is none any more.
+    """
+    name = row.get("output") or ""
+    if not name:
+        return None
+    places = []
+    if cfg["backup_folder"] and row.get("processed_at"):
+        places.append(Path(cfg["backup_folder"]) / row["processed_at"][:10] / OUTPUTS)
+    places += [Path(data_dir) / where / kind for where in ("outbox", "rejected") for kind in DESTINATIONS]
+    for folder in places:
+        if (folder / name).is_file():
+            return folder / name
+    return None
+
+
 def resend_rejected(data_dir, row, ledger):
     """Put an output file that the receiving site refused back in the send queue. Returns the destinations."""
     sent = []

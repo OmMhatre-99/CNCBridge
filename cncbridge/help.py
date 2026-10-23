@@ -116,6 +116,8 @@ content arriving again goes to back-up\\_duplicates and is not sent (switchable 
 ## History
 Select rows and use Send again (re-queue files the site refused) or Process again (put set-aside machine files back \
 in the machine folder, for example after correcting a range).
+
+View output (or a double-click on a row) shows the output file that was made: JSON and CSV as tables with a filter, TXT as it is, a PDF with a button that opens it. A copy of each output is kept in the back-up folder, in a folder "outputs" in each day folder, until the back-up clean-up deletes that day.
 """),
 
     ("alerts", "Alerts and background processing", """\

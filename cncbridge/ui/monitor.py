@@ -54,6 +54,11 @@ class MonitorMixin:
         self._build_typed_values(side).pack(fill="x", pady=(gap, 0))
         self._monitor_history, self._monitor_destinations = None, None
 
+    def _view_recent(self):
+        row = self._history_row(self.recent_tree.focus() or next(iter(self.recent_tree.selection()), ""))
+        if row and row["output"]:
+            self.view_output(row)
+
     def _build_recent_files(self, parent):
         box = ttk.LabelFrame(parent, text=tr(" Recent files "), padding=self.L.box_pad)
         area = ttk.Frame(box)
@@ -74,6 +79,8 @@ class MonitorMixin:
         self.recent_tree.tag_configure("duplicate", foreground=theme.MUTED)
         self.recent_tree.tag_configure("pending", foreground=theme.WARNING)
         self.recent_tree.pack(fill="both", expand=True)
+        self.recent_tree.bind("<Double-1>", lambda e: self._view_recent())
+        self.recent_tree.bind("<Return>", lambda e: self._view_recent())
         self.recent_empty = ttk.Label(area, style="EmptyState.TLabel", text=tr("No files processed yet"))
         self.recent_empty.place(relx=0.5, rely=0.5, anchor="center")
         link = ttk.Button(box, text=tr("Open History"), command=lambda: self._show_tab(self.history_tab))

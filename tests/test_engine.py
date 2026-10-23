@@ -864,6 +864,53 @@ class MachineFiles(unittest.TestCase):
         self.assertTrue((self.bak / "_failed" / "bad.json").exists())
 
 
+class KeptOutputs(unittest.TestCase):
+    """A copy of each output stays beside its machine file in the back-up day folder, for the viewer."""
+    setUp, tearDown, engine, drop, today = (Pipeline.setUp, Pipeline.tearDown, Pipeline.engine, Pipeline.drop,
+                                            Pipeline.today)
+
+    def test_each_output_is_kept_in_the_day_folder_and_found_again(self):
+        self.drop()
+        eng = self.engine(output_format="csv")
+        eng.scan_once()
+        row = eng.ledger.recent()[0]
+        kept = self.today() / "outputs" / row["output"]
+        self.assertEqual(kept.read_bytes(), next(self.shared.glob("board1_*.csv")).read_bytes())
+        self.assertEqual(engine.find_output(eng.cfg, self.tmp / "data", row), kept)
+        blocks = engine.read_output(kept)["blocks"]
+        self.assertEqual([b["name"] for b in blocks], ["Placements", "Serial"])
+        self.assertEqual(blocks[1]["rows"], [["B240001"]])
+
+    def test_without_a_kept_copy_a_file_still_in_the_queue_is_found(self):
+        self.drop()
+        eng = self.engine(shared_enabled=False, api_enabled=True, api_url="http://127.0.0.1:9/never")
+        eng.scan_once()
+        row = eng.ledger.recent()[0]
+        (self.today() / "outputs" / row["output"]).unlink()
+        self.assertEqual(engine.find_output(eng.cfg, self.tmp / "data", row),
+                         self.tmp / "data" / "outbox" / "api" / row["output"])
+        (self.tmp / "data" / "outbox" / "api" / row["output"]).unlink()
+        self.assertIsNone(engine.find_output(eng.cfg, self.tmp / "data", row))
+        self.assertIsNone(engine.find_output(eng.cfg, self.tmp / "data", {"output": "", "processed_at": ""}))
+
+    def test_the_copies_go_with_their_day_folder_at_clean_up(self):
+        self.drop()
+        eng = self.engine(keep_backup_days=1)
+        eng.scan_once()
+        later = datetime.now() + timedelta(days=3)
+        engine.clean_up(eng.cfg, eng.ledger, later)
+        self.assertFalse(self.today().exists())
+
+    def test_a_copy_that_cannot_be_written_does_not_stop_the_delivery(self):
+        self.drop()
+        self.today().mkdir(parents=True)
+        (self.today() / "outputs").write_text("a file where the folder should be")
+        eng = self.engine()
+        self.assertEqual(eng.scan_once(), 1)
+        self.assertEqual(len(list(self.shared.glob("board1_*.json"))), 1)
+        self.assertIsNone(engine.find_output(eng.cfg, self.tmp / "data", eng.ledger.recent()[0]))
+
+
 class _MailServer:
     """A minimal SMTP server that keeps the messages it receives (no encryption, no login)."""
 

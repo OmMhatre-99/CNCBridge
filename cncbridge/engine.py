@@ -56,7 +56,7 @@ from .csvread import (  # noqa: F401
     resolve_range, sniff_delimiter, _header, _resolve_heading,
 )
 from .output import (  # noqa: F401
-    as_number, build_output, manual_dict, NUMBER, parse_headers, render, validate, _aligned,
+    as_number, build_output, manual_dict, NUMBER, parse_headers, read_output, render, validate, _aligned,
     _flat_csv, _same_folder,
 )
 from .ledger import (  # noqa: F401
@@ -71,7 +71,7 @@ from .delivery import (  # noqa: F401
 from .housekeeping import (  # noqa: F401
     ALLOW_ONCE, allow_once, clean_up, count_queued, count_rejected, count_waiting,
     CRITICAL_DISK_BYTES, DAY_FOLDER, disk_level, disk_space, has_marker, health, is_ready,
-    LOW_DISK_BYTES, LOW_DISK_FRACTION, oldest_queued_age, reprocess, resend_rejected,
+    find_output, LOW_DISK_BYTES, LOW_DISK_FRACTION, oldest_queued_age, OUTPUTS, reprocess, resend_rejected,
     sha256_file, take_allowance, _allowed, _kept_copy, _unique, _visible,
 )
 
@@ -287,6 +287,11 @@ class Engine:
             for q in queued:  # the source stays where it is and is processed again, so nothing may go out twice
                 q.unlink(missing_ok=True)
             raise
+        try:  # a copy to look at later (History > View output); it goes with its day folder at clean-up
+            (day / OUTPUTS).mkdir(exist_ok=True)
+            atomic_write(day / OUTPUTS / name, text)
+        except OSError as e:
+            log.warning("Could not keep a copy of %s in the back-up folder: %s", name, e)
         self.ledger.add(processed_at=now.isoformat(timespec="seconds"), source=src.name, sha256=sha, size=size,
                         status="ok", output=name, message="; ".join(warnings),
                         **{k: "queued" if k in kinds else "off" for k in DESTINATIONS})

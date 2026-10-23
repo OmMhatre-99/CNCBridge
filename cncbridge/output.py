@@ -165,6 +165,70 @@ def build_output(src_name, rows, cfg, now=None):
     return text, blocks, warnings
 
 
+def _table(name, columns, rows):
+    width = max([len(columns)] + [len(r) for r in rows])
+    columns = list(columns) + [f"col{i}" for i in range(len(columns) + 1, width + 1)]
+    return {"name": name, "columns": columns, "rows": [list(r) + [""] * (width - len(r)) for r in rows]}
+
+
+def read_output(path):
+    """
+    An output file read back for the viewer: {format, info: [(name, value)], blocks: [{name, columns, rows}],
+    text, pages}. JSON and CSV give their blocks as tables; TXT gives its text; PDF its number of pages.
+    A file that cannot be read back raises ValueError.
+    """
+    path = Path(path)
+    fmt = path.suffix.lower().lstrip(".")
+    data = path.read_bytes()
+    out = {"format": fmt, "info": [], "blocks": [], "text": "", "pages": 0}
+    if fmt == "pdf":
+        from .pdf import page_count
+        out["pages"] = page_count(data)
+        return out
+    text = data.decode("utf-8-sig", errors="replace")
+    if fmt == "txt":
+        out["text"] = text
+        return out
+    if fmt == "json":
+        doc = json.loads(text)
+        out["info"] = [(k, str(doc.get(k, ""))) for k in ("source_file", "processed_at", "station")]
+        out["info"] += [(k, str(v)) for k, v in (doc.get("manual_inputs") or {}).items()]
+        for item in doc.get("selections") or []:
+            name = item.get("name", "")
+            if "value" in item:
+                out["blocks"].append(_table(name, ["Value"], [[str(item["value"])]]))
+            elif "columns" in item:
+                cols = item["columns"]
+                out["blocks"].append(_table(name, cols, [[str(r.get(c, "")) for c in cols] for r in item["rows"]]))
+            else:
+                out["blocks"].append(_table(name, [], [[str(c) for c in r] for r in item.get("rows") or []]))
+        return out
+    if fmt == "csv":
+        rows = list(csv.reader(io.StringIO(text)))
+        if not rows or rows[0] != ["[INFO]"]:  # the flat layout: one table, a row per record
+            out["blocks"].append(_table("Records", rows[0] if rows else [], rows[1:]))
+            return out
+        i = 1
+        while i < len(rows) and rows[i]:
+            out["info"].append((rows[i][0], rows[i][1] if len(rows[i]) > 1 else ""))
+            i += 1
+        while i < len(rows):
+            row = rows[i]
+            if row and row[0].startswith("[") and row[0].endswith("]"):
+                body, i = [], i + 1
+                while i < len(rows) and rows[i]:
+                    body.append(rows[i])
+                    i += 1
+                name = row[0][1:-1]
+                if len(body) == 1 and len(body[0]) == 1:
+                    out["blocks"].append(_table(name, ["Value"], body))
+                else:  # the first row of a block is taken as its column names
+                    out["blocks"].append(_table(name, body[0] if body else [], body[1:]))
+            i += 1
+        return out
+    raise ValueError(f"not an output file: {path.name}")
+
+
 def parse_headers(text):
     """'Name: value' lines -> dict."""
     out = {}

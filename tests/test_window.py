@@ -822,6 +822,117 @@ class HistoryActions(WindowTest):
         self.run_steps(steps)
 
 
+class OutputViewer(WindowTest):
+    """History > View output: the copy kept in the back-up folder, shown as tables, as text, or opened."""
+
+    def make_window(self):
+        data = self.tmp / "data"
+        config.save_config(config.normalize_config({
+            "source_folder": str(self.machine), "backup_folder": str(self.backup), "shared_enabled": True,
+            "shared_folder": str(self.shared), "manual_inputs": [{"name": "Operator", "value": "OP-17"}],
+            "selections": [{"name": "Serial", "range": "B6", "header": True},
+                           {"name": "Placements", "range": "A12:I*", "header": True}]}), data / "config.json")
+        firstrun.mark_done(data)
+        return app.App(data)
+
+    def keep(self, fmt, name, day="2026-10-21"):
+        """An output as the engine keeps it, and its history row."""
+        w = self.window
+        rows = engine.read_rows(SAMPLE)
+        text, _, _ = engine.build_output("b.csv", rows, config.normalize_config(dict(w.cfg, output_format=fmt)))
+        folder = self.backup / day / engine.OUTPUTS
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_bytes(text if isinstance(text, bytes) else text.encode("utf-8"))
+        w.ledger.add(processed_at=f"{day}T10:00:00", source="b.csv", output=name, status="ok", shared="ok",
+                     api="off", ftp="off", message="")
+
+    def row(self, name):
+        return next(r for r in self.window.shown_history if r["output"] == name)
+
+    def test_a_json_output_is_shown_as_tables_with_a_filter(self):
+        w = self.window
+        self.keep("json", "b_1.json")
+
+        def steps():
+            yield lambda: w.shown_history
+            self.assertTrue(w.view_output(self.row("b_1.json")))
+            yield lambda: w.output_win.state() == "normal"
+            self.assertEqual(w.output_title.cget("text"), "b_1.json")
+            self.assertIn("Operator: OP-17", w.output_info.cget("text"))
+            self.assertIn("Machine file: b.csv", w.output_info.cget("text"))
+            self.assertEqual(w.output_block.cget("values")[1], "2:  Placements  (12)")
+            self.assertEqual(w.output_tree.item(w.output_tree.get_children()[0], "values")[0], "B240001")
+            w.output_block.current(1)
+            w.output_block.event_generate("<<ComboboxSelected>>")
+            yield 50
+            self.assertEqual(len(w.output_tree.get_children()), 12)
+            self.assertEqual(w.output_tree.heading("c1", "text"), "Ref")
+            w.output_filter.set("pickup")
+            yield 50
+            self.assertEqual([w.output_tree.set(i, "c1") for i in w.output_tree.get_children()], ["R102"])
+            self.assertEqual(w.output_count.cget("text"), "1 of 12 rows")
+        self.run_steps(steps)
+
+    def test_csv_and_txt_outputs_and_a_pdf_that_opens_in_the_reader(self):
+        w = self.window
+        self.keep("csv", "b_2.csv")
+        self.keep("txt", "b_3.txt")
+        self.keep("pdf", "b_4.pdf")
+
+        def steps():
+            yield lambda: len(w.shown_history) == 3
+            w.view_output(self.row("b_2.csv"))
+            yield 50
+            self.assertEqual(w.output_block.cget("values")[1], "2:  Placements  (12)")
+            self.assertTrue(w.output_tables.winfo_manager())
+            w.view_output(self.row("b_3.txt"))
+            yield 50
+            self.assertIn("=== Placements  [A12:I*] ===", w.output_text.get("1.0", "end"))
+            self.assertFalse(w.output_tables.winfo_manager())
+            w.view_output(self.row("b_4.pdf"))
+            yield 50
+            self.assertIn("A PDF report of 1 page(s)", w.output_pdf_note.cget("text"))
+            with mock.patch("os.startfile", create=True) as opened:
+                w.open_output_file()
+            opened.assert_called_once_with(self.backup / "2026-10-21" / "outputs" / "b_4.pdf")
+            target = self.tmp / "copy.pdf"
+            with mock.patch.object(filedialog, "asksaveasfilename", return_value=str(target)):
+                w.save_output_copy()
+            self.assertEqual(target.read_bytes()[:4], b"%PDF")
+        self.run_steps(steps)
+
+    def test_view_output_follows_the_selection_in_history(self):
+        w = self.window
+        self.keep("json", "b_5.json")
+        w.ledger.add(processed_at="2026-10-21T11:00:00", source="junk.csv", status="failed", message="no data")
+
+        def steps():
+            yield lambda: len(w.history.get_children()) == 2
+            failed = next(str(r["id"]) for r in w.shown_history if r["status"] == "failed")
+            w.history.selection_set([failed])
+            w.update()
+            self.assertEqual(str(w.view_output_btn["state"]), "disabled")  # it made no output
+            ok = str(self.row("b_5.json")["id"])
+            w.history.selection_set([ok])
+            w.update()
+            self.assertEqual(str(w.view_output_btn["state"]), "normal")
+            w.view_output_btn.invoke()
+            yield lambda: w.output_win.state() == "normal"
+        self.run_steps(steps)
+
+    def test_an_output_that_is_not_kept_says_so(self):
+        w = self.window
+        w.ledger.add(processed_at="2026-01-02T10:00:00", source="old.csv", output="old_1.json", status="ok",
+                     shared="ok", api="off", ftp="off", message="")
+
+        def steps():
+            yield lambda: w.shown_history
+            self.assertFalse(w.view_output(self.row("old_1.json")))
+            self.assertEqual(self.dialogs[-1][0], "showinfo")
+            self.assertIn("is not kept any more", self.dialogs[-1][1][1])
+        self.run_steps(steps)
+
+
 class SettingsFiles(WindowTest):
     def test_export_import_and_restore(self):
         w = self.window
@@ -2328,6 +2439,23 @@ class DashboardWindow(WindowTest):
             self.assertEqual([(a.get(), b.get()) for a, b in w.monitor_values],
                              [("Operator", "OP-17"), ("Work order", "WO-1187")])
             self.assertIn("Last file 10:12", w.health_labels["last"].cget("text"))
+        self.run_steps(steps)
+
+    def test_a_recent_file_on_the_monitor_opens_its_output(self):
+        w = self.window
+        folder = self.backup / "2026-10-21" / engine.OUTPUTS
+        folder.mkdir(parents=True)
+        (folder / "b6.json").write_text(json.dumps({"source_file": "b6.csv", "selections": [
+            {"name": "Serial", "range": "B6", "value": "B6-SERIAL"}]}), encoding="utf-8")
+        w.ledger.add(processed_at="2026-10-21T10:04:11", source="b6.csv", output="b6.json", status="ok",
+                     shared="ok", api="off", ftp="off", message="")
+
+        def steps():
+            yield lambda: w.recent_tree.get_children()
+            w.recent_tree.focus(w.recent_tree.get_children()[0])
+            w._view_recent()
+            yield lambda: getattr(w, "output_win", None) is not None and w.output_win.state() == "normal"
+            self.assertEqual(w.output_tree.item(w.output_tree.get_children()[0], "values")[0], "B6-SERIAL")
         self.run_steps(steps)
 
     def test_a_destination_that_is_down_is_said_to_be_not_answering(self):

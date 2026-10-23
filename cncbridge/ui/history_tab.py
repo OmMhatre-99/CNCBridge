@@ -24,6 +24,9 @@ class HistoryTabMixin:
         self.reprocess_btn = ttk.Button(bar, text=tr("Process again"), command=self.reprocess_selected,
                                         state="disabled")
         self.reprocess_btn.pack(side="left", padx=6)
+        self.view_output_btn = ttk.Button(bar, text=tr("View output"), command=self.view_selected_output,
+                                          state="disabled")
+        self.view_output_btn.pack(side="left")
         ttk.Label(bar, text=tr("Most recent 200 files"), style="PageHint.TLabel").pack(side="right")
         cols = (("processed_at", tr("Time"), 165), ("source", tr("Machine file"), 200), ("status", tr("Result"), 130),
                 ("output", tr("Output file"), 250), ("shared", tr("Shared folder"), 130), ("api", tr("API link"), 130),
@@ -33,6 +36,8 @@ class HistoryTabMixin:
         self.history = ttk.Treeview(history_area, columns=[c[0] for c in cols], show="headings",
                                     style="History.Treeview", takefocus=True, selectmode="extended")
         self.history.bind("<<TreeviewSelect>>", lambda e: self._update_history_buttons())
+        self.history.bind("<Double-1>", lambda e: self.view_selected_output())
+        self.history.bind("<Return>", lambda e: self.view_selected_output())
         for key, title, width in cols:
             self.history.heading(key, text=title, anchor="w")
             self.history.column(key, width=self.px(width), anchor="w", stretch=key == "message")
@@ -73,9 +78,15 @@ class HistoryTabMixin:
 
     def _update_history_buttons(self):
         rows = self._selected_rows()
+        self.view_output_btn.configure(state="normal" if len(rows) == 1 and rows[0]["output"] else "disabled")
         self.resend_btn.configure(state="normal" if any(self._refused(r) for r in rows) else "disabled")
         self.reprocess_btn.configure(
             state="normal" if any(r["status"] in ("failed", "duplicate") for r in rows) else "disabled")
+
+    def view_selected_output(self):
+        rows = [r for r in self._selected_rows() if r["output"]]
+        if rows:
+            self.view_output(rows[0])
 
     def resend_selected(self):
         rows = [r for r in self._selected_rows() if self._refused(r)]

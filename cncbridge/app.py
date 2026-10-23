@@ -45,6 +45,7 @@ from .ui.audit_window import SettingsHistoryMixin
 from .ui.cards import restyle_cards
 from .ui.checklist import ChecklistMixin
 from .ui.monitor import MonitorMixin
+from .ui.output_window import OutputWindowMixin
 from .ui.pageheader import PageHeaderMixin
 from .ui.sidebar import SidebarMixin
 from .ui.status import StatusMixin
@@ -68,6 +69,7 @@ class App(LayoutMixin,
           SidebarMixin,
           MonitorMixin,
           PageHeaderMixin,
+          OutputWindowMixin,
           tk.Tk):
     def __init__(self, data_dir, notice=None, lock=None, connected=False, resume=False):
         """
