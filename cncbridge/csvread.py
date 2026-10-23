@@ -1,7 +1,9 @@
 """Reading a machine file and cutting cell ranges out of it."""
 
 import csv
+import fnmatch
 import io
+import json
 import re
 from pathlib import Path
 
@@ -36,11 +38,108 @@ def sniff_delimiter(text):
 
 
 def read_rows(source, encoding="auto", delimiter="auto"):
-    """Read a CSV (path or raw bytes) into a list of rows of stripped cell texts."""
+    """
+    Read a machine file (path or raw bytes) into a list of rows of stripped cell texts. A CSV is read as it is;
+    a JSON file is laid out as rows first (see json_rows), so that ranges, headings and the preview work the same.
+    """
+    is_json = not isinstance(source, bytes) and Path(source).suffix.lower() == ".json"
     data = source if isinstance(source, bytes) else Path(source).read_bytes()
     text = decode(data, encoding)
+    if is_json or text.lstrip()[:1] in ("{", "["):  # a CSV can start with a title such as [HEADER], too
+        try:
+            return json_rows(json.loads(text))
+        except ValueError as e:
+            if is_json:
+                raise FileError(f"not a readable JSON file ({e})") from None
     delim = DELIMITERS.get(delimiter) or sniff_delimiter(text)
     return [[c.strip() for c in r] for r in csv.reader(io.StringIO(text, newline=""), delimiter=delim)]
+
+
+def _cell(value):
+    if value is None:
+        return ""
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False)
+    return str(value).strip()
+
+
+def _flatten(record, prefix=""):
+    """{'a': 1, 'b': {'c': 2}} -> {'a': '1', 'b.c': '2'}; lists inside a record stay JSON text."""
+    out = {}
+    for key, value in record.items():
+        if isinstance(value, dict):
+            out.update(_flatten(value, f"{prefix}{key}."))
+        else:
+            out[f"{prefix}{key}"] = _cell(value)
+    return out
+
+
+def _records_table(records):
+    rows = [_flatten(r) for r in records]
+    columns = []
+    for r in rows:
+        columns += [c for c in r if c not in columns]
+    return [columns] + [[r.get(c, "") for c in columns] for r in rows]
+
+
+def json_rows(data):
+    """
+    A JSON machine file laid out as the rows of a CSV:
+      a list of records  -> a header row and one row per record;
+      an object          -> its single values first, one 'name, value' row each; then every list of records
+                            under a title row [name], as many machine CSVs have it, each followed by an empty row.
+                            Nested objects are followed, their names joined by '.'.
+    Anything else is not a layout a machine writes, and raises FileError.
+    """
+    def is_records(value):
+        return isinstance(value, list) and value and all(isinstance(v, dict) for v in value)
+
+    if is_records(data):
+        return _records_table(data)
+    if not isinstance(data, dict):
+        raise FileError("unsupported JSON layout: expected an object or a list of records")
+    values, tables = [], []
+
+    def walk(obj, prefix):
+        for key, value in obj.items():
+            name = f"{prefix}{key}"
+            if isinstance(value, dict):
+                walk(value, name + ".")
+            elif is_records(value):
+                tables.append((name, value))
+            else:
+                values.append([name, ", ".join(map(_cell, value)) if isinstance(value, list) else _cell(value)])
+
+    walk(data, "")
+    rows = values + ([[]] if values and tables else [])
+    for name, records in tables:
+        rows += [[f"[{name}]"]] + _records_table(records) + [[]]
+    if not any(any(r) for r in rows):
+        raise FileError("this JSON file holds no data")
+    return rows
+
+
+def split_patterns(text):
+    """'*.csv; *.json' (or one per line) -> ['*.csv', '*.json']."""
+    return [p.strip() for p in re.split(r"[;\n]", str(text or "")) if p.strip()]
+
+
+def machine_files(folder, pattern, sub_folders=False):
+    """The files in the folder that fit the file pattern(s); with sub_folders, those one level down instead."""
+    found = {}
+    for p in split_patterns(pattern) or ["*.csv"]:
+        for f in Path(folder).glob(("*/" if sub_folders else "") + p):
+            if f.is_file():
+                found[str(f).lower()] = f
+    return list(found.values())
+
+
+def priority(name, patterns):
+    """A file's place in the queue: the number of the first process-first pattern it fits, else after them all."""
+    order = split_patterns(patterns)
+    return next((i for i, p in enumerate(order) if fnmatch.fnmatch(name.lower(), p.lower())), len(order))
 
 
 RANGE_RE = re.compile(r"^([A-Z]{1,3})([1-9]\d*)(?:(?:x|×|:|-|to)([A-Z]{1,3})([1-9]\d*|\*))?$", re.I)

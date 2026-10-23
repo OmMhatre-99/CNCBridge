@@ -18,7 +18,7 @@ class FormMixin:
         self.v = {k: tk.StringVar(self) for k in (
             "station_name", "source_folder", "file_pattern", "backup_folder", "output_format", "shared_folder",
             "api_url", "api_token", "api_body", "encoding", "delimiter", "poll_seconds",
-            "complete_marker", "shift_times", "theme", "color_mode", "font_family", "font_size", "ui_scale",
+            "complete_marker", "priority_patterns", "shift_times", "theme", "color_mode", "font_family", "font_size", "ui_scale",
             "alert_after_minutes", "alert_webhook_url", "alert_email_server", "alert_email_port",
             "alert_email_user", "alert_email_password", "alert_email_from", "alert_email_to",
             "keep_backup_days", "keep_history_days", "language", "ftp_host", "ftp_port", "ftp_user", "ftp_password",

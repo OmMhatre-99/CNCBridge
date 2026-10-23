@@ -11,9 +11,11 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from .csvread import split_patterns
+
 APP_NAME = "CNCBridge"
 VERSION = "1.2.0"
-SETTINGS_VERSION = 3  # the layout of config.json; MIGRATIONS bring an older file up to it
+SETTINGS_VERSION = 4  # the layout of config.json; MIGRATIONS bring an older file up to it
 OPERATOR_FILE = "operator.json"   # the typed values: what an operator may change without the setup rights
 SECRETS_FILE = "secrets.json"     # the encrypted passwords and tokens, apart so that they can be locked away
 
@@ -30,7 +32,8 @@ DEFAULT_CONFIG = {
     "config_version": SETTINGS_VERSION,   # which layout of this file the program wrote; see MIGRATIONS
     "station_name": "",
     "source_folder": "",                  # where the machine drops its CSV files
-    "file_pattern": "*.csv",
+    "file_pattern": "*.csv",              # one or more, separated by ;  e.g. *.csv; *.json
+    "priority_patterns": "",              # files that fit these (separated by ;) are processed first, in this order
     "backup_folder": "",                  # used source files are moved here (dated sub-folders)
     "output_format": "json",              # json | csv | txt
     "selections": [{"name": "", "range": "", "header": True} for _ in range(MAX_SELECTIONS)],
@@ -140,6 +143,8 @@ def normalize_config(cfg):
         if base[key] not in allowed:
             base[key] = 100
     base["rename_columns"] = str(base["rename_columns"] or "")
+    base["priority_patterns"] = "; ".join(split_patterns(base["priority_patterns"]))
+    base["file_pattern"] = "; ".join(split_patterns(base["file_pattern"]))
     base["alert_email_password"] = str(base["alert_email_password"] or "")  # spaces may be part of it
     base["ftp_password"] = str(base["ftp_password"] or "")
     for key in ("shared_enabled", "api_enabled", "skip_duplicates", "autostart", "json_numbers", "csv_flat",
@@ -185,7 +190,13 @@ def _v2_to_v3(raw):
     return raw
 
 
-MIGRATIONS = {1: _v1_to_v2, 2: _v2_to_v3}
+def _v3_to_v4(raw):
+    # 4 allows several file patterns ("*.csv; *.json") and adds priority_patterns. Nothing to convert, but an older
+    # program would read "*.csv; *.json" as one pattern that matches nothing, so it must not take this file.
+    return raw
+
+
+MIGRATIONS = {1: _v1_to_v2, 2: _v2_to_v3, 3: _v3_to_v4}
 
 
 def file_version(raw):

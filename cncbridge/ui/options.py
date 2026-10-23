@@ -103,13 +103,18 @@ class OptionsMixin:
         marker = ttk.Entry(box, textvariable=self.v["complete_marker"], width=16, **self.code_font)
         marker.grid(row=5, column=1, sticky="w", padx=8)
         self.field_widgets["complete_marker"] = marker
+        ttk.Label(box, text=tr("Process these files first"), style="Card.TLabel").grid(
+            row=6, column=0, sticky="w", pady=self.L.row)
+        first = ttk.Entry(box, textvariable=self.v["priority_patterns"], width=28, **self.code_font)
+        first.grid(row=6, column=1, sticky="w", padx=8)
+        self.field_widgets["priority_patterns"] = first
         in_background = ttk.Checkbutton(box, text=tr("Process in the background: keeps going after this window\n"
                                                   "closes, and starts when you log on to Windows"),
                                         variable=self.background_on)
-        in_background.grid(row=6, column=0, columnspan=2, sticky="w", pady=(8, 4))
+        in_background.grid(row=7, column=0, columnspan=2, sticky="w", pady=(8, 4))
         self.field_widgets["run_in_background"] = in_background
         for row_no, (key, label) in enumerate((("keep_backup_days", tr("Delete back-up files after")),
-                                                ("keep_history_days", tr("Delete history after"))), start=7):
+                                                ("keep_history_days", tr("Delete history after"))), start=8):
             ttk.Label(box, text=label, style="Card.TLabel").grid(row=row_no, column=0, sticky="w", pady=self.L.row)
             row = ttk.Frame(box)
             row.grid(row=row_no, column=1, sticky="w", padx=8)

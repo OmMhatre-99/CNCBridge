@@ -10,7 +10,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .csvread import decode
+from .csvread import decode, machine_files
 from .delivery import DESTINATIONS, atomic_write, destination_name
 
 log = logging.getLogger("cncbridge")
@@ -61,7 +61,7 @@ def _visible(folder):
 
 def count_waiting(cfg):
     try:
-        return len([f for f in Path(cfg["source_folder"]).glob(cfg["file_pattern"]) if f.is_file()])
+        return len(machine_files(cfg["source_folder"], cfg["file_pattern"]))
     except OSError:
         return 0
 

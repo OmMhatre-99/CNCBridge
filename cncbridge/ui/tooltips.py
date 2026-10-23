@@ -30,7 +30,10 @@ class TooltipsMixin:
             "station_name": tr("Name used to identify this machine in output files."),
             "source_folder": tr("Folder where the machine places completed CSV files."),
             "source_folder_browse": tr("Choose the machine folder."),
-            "file_pattern": tr("File names to watch; the default matches all CSV files."),
+            "file_pattern": tr("File names to watch; the default matches all CSV files. Several are separated by ; "
+                            "for example *.csv; *.json"),
+            "priority_patterns": tr("Optional. Files whose names fit these patterns are processed before the others, "
+                                 "in the order given, for example urgent_*.csv; rework_*. Separate them with ;"),
             "backup_folder": tr("Processed machine files are moved here, grouped by date."),
             "backup_folder_browse": tr("Choose where processed machine files are archived."),
             "shared_enabled": tr("Turn on delivery to a local or network shared folder."),

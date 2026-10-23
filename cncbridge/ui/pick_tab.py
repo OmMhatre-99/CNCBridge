@@ -111,17 +111,16 @@ class PickTabMixin:
     def open_sample_dialog(self):
         start = self.v["source_folder"].get() if Path(self.v["source_folder"].get() or "?").is_dir() else None
         path = filedialog.askopenfilename(parent=self, initialdir=start,
-                                          filetypes=[(tr("Machine files"), "*.csv *.txt *.log"), (tr("All files"), "*.*")])
+                                          filetypes=[(tr("Machine files"), "*.csv *.txt *.log *.json"), (tr("All files"), "*.*")])
         if path:
             self.open_sample(path)
 
     def open_newest(self, quiet=False):
         """Load the most recent machine file: one still waiting in the folder, else the latest in the back-up."""
         cfg, found = self.collect(), []
-        for folder, pattern in ((cfg["source_folder"], cfg["file_pattern"]),
-                                (cfg["backup_folder"], "*/" + cfg["file_pattern"])):
+        for folder, sub_folders in ((cfg["source_folder"], False), (cfg["backup_folder"], True)):
             try:
-                found = [f for f in Path(folder).glob(pattern) if f.is_file()] if folder else []
+                found = engine.machine_files(folder, cfg["file_pattern"], sub_folders) if folder else []
             except OSError:
                 found = []
             if found:

@@ -50,7 +50,8 @@ from .config import APP_NAME, OPERATOR_FILE, VERSION, load_config, normalize_con
 # Everything that used to live in this file is still reachable as engine.<name>.
 from .csvread import (  # noqa: F401
     check_range, col_index, col_letter, decode, DELIMITERS, extract, FileError, find_heading,
-    format_range, is_heading, normalize_range, parse_range, parse_renames, RANGE_RE, read_rows,
+    format_range, is_heading, json_rows, machine_files, normalize_range, parse_range, parse_renames, priority,
+    RANGE_RE, read_rows, split_patterns,
     resolve_range, sniff_delimiter, _header, _resolve_heading,
 )
 from .output import (  # noqa: F401
@@ -305,13 +306,14 @@ class Engine:
 
     def pending_files(self):
         cfg = self.cfg
-        files = [f for f in Path(cfg["source_folder"]).glob(cfg["file_pattern"])
-                 if f.is_file() and not f.name.startswith(".") and is_ready(f, cfg["stable_seconds"])]
+        files = [f for f in machine_files(cfg["source_folder"], cfg["file_pattern"])
+                 if not f.name.startswith(".") and is_ready(f, cfg["stable_seconds"])]
         if cfg["complete_marker"]:
             files = self._with_marker(files, cfg["complete_marker"])
         elif self._waiting_marker:
             self._with_marker([], "")  # the setting was switched off: nothing waits for a marker any more
-        return sorted(files, key=lambda p: (p.stat().st_mtime, p.name))
+        # the process-first patterns go ahead, in their order; then the rest, oldest first
+        return sorted(files, key=lambda p: (priority(p.name, cfg["priority_patterns"]), p.stat().st_mtime, p.name))
 
     def _with_marker(self, files, marker):
         """

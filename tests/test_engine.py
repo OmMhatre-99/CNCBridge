@@ -684,6 +684,66 @@ class Pipeline(unittest.TestCase):
         self.assertEqual(list(self.shared.iterdir()), [])
 
 
+class MachineFiles(unittest.TestCase):
+    """Several file patterns, files that go first, and machine files written as JSON."""
+    # the same folders and helpers as Pipeline, without running its tests a second time
+    setUp, tearDown, engine, drop, today = (Pipeline.setUp, Pipeline.tearDown, Pipeline.engine, Pipeline.drop,
+                                            Pipeline.today)
+
+    def aged(self, name, seconds_ago):
+        os.utime(self.src / name, (time.time() - seconds_ago,) * 2)
+
+    def test_files_that_fit_a_process_first_pattern_go_first_in_the_patterns_order(self):
+        for name, age in (("old.csv", 90), ("rework_1.csv", 30), ("urgent_1.csv", 10), ("urgent_0.csv", 20)):
+            self.drop(name, name)
+            self.aged(name, age)
+        eng = self.engine(priority_patterns="URGENT_*; rework_*")  # ignoring case, as Windows does
+        self.assertEqual([f.name for f in eng.pending_files()],
+                         ["urgent_0.csv", "urgent_1.csv", "rework_1.csv", "old.csv"])
+        self.assertEqual([f.name for f in self.engine().pending_files()][0], "old.csv")  # without: oldest first
+
+    def test_several_file_patterns_are_watched(self):
+        self.drop("a.csv")
+        (self.src / "b.log").write_text("x")
+        (self.src / "c.txt").write_text("x")
+        eng = self.engine(file_pattern="*.csv; *.log")
+        self.assertEqual(sorted(f.name for f in eng.pending_files()), ["a.csv", "b.log"])
+        self.assertEqual(engine.count_waiting(eng.cfg), 2)
+        self.assertEqual(eng.cfg["file_pattern"], "*.csv; *.log")
+
+    def test_a_json_machine_file_is_cut_like_a_csv(self):
+        machine = {"machine": "L1M8", "board": {"serial": "B240777"},
+                   "placements": [{"Ref": "R1", "Result": "OK", "pos": {"x": 1.5}}, {"Ref": "R2", "Result": "NG"}]}
+        (self.src / "board.json").write_text(json.dumps(machine), encoding="utf-8")
+        rows = engine.read_rows(self.src / "board.json")
+        self.assertEqual(rows[:3], [["machine", "L1M8"], ["board.serial", "B240777"], []])
+        self.assertEqual(rows[3:6], [["[placements]"], ["Ref", "Result", "pos.x"], ["R1", "OK", "1.5"]])
+        eng = self.engine(file_pattern="*.json", selections=[sel("B2", "Serial"), sel("@[placements]", "Placements")])
+        self.assertEqual(eng.scan_once(), 1)
+        doc = json.loads(next(self.shared.glob("board_*.json")).read_text(encoding="utf-8"))
+        self.assertEqual(doc["selections"][0]["value"], "B240777")
+        self.assertEqual(doc["selections"][1]["rows"],
+                         [{"Ref": "R1", "Result": "OK", "pos.x": "1.5"}, {"Ref": "R2", "Result": "NG", "pos.x": ""}])
+        self.assertTrue((self.today() / "board.json").exists())
+
+    def test_a_list_of_records_is_one_table(self):
+        rows = engine.read_rows(b'[{"Ref": "R1", "ok": true}, {"Ref": "R2", "note": null}]')
+        self.assertEqual(rows, [["Ref", "ok", "note"], ["R1", "true", ""], ["R2", "", ""]])
+
+    def test_a_csv_that_starts_with_a_title_is_still_a_csv(self):
+        self.assertEqual(engine.read_rows(b"[HEADER]\nKey,Value\nSerial,B1\n")[2], ["Serial", "B1"])
+
+    def test_an_unreadable_json_file_is_set_aside_with_the_reason(self):
+        (self.src / "bad.json").write_text('{"placements": [', encoding="utf-8")
+        (self.src / "odd.json").write_text("42", encoding="utf-8")
+        eng = self.engine(file_pattern="*.json", selections=[sel("A1")])
+        self.assertEqual(eng.scan_once(), 0)
+        notes = {r["source"]: r["message"] for r in eng.ledger.recent()}
+        self.assertIn("not a readable JSON file", notes["bad.json"])
+        self.assertIn("unsupported JSON layout", notes["odd.json"])
+        self.assertTrue((self.bak / "_failed" / "bad.json").exists())
+
+
 class _MailServer:
     """A minimal SMTP server that keeps the messages it receives (no encryption, no login)."""
 

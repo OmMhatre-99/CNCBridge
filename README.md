@@ -14,7 +14,15 @@ installed on the machine PC and it needs no internet connection.
    For a machine that writes a file in bursts, set *File is complete when it contains* (**Settings > Processing...**) to the text the machine writes last, for example `End_Time`: the file is then taken
    only once it contains that text. A file that never gets it stays in the machine folder, and
    CNCBridge raises an alert after the usual time, so it is not forgotten.
-2. Reads it (comma, semicolon, tab or `|` separated; UTF-8, UTF-16 or Windows code page).
+   The *File pattern* may name several kinds of file, separated by `;` (for example `*.csv; *.json`).
+   Files are taken oldest first, except that files fitting *Process these files first*
+   (**Settings > Processing...**, for example `urgent_*.csv; rework_*`) go ahead of the others, in the
+   order of those patterns.
+2. Reads it (comma, semicolon, tab or `|` separated; UTF-8, UTF-16 or Windows code page). A **JSON**
+   machine file is laid out as rows first, so ranges, headings and the picker work on it the same way:
+   a list of records becomes a header row and a row per record; an object gives one `name, value` row
+   per single value (nested names joined by `.`, such as `board.serial`), then each list of records
+   under a title row `[name]`. Any other JSON is set aside as *Could not be read*.
 3. Cuts out up to **10 cell ranges**, written like in a spreadsheet:
 
    | You enter | Meaning |

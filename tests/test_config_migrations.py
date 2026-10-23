@@ -28,6 +28,16 @@ class SettingsVersion(unittest.TestCase):
         self.assertEqual((cfg["station_name"], cfg["source_folder"]), ("Line 2", "C:/in"))
         self.assertEqual(cfg["config_version"], config.SETTINGS_VERSION)
 
+    def test_a_version_3_file_loads_with_nothing_to_process_first(self):
+        self.write(config_version=3, station_name="Line 3", file_pattern="*.csv")
+        cfg = config.load_config(self.path)
+        self.assertEqual((cfg["priority_patterns"], cfg["file_pattern"], cfg["config_version"]), ("", "*.csv", 4))
+
+    def test_file_patterns_are_tidied(self):
+        cfg = config.normalize_config({"file_pattern": " *.csv ;*.json;", "priority_patterns": "urgent_*\nrework_*"})
+        self.assertEqual((cfg["file_pattern"], cfg["priority_patterns"]), ("*.csv; *.json", "urgent_*; rework_*"))
+        self.assertEqual(config.normalize_config({"file_pattern": " ; "})["file_pattern"], "*.csv")
+
     def test_saving_stamps_the_current_version(self):
         config.save_config(config.normalize_config({"station_name": "A"}), self.path)
         self.assertEqual(json.loads(self.path.read_text(encoding="utf-8"))["config_version"], config.SETTINGS_VERSION)

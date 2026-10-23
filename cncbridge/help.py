@@ -128,6 +128,11 @@ While monitoring runs, CNCBridge can send a small status message every few minut
 ## Windows Event Log
 Warnings and errors, and the main events (monitoring started or stopped, settings changed, an alert raised or cleared), are also written to the Windows Event Log (Application, source CNCBridge), where IT tools that already watch the PCs can see them. The same message is written at most once every ten minutes. The set-up program registers the source; a copy that was not installed still writes the events.
 
+## Which files, in which order (Options > Processing)
+The File pattern on the Setup tab says which files are machine files; several are separated by ; for example *.csv; *.json. Files are taken oldest first. "Process these files first" puts files whose names fit its patterns ahead of the others, in the order given, for example urgent_*.csv; rework_*.
+
+A JSON machine file is shown and cut like a CSV: single values become name, value rows at the top, and each list of records becomes a table under a title such as [placements], so @[placements] finds it.
+
 ## Background processing (Options > Processing)
 Tick "Process in the background" and Save settings. Processing then runs as a Windows background task for your \
 user: it goes on after this window is closed and starts by itself when you log on. The window then opens in a \
@@ -196,7 +201,7 @@ or for a touch screen.
 
     ("words", "Words used in CNCBridge", """\
 ## Files and folders
-- Machine file: a CSV file the machine writes. Machine folder: where the machine writes them.
+- Machine file: a CSV file the machine writes (a JSON file works too). Machine folder: where the machine writes them.
 - Back-up folder: where a machine file is moved once it is handled, with a folder for each day.
 - Output file: the JSON, CSV or TXT file CNCBridge makes from a machine file.
 - Data folder: the settings, the history, the send queue, the refused files and the logs of this copy.

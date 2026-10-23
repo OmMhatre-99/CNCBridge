@@ -43,7 +43,7 @@ LABELS = {
     "ftp_password": "FTP password", "ftp_folder": "FTP folder", "ftp_tls": "FTPS (encrypted)",
     "ftp_passive": "FTP passive mode", "skip_duplicates": "Skip duplicate files", "encoding": "Encoding",
     "delimiter": "Delimiter", "poll_seconds": "Check every (seconds)", "stable_seconds": "File untouched for (seconds)",
-    "complete_marker": "Complete marker", "autostart": "Start monitoring with the program", "theme": "Theme",
+    "complete_marker": "Complete marker", "priority_patterns": "Process first", "autostart": "Start monitoring with the program", "theme": "Theme",
     "color_mode": "Colours", "language": "Language", "font_family": "Font", "font_size": "Text size",
     "ui_scale": "Window scale", "json_numbers": "JSON numbers", "csv_flat": "CSV as one table",
     "time_zone": "Time zone in processed_at", "rename_columns": "Rename columns", "setup_password": "Setup password",
